@@ -1,0 +1,201 @@
+Samsung Contacts Application
+
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+
+FR-6 The system shall validate the format of phone numbers before saving.
+
+FR-7 The system shall validate the format of email addresses before saving.
+
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+
+FR-10 The system shall display contacts in a scrollable list view.
+
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+
+FR-13 The system shall display all associated fields of a contact in the detail view.
+
+FR-14 The system shall allow editing any field of an existing contact.
+
+FR-15 The system shall update the stored contact data immediately after saving edits.
+
+FR-16 The system shall allow deleting a single contact.
+
+FR-17 The system shall allow selecting and deleting multiple contacts simultaneously.
+
+FR-18 The system shall prompt the user for confirmation before deleting contacts.
+
+FR-19 The system shall remove deleted contacts from all associated groups.
+
+FR-20 The system shall allow searching contacts by name.
+
+FR-21 The system shall allow searching contacts by phone number.
+
+FR-22 The system shall allow searching contacts by email.
+
+FR-23 The system shall support partial matching in search queries.
+
+FR-24 The system shall perform case-insensitive search.
+
+FR-25 The system shall update search results dynamically as the user types.
+
+FR-26 The system shall allow sorting contacts alphabetically.
+
+FR-27 The system shall allow sorting contacts by first name or last name.
+
+FR-28 The system shall handle contacts without names during sorting.
+
+FR-29 The system shall allow marking a contact as favorite.
+
+FR-30 The system shall allow unmarking a contact as favorite.
+
+FR-31 The system shall provide a separate view for favorite contacts.
+
+FR-32 The system shall persist favorite status across sessions.
+
+FR-33 The system shall allow creating a new contact group.
+
+FR-34 The system shall ensure group names are unique within the same account.
+
+FR-35 The system shall allow renaming existing groups.
+
+FR-36 The system shall allow deleting groups.
+
+FR-37 The system shall allow adding contacts to groups.
+
+FR-38 The system shall allow removing contacts from groups.
+
+FR-39 The system shall display contacts belonging to a selected group.
+
+FR-40 The system shall allow initiating a phone call from a contact’s phone number.
+
+FR-41 The system shall open the device dialer with the selected number.
+
+FR-42 The system shall allow sending SMS from a contact.
+
+FR-43 The system shall open the messaging application with the selected number.
+
+FR-44 The system shall allow sending email from a contact.
+
+FR-45 The system shall open the email client with the selected email address.
+
+FR-46 The system shall allow importing contacts from SIM card.
+
+FR-47 The system shall allow importing contacts from external storage files.
+
+FR-48 The system shall support importing contacts from VCF format.
+
+FR-49 The system shall handle duplicate contacts during import.
+
+FR-50 The system shall allow exporting contacts to a VCF file.
+
+FR-51 The system shall allow exporting selected contacts.
+
+FR-52 The system shall allow exporting all contacts.
+
+FR-53 The system shall allow enabling automatic synchronization with cloud accounts.
+
+FR-54 The system shall allow manual synchronization of contacts.
+
+FR-55 The system shall synchronize contacts across devices linked to the same account.
+
+FR-56 The system shall update local data after successful synchronization.
+
+FR-57 The system shall detect conflicts during synchronization.
+
+FR-58 The system shall resolve conflicts using predefined rules or user input.
+
+FR-59 The system shall maintain synchronization status for each contact.
+
+FR-60 The system shall allow backing up contacts to cloud storage.
+
+FR-61 The system shall allow restoring contacts from backup.
+
+FR-62 The system shall notify users of backup success or failure.
+
+FR-63 The system shall notify users of restore success or failure.
+
+FR-64 The system shall detect duplicate contacts based on matching attributes.
+
+FR-65 The system shall suggest merging duplicate contacts.
+
+FR-66 The system shall allow the user to merge selected contacts.
+
+FR-67 The system shall preserve all unique fields when merging contacts.
+
+FR-68 The system shall allow assigning a profile photo to a contact.
+
+FR-69 The system shall allow removing or changing a profile photo.
+
+FR-70 The system shall display profile photos in contact list and detail view.
+
+FR-71 The system shall support fast scrolling for large contact lists.
+
+FR-72 The system shall allow selecting multiple contacts using multi-select mode.
+
+FR-73 The system shall allow canceling multi-select mode.
+
+FR-74 The system shall maintain data consistency across UI and storage.
+
+FR-75 The system shall handle contacts with large amounts of data.
+
+FR-76 The system shall allow viewing contact source (SIM, local, cloud).
+
+FR-77 The system shall restrict editing of read-only contacts if applicable.
+
+FR-78 The system shall allow copying contact details to clipboard.
+
+FR-79 The system shall allow sharing contact details via external applications.
+
+FR-80 The system shall generate a VCF file when sharing contacts.
+
+FR-81 The system shall handle permission requests for contacts access.
+
+FR-82 The system shall restrict functionality if permissions are denied.
+
+FR-83 The system shall resume full functionality after permissions are granted.
+
+FR-84 The system shall display appropriate error messages for invalid operations.
+
+FR-85 The system shall prevent saving contacts with invalid required data.
+
+FR-86 The system shall allow undoing recent delete operations if supported.
+
+FR-87 The system shall maintain timestamps for last modification of contacts.
+
+FR-88 The system shall update timestamps after each modification.
+
+FR-89 The system shall ensure unique identification for each contact.
+
+FR-90 The system shall prevent duplicate unique identifiers.
+
+FR-91 The system shall support adding custom fields to contacts.
+
+FR-92 The system shall store and retrieve custom fields correctly.
+
+FR-93 The system shall allow linking related contacts if supported.
+
+FR-94 The system shall maintain relationships between linked contacts.
+
+FR-95 The system shall support international phone number formats.
+
+FR-96 The system shall normalize phone numbers for comparison.
+
+FR-97 The system shall handle special characters in contact names.
+
+FR-98 The system shall support multilingual contact names.
+
+FR-99 The system shall maintain consistent behavior under high data volume.
+
+FR-100 The system shall ensure all UI actions reflect correct underlying data state within a short time.
