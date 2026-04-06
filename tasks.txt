@@ -1,0 +1,6 @@
+1. Atomize the function requirements (refine the semantic matching)
+2. Update the completed functional requirements tests.
+3. Make everything consistent and UI if possible.
+4. Show the communication through a nice UI. 
+5. Investigate the correctnrss of figma graph and ingestions
+

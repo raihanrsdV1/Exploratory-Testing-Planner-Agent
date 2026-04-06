@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 
 BASE = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
@@ -220,6 +221,10 @@ def main(rounds: int = 3):
     tc = data.get("next_testcase", {})
 
     for i in range(1, rounds + 1):
+        pause = int(os.getenv("SIM_PAUSE", "10"))
+        print(f"\n[Simulator] Respiration pause... sleeping {pause} seconds to free LLM memory.")
+        time.sleep(pause)
+        
         verdict = "failed" if SIM_FAIL_EVERY > 0 and i % SIM_FAIL_EVERY == 0 else "pass"
         notes = f"simulated verdict round {i}: {verdict}"
         out = log_and_next(tc, verdict, notes)

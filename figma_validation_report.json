@@ -1,0 +1,294 @@
+{
+  "summary": {
+    "source_screens": 7,
+    "neo4j_screens": 7,
+    "neo4j_elements": "?",
+    "matching_screens": 7,
+    "missing_from_neo4j": [],
+    "extra_in_neo4j": []
+  },
+  "screen_details": [
+    {
+      "screen": "Contact Details (Dark Mode)",
+      "in_source": true,
+      "in_neo4j": true,
+      "source_buttons": [
+        "Button",
+        "Button - Setting Item: Add to Home",
+        "Button - Setting Item: Delete",
+        "Button - Setting Item: Move",
+        "Button - Setting Item: Reminders",
+        "Button - Setting Item: Ringtone",
+        "Button - Setting Item: Share",
+        "Button - Setting Item: Verify Keys"
+      ],
+      "source_inputs": [],
+      "source_text_count": 24,
+      "neo4j_purpose": "contact_details",
+      "neo4j_buttons": [
+        "Add to home screen",
+        "Button",
+        "Contact ringtone / Default (Over the Horizon 2022\nproduced by SUGA of BTS)",
+        "Delete",
+        "Move to another account",
+        "Reminders",
+        "Share contact",
+        "Verify keys / Verify end-to-end encryption with this\ncontact"
+      ],
+      "neo4j_inputs": [],
+      "neo4j_nav": [],
+      "neo4j_interactive_count": 8,
+      "matched_buttons": [
+        "button"
+      ],
+      "missing_buttons": [
+        "button - setting item: add to home",
+        "button - setting item: delete",
+        "button - setting item: move",
+        "button - setting item: reminders",
+        "button - setting item: ringtone"
+      ],
+      "matched_inputs": [],
+      "missing_inputs": []
+    },
+    {
+      "screen": "Contacts List (Updated)",
+      "in_source": true,
+      "in_neo4j": true,
+      "source_buttons": [
+        "Button",
+        "Button - FAB: Create Contact",
+        "Button:css-transform",
+        "Filter Dropdown Button",
+        "Link - Contacts (Active)",
+        "Link - Highlights",
+        "Link - Organise"
+      ],
+      "source_inputs": [],
+      "source_text_count": 28,
+      "neo4j_purpose": "contact_list",
+      "neo4j_buttons": [
+        "All contacts",
+        "Button",
+        "Button - FAB: Create Contact",
+        "Button:css-transform",
+        "Contacts",
+        "Highlights",
+        "Organise"
+      ],
+      "neo4j_inputs": [],
+      "neo4j_nav": [
+        "Contacts | Highlights | Organise"
+      ],
+      "neo4j_interactive_count": 8,
+      "matched_buttons": [
+        "button",
+        "button - fab: create contact",
+        "button:css-transform"
+      ],
+      "missing_buttons": [
+        "filter dropdown button",
+        "link - contacts (active)",
+        "link - highlights",
+        "link - organise"
+      ],
+      "matched_inputs": [],
+      "missing_inputs": []
+    },
+    {
+      "screen": "Create Contact (No Icons)",
+      "in_source": true,
+      "in_neo4j": true,
+      "source_buttons": [
+        "Add more info",
+        "Button"
+      ],
+      "source_inputs": [
+        "Input",
+        "Phone Input"
+      ],
+      "source_text_count": 18,
+      "neo4j_purpose": "create_contact",
+      "neo4j_buttons": [
+        "Add phone",
+        "Address",
+        "Birthday",
+        "Button",
+        "Email",
+        "Labels",
+        "Other",
+        "Save"
+      ],
+      "neo4j_inputs": [
+        "Add phone",
+        "Company",
+        "First name",
+        "First name / Surname / Company / Add phone / Notes",
+        "Notes",
+        "Phone (Mobile)",
+        "Surname"
+      ],
+      "neo4j_nav": [],
+      "neo4j_interactive_count": 15,
+      "matched_buttons": [
+        "button"
+      ],
+      "missing_buttons": [
+        "add more info"
+      ],
+      "matched_inputs": [],
+      "missing_inputs": [
+        "input",
+        "phone input"
+      ]
+    },
+    {
+      "screen": "Highlights (No FAB)",
+      "in_source": true,
+      "in_neo4j": true,
+      "source_buttons": [
+        "Button",
+        "Highlights (No FAB)",
+        "Link - Contacts Tab",
+        "Link - Highlights Tab (ACTIVE)",
+        "Link - Organise Tab"
+      ],
+      "source_inputs": [],
+      "source_text_count": 28,
+      "neo4j_purpose": "highlights",
+      "neo4j_buttons": [
+        "Add",
+        "Button",
+        "Call",
+        "Contacts",
+        "Highlights",
+        "Highlights / Your circle at a glance / For you / Recents / Contacts / Organise",
+        "Message",
+        "Organise"
+      ],
+      "neo4j_inputs": [],
+      "neo4j_nav": [
+        "Contacts | Highlights | Organise"
+      ],
+      "neo4j_interactive_count": 9,
+      "matched_buttons": [
+        "button"
+      ],
+      "missing_buttons": [
+        "highlights (no fab)",
+        "link - contacts tab",
+        "link - highlights tab (active)",
+        "link - organise tab"
+      ],
+      "matched_inputs": [],
+      "missing_inputs": []
+    },
+    {
+      "screen": "Organise (Merged List)",
+      "in_source": true,
+      "in_neo4j": true,
+      "source_buttons": [
+        "Button",
+        "Button - Bin",
+        "Button - Blocked numbers",
+        "Button - Contact ringtones",
+        "Button - Export to file",
+        "Button - Family group",
+        "Button - Google Contacts sync settings",
+        "Button - Import from file"
+      ],
+      "source_inputs": [],
+      "source_text_count": 28,
+      "neo4j_purpose": "organise",
+      "neo4j_buttons": [
+        "Bin / Items deleted within 30 days",
+        "Check Sync",
+        "Contact ringtones / Set ringtones for specific contacts",
+        "Family group / Shared contacts for the household",
+        "Google Contacts sync settings / Manage preferences and accounts",
+        "Import from file",
+        "Manage SIM / Import or delete contacts from SIM",
+        "Merge and fix / Clean up duplicates and errors"
+      ],
+      "neo4j_inputs": [],
+      "neo4j_nav": [
+        "Contacts | Highlights | Organise"
+      ],
+      "neo4j_interactive_count": 16,
+      "matched_buttons": [],
+      "missing_buttons": [
+        "button",
+        "button - bin",
+        "button - blocked numbers",
+        "button - contact ringtones",
+        "button - export to file"
+      ],
+      "matched_inputs": [],
+      "missing_inputs": []
+    },
+    {
+      "screen": "Search Results",
+      "in_source": true,
+      "in_neo4j": true,
+      "source_buttons": [
+        "Button"
+      ],
+      "source_inputs": [
+        "Search Bar: style_component_shape, style_bg_color from JSON-like logic",
+        "Search Results",
+        "Top Navigation / Search Header"
+      ],
+      "source_text_count": 15,
+      "neo4j_purpose": "search",
+      "neo4j_buttons": [
+        "Button"
+      ],
+      "neo4j_inputs": [
+        "ba"
+      ],
+      "neo4j_nav": [],
+      "neo4j_interactive_count": 2,
+      "matched_buttons": [
+        "button"
+      ],
+      "missing_buttons": [],
+      "matched_inputs": [],
+      "missing_inputs": [
+        "search bar: style_component_shape, style_bg_color from json-like logic",
+        "search results",
+        "top navigation / search header"
+      ]
+    },
+    {
+      "screen": "Settings (No Bottom Bar)",
+      "in_source": true,
+      "in_neo4j": true,
+      "source_buttons": [
+        "Button",
+        "Edit contacts",
+        "Management Section \u2192 Button"
+      ],
+      "source_inputs": [],
+      "source_text_count": 18,
+      "neo4j_purpose": "settings",
+      "neo4j_buttons": [
+        "Accounts",
+        "Button",
+        "Undo changes",
+        "Your info"
+      ],
+      "neo4j_inputs": [],
+      "neo4j_nav": [],
+      "neo4j_interactive_count": 4,
+      "matched_buttons": [
+        "button"
+      ],
+      "missing_buttons": [
+        "edit contacts",
+        "management section \u2192 button"
+      ],
+      "matched_inputs": [],
+      "missing_inputs": []
+    }
+  ]
+}

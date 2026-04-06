@@ -1,0 +1,1598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA Test-Case Planner — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-primary: #0a0e1a;
+    --bg-secondary: #111827;
+    --bg-card: #1a1f35;
+    --bg-card-hover: #1f2642;
+    --border: #2a3050;
+    --text-primary: #e8eaf0;
+    --text-secondary: #8b92a8;
+    --text-muted: #5a6178;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --accent-pink: #ec4899;
+    --gradient-blue: linear-gradient(135deg, #3b82f6, #06b6d4);
+    --gradient-green: linear-gradient(135deg, #10b981, #06b6d4);
+    --gradient-purple: linear-gradient(135deg, #8b5cf6, #ec4899);
+    --gradient-amber: linear-gradient(135deg, #f59e0b, #ef4444);
+    --shadow: 0 4px 24px rgba(0,0,0,0.3);
+    --shadow-glow: 0 0 30px rgba(59,130,246,0.1);
+    --radius: 16px;
+    --radius-sm: 10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Background pattern */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 10%, rgba(59,130,246,0.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 80%, rgba(139,92,246,0.06) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app { position: relative; z-index: 1; }
+
+  /* Header */
+  .header {
+    padding: 28px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: rgba(17,24,39,0.6);
+    backdrop-filter: blur(20px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .logo {
+    width: 42px; height: 42px;
+    background: var(--gradient-blue);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    box-shadow: 0 0 20px rgba(59,130,246,0.3);
+  }
+
+  .header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  .header h1 span { color: var(--accent-blue); }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: 0 0 8px rgba(16,185,129,0.5);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .status-text { font-size: 13px; color: var(--text-secondary); }
+
+  .btn-refresh {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 10px 20px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    transition: all 0.2s;
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  .btn-refresh:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 15px rgba(59,130,246,0.15);
+  }
+
+  .btn-refresh.loading { opacity: 0.6; pointer-events: none; }
+
+  /* Main content */
+  .main { padding: 32px 40px; max-width: 1440px; margin: 0 auto; }
+
+  /* Stats row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s;
+  }
+
+  .stat-card:hover {
+    border-color: rgba(59,130,246,0.3);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glow);
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  .stat-card:nth-child(1)::before { background: var(--gradient-blue); }
+  .stat-card:nth-child(2)::before { background: var(--gradient-green); }
+  .stat-card:nth-child(3)::before { background: var(--gradient-purple); }
+  .stat-card:nth-child(4)::before { background: var(--gradient-amber); }
+  .stat-card:nth-child(5)::before { background: var(--gradient-blue); }
+  .stat-card:nth-child(6)::before { background: var(--gradient-green); }
+
+  .stat-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+
+  .stat-value {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+
+  .stat-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 6px;
+  }
+
+  /* Sections */
+  .section {
+    margin-bottom: 32px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .section-title {
+    font-size: 18px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-title .icon { font-size: 20px; }
+
+  .section-badge {
+    font-size: 11px;
+    background: rgba(59,130,246,0.15);
+    color: var(--accent-blue);
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
+
+  /* Grid layouts */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+  }
+
+  @media (max-width: 1024px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .main { padding: 20px; }
+    .header { padding: 16px 20px; }
+  }
+
+  /* Card */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    transition: all 0.3s;
+  }
+
+  .card:hover {
+    border-color: rgba(59,130,246,0.2);
+  }
+
+  .card-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text-secondary);
+  }
+
+  /* Coverage ring */
+  .coverage-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .coverage-ring {
+    position: relative;
+    width: 180px;
+    height: 180px;
+  }
+
+  .coverage-ring svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+  }
+
+  .coverage-ring .bg-ring {
+    fill: none;
+    stroke: var(--border);
+    stroke-width: 12;
+  }
+
+  .coverage-ring .progress-ring {
+    fill: none;
+    stroke: url(#coverageGradient);
+    stroke-width: 12;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s ease;
+  }
+
+  .coverage-center {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+  }
+
+  .coverage-pct {
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: -2px;
+  }
+
+  .coverage-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .coverage-legend {
+    display: flex;
+    gap: 24px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  /* Category bars */
+  .cat-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .cat-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .cat-name {
+    width: 120px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: capitalize;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .cat-bar-bg {
+    flex: 1;
+    height: 24px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .cat-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.8s ease;
+    min-width: 2px;
+  }
+
+  .cat-count {
+    width: 30px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  /* Table */
+  .table-wrapper {
+    overflow-x: auto;
+    border-radius: var(--radius-sm);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  th {
+    text-align: left;
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.03);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+  }
+
+  td {
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    vertical-align: middle;
+  }
+
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .tag {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .tag-category {
+    background: rgba(59,130,246,0.12);
+    color: var(--accent-blue);
+  }
+
+  .tag-high {
+    background: rgba(239,68,68,0.12);
+    color: var(--accent-red);
+  }
+
+  .tag-medium {
+    background: rgba(245,158,11,0.12);
+    color: var(--accent-amber);
+  }
+
+  .tag-low {
+    background: rgba(16,185,129,0.12);
+    color: var(--accent-green);
+  }
+
+  .tag-pass {
+    background: rgba(16,185,129,0.12);
+    color: var(--accent-green);
+  }
+
+  .tag-failed {
+    background: rgba(239,68,68,0.12);
+    color: var(--accent-red);
+  }
+
+  .tag-covered {
+    background: rgba(16,185,129,0.12);
+    color: var(--accent-green);
+  }
+
+  .tag-uncovered {
+    background: rgba(239,68,68,0.08);
+    color: var(--accent-red);
+  }
+
+  .fr-text {
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+  }
+
+  .screens-list {
+    font-size: 11px;
+    color: var(--text-muted);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Test case cards */
+  .test-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    margin-bottom: 10px;
+    transition: all 0.2s;
+  }
+
+  .test-card:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(59,130,246,0.2);
+  }
+
+  .test-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .test-id {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .test-title {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  .test-meta {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* Scrollable table */
+  .scrollable-table {
+    max-height: 500px;
+    overflow-y: auto;
+  }
+
+  .scrollable-table::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollable-table::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollable-table::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+
+  /* Search/filter */
+  .filter-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .filter-input {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-family: inherit;
+    flex: 1;
+    min-width: 200px;
+    transition: border-color 0.2s;
+  }
+
+  .filter-input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+  }
+
+  .filter-select {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  /* Loading */
+  .loading-overlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px;
+    color: var(--text-muted);
+    gap: 12px;
+  }
+
+  .spinner {
+    width: 22px; height: 22px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent-blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Tab system */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    background: var(--bg-secondary);
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    width: fit-content;
+  }
+
+  .tab {
+    padding: 8px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: all 0.2s;
+    border: none;
+    background: none;
+    font-family: inherit;
+  }
+
+  .tab:hover { color: var(--text-secondary); }
+
+  .tab.active {
+    background: var(--accent-blue);
+    color: white;
+    box-shadow: 0 2px 8px rgba(59,130,246,0.3);
+  }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Empty state */
+  .empty {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  /* Error */
+  .error-box {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.2);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    color: var(--accent-red);
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+
+  /* Pipeline Viewer */
+  .pipe-arch {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  .pipe-node {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 18px;
+    text-align: center;
+    min-width: 130px;
+    transition: all 0.3s;
+  }
+
+  .pipe-node.active {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 20px rgba(59,130,246,0.2);
+  }
+
+  .pipe-node-icon { font-size: 22px; margin-bottom: 4px; }
+  .pipe-node-label { font-size: 12px; font-weight: 600; }
+  .pipe-node-sub { font-size: 10px; color: var(--text-muted); }
+
+  .pipe-arrow {
+    font-size: 18px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .pipe-arrow.active { color: var(--accent-blue); }
+
+  .pipe-timeline {
+    position: relative;
+    padding-left: 36px;
+  }
+
+  .pipe-timeline::before {
+    content: '';
+    position: absolute;
+    left: 14px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .pipe-step {
+    position: relative;
+    margin-bottom: 16px;
+    animation: fadeSlide 0.4s ease;
+  }
+
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .pipe-step-dot {
+    position: absolute;
+    left: -28px;
+    top: 6px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--bg-primary);
+  }
+
+  .pipe-step-dot.blue { border-color: var(--accent-blue); background: rgba(59,130,246,0.2); }
+  .pipe-step-dot.green { border-color: var(--accent-green); background: rgba(16,185,129,0.2); }
+  .pipe-step-dot.purple { border-color: var(--accent-purple); background: rgba(139,92,246,0.2); }
+  .pipe-step-dot.amber { border-color: var(--accent-amber); background: rgba(245,158,11,0.2); }
+  .pipe-step-dot.cyan { border-color: var(--accent-cyan); background: rgba(6,182,212,0.2); }
+  .pipe-step-dot.pink { border-color: var(--accent-pink); background: rgba(236,72,153,0.2); }
+
+  .pipe-step-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+  }
+
+  .pipe-step-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
+  .pipe-step-title {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .pipe-step-service {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+
+  .svc-rag { background: rgba(16,185,129,0.12); color: var(--accent-green); }
+  .svc-gateway { background: rgba(59,130,246,0.12); color: var(--accent-blue); }
+  .svc-llm { background: rgba(139,92,246,0.12); color: var(--accent-purple); }
+  .svc-neo4j { background: rgba(6,182,212,0.12); color: var(--accent-cyan); }
+
+  .pipe-step-body {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+
+  .pipe-step-body pre {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 6px 0;
+    font-size: 11px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+    color: var(--text-secondary);
+  }
+
+  .pipe-data-row {
+    display: flex;
+    gap: 6px;
+    margin: 4px 0;
+    align-items: flex-start;
+  }
+
+  .pipe-data-key {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    min-width: 70px;
+  }
+
+  .pipe-data-val {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .btn-generate {
+    background: var(--gradient-blue);
+    border: none;
+    color: white;
+    padding: 12px 28px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    transition: all 0.3s;
+    box-shadow: 0 4px 15px rgba(59,130,246,0.3);
+  }
+
+  .btn-generate:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(59,130,246,0.4);
+  }
+
+  .btn-generate:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-demo {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 12px 28px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    transition: all 0.2s;
+  }
+
+  .btn-demo:hover {
+    border-color: var(--accent-purple);
+    background: var(--bg-card-hover);
+  }
+
+  .pipe-actions {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    align-items: center;
+  }
+
+  .pipe-status {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">🧪</div>
+      <h1>QA Test-Case <span>Planner</span></h1>
+    </div>
+    <div class="header-right">
+      <div class="status-dot" id="statusDot"></div>
+      <span class="status-text" id="statusText">Connecting...</span>
+      <button class="btn-refresh" id="btnRefresh" onclick="loadAll()">
+        <span>↻</span> Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="main">
+    <div id="errorContainer"></div>
+
+    <!-- Stats Row -->
+    <div class="stats-row" id="statsRow">
+      <div class="stat-card">
+        <div class="stat-label">Atomic FRs</div>
+        <div class="stat-value" id="statFRs">—</div>
+        <div class="stat-sub">Functional Requirements</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Coverage</div>
+        <div class="stat-value" id="statCoverage">—</div>
+        <div class="stat-sub" id="statCoverageSub">of requirements tested</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Test Cases</div>
+        <div class="stat-value" id="statTests">—</div>
+        <div class="stat-sub">Generated & logged</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Figma Screens</div>
+        <div class="stat-value" id="statScreens">—</div>
+        <div class="stat-sub" id="statScreensSub">UI screens</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">UI Elements</div>
+        <div class="stat-value" id="statElements">—</div>
+        <div class="stat-sub">Interactive elements</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Categories</div>
+        <div class="stat-value" id="statCategories">—</div>
+        <div class="stat-sub">Semantic groups</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('overview')">Overview</button>
+      <button class="tab" onclick="switchTab('requirements')">Requirements</button>
+      <button class="tab" onclick="switchTab('tests')">Test Cases</button>
+      <button class="tab" onclick="switchTab('screens')">Figma Screens</button>
+      <button class="tab" onclick="switchTab('pipeline')">🔗 Pipeline</button>
+    </div>
+
+    <!-- Tab: Overview -->
+    <div class="tab-content active" id="tab-overview">
+      <div class="grid-2">
+        <!-- Coverage Ring -->
+        <div class="card">
+          <div class="card-title">FR Coverage</div>
+          <div class="coverage-container" id="coverageContainer">
+            <div class="coverage-ring">
+              <svg viewBox="0 0 200 200">
+                <defs>
+                  <linearGradient id="coverageGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#10b981"/>
+                    <stop offset="100%" stop-color="#06b6d4"/>
+                  </linearGradient>
+                </defs>
+                <circle class="bg-ring" cx="100" cy="100" r="82"/>
+                <circle class="progress-ring" id="coverageRing" cx="100" cy="100" r="82"
+                  stroke-dasharray="515.22" stroke-dashoffset="515.22"/>
+              </svg>
+              <div class="coverage-center">
+                <div class="coverage-pct" id="coveragePct">0%</div>
+                <div class="coverage-label">Coverage</div>
+              </div>
+            </div>
+            <div class="coverage-legend">
+              <div class="legend-item">
+                <div class="legend-dot" style="background:var(--accent-green)"></div>
+                <span id="legendCovered">0 Covered</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-dot" style="background:var(--border)"></div>
+                <span id="legendUncovered">0 Uncovered</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Category Distribution -->
+        <div class="card">
+          <div class="card-title">Category Distribution</div>
+          <div class="cat-list" id="categoryBars"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Requirements -->
+    <div class="tab-content" id="tab-requirements">
+      <div class="card">
+        <div class="filter-bar">
+          <input type="text" class="filter-input" id="frSearch" placeholder="Search requirements..." oninput="filterRequirements()">
+          <select class="filter-select" id="frCategoryFilter" onchange="filterRequirements()">
+            <option value="">All Categories</option>
+          </select>
+          <select class="filter-select" id="frStatusFilter" onchange="filterRequirements()">
+            <option value="">All Status</option>
+            <option value="covered">Covered</option>
+            <option value="uncovered">Uncovered</option>
+          </select>
+          <select class="filter-select" id="frPriorityFilter" onchange="filterRequirements()">
+            <option value="">All Priorities</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="scrollable-table table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>FR ID</th>
+                <th>Status</th>
+                <th>Category</th>
+                <th>Priority</th>
+                <th>Requirement</th>
+                <th>Linked Screens</th>
+                <th>Tested By</th>
+              </tr>
+            </thead>
+            <tbody id="frTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Tests -->
+    <div class="tab-content" id="tab-tests">
+      <div class="card">
+        <div class="card-title" id="testCardTitle">Recent Test Cases</div>
+        <div id="testsList"></div>
+      </div>
+    </div>
+
+    <!-- Tab: Figma Screens -->
+    <div class="tab-content" id="tab-screens">
+      <div class="grid-3" id="screensGrid"></div>
+    </div>
+
+    <!-- Tab: Pipeline Viewer -->
+    <div class="tab-content" id="tab-pipeline">
+      <!-- Architecture diagram -->
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-title">Service Architecture</div>
+        <div class="pipe-arch">
+          <div class="pipe-node" id="archSim">
+            <div class="pipe-node-icon">🔄</div>
+            <div class="pipe-node-label">Simulator</div>
+            <div class="pipe-node-sub">simulator_runner.py</div>
+          </div>
+          <div class="pipe-arrow" id="arrowSimGw">→</div>
+          <div class="pipe-node" id="archGw">
+            <div class="pipe-node-icon">🧠</div>
+            <div class="pipe-node-label">Gateway</div>
+            <div class="pipe-node-sub">port 9100</div>
+          </div>
+          <div class="pipe-arrow" id="arrowGwRag">→</div>
+          <div class="pipe-node" id="archRag">
+            <div class="pipe-node-icon">📊</div>
+            <div class="pipe-node-label">RAG API</div>
+            <div class="pipe-node-sub">port 9010</div>
+          </div>
+          <div class="pipe-arrow" id="arrowRagNeo">→</div>
+          <div class="pipe-node" id="archNeo">
+            <div class="pipe-node-icon">🗄️</div>
+            <div class="pipe-node-label">Neo4j</div>
+            <div class="pipe-node-sub">port 7687</div>
+          </div>
+        </div>
+        <div class="pipe-arch">
+          <div style="width:260px"></div>
+          <div class="pipe-node" id="archLlm">
+            <div class="pipe-node-icon">🤖</div>
+            <div class="pipe-node-label">LLM (Qwen)</div>
+            <div class="pipe-node-sub">Kaggle / ngrok</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="pipe-actions">
+        <button class="btn-generate" id="btnGenerate" onclick="runPipeline()">▶ Generate Test Case (Live)</button>
+        <button class="btn-demo" onclick="runDemoPipeline()">📋 Show Demo Trace</button>
+        <span class="pipe-status" id="pipeStatus"></span>
+      </div>
+
+      <!-- Timeline -->
+      <div class="card">
+        <div class="card-title" id="pipelineTitle">Communication Timeline</div>
+        <div class="pipe-timeline" id="pipeTimeline">
+          <div class="empty">Click "Generate Test Case" (if LLM is running) or "Show Demo Trace" to see the communication flow.</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const RAG_URL = 'http://127.0.0.1:9010';
+const GW_URL = 'http://127.0.0.1:9100';
+const PROJECT = 'contacts-app';
+
+let allRequirements = [];
+let allCategories = [];
+
+const CAT_COLORS = {
+  create: '#3b82f6', read: '#06b6d4', update: '#8b5cf6', delete: '#ef4444',
+  search: '#f59e0b', validation: '#ec4899', import_export: '#10b981',
+  sync: '#6366f1', favorites: '#f97316', groups: '#14b8a6',
+  permissions: '#e11d48', communication: '#0ea5e9', sort: '#a855f7',
+  duplicate: '#64748b', profile: '#f43f5e', multi_select: '#22d3ee',
+  data_integrity: '#84cc16', general: '#6b7280',
+};
+
+function catColor(cat) {
+  return CAT_COLORS[cat] || '#6b7280';
+}
+
+async function fetchJSON(path, opts = {}) {
+  const url = path.startsWith('http') ? path : `${RAG_URL}${path}`;
+  const resp = await fetch(url, opts);
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+function showError(msg) {
+  document.getElementById('errorContainer').innerHTML =
+    `<div class="error-box">⚠ ${msg}</div>`;
+}
+
+function clearError() {
+  document.getElementById('errorContainer').innerHTML = '';
+}
+
+// ── Load all data ──
+
+async function loadAll() {
+  const btn = document.getElementById('btnRefresh');
+  btn.classList.add('loading');
+  btn.textContent = '⏳ Loading...';
+  clearError();
+
+  try {
+    const [stats, categories, coverage, tests, screens] = await Promise.all([
+      fetchJSON(`/graph/stats?project=${PROJECT}`),
+      fetchJSON(`/requirements/categories?project=${PROJECT}`),
+      fetchJSON(`/requirements/coverage?project=${PROJECT}`),
+      fetchJSON(`/tests/recent?project=${PROJECT}&limit=50`),
+      fetchJSON(`/figma/overview?project=${PROJECT}&top_labels=6`),
+    ]);
+
+    renderStats(stats, coverage);
+    renderCoverage(coverage);
+    renderCategories(categories.categories || []);
+    renderRequirements(coverage.requirements || []);
+    renderTests(tests.tests || []);
+    renderScreens(screens.screens || []);
+
+    allCategories = (categories.categories || []).map(c => c.category);
+    populateCategoryFilter();
+
+    document.getElementById('statusDot').style.background = 'var(--accent-green)';
+    document.getElementById('statusText').textContent = 'Connected to RAG API';
+  } catch (err) {
+    showError(`Cannot connect to RAG API at ${RAG_URL}. Is it running? Error: ${err.message}`);
+    document.getElementById('statusDot').style.background = 'var(--accent-red)';
+    document.getElementById('statusText').textContent = 'Disconnected';
+  }
+
+  btn.classList.remove('loading');
+  btn.innerHTML = '<span>↻</span> Refresh';
+}
+
+function renderStats(stats, coverage) {
+  document.getElementById('statFRs').textContent = stats.atomic_requirement_count || 0;
+  document.getElementById('statTests').textContent = stats.test_case_count || 0;
+  document.getElementById('statScreens').textContent = stats.figma_screen_count || 0;
+  document.getElementById('statScreensSub').textContent = `with ${stats.figma_element_count || 0} elements`;
+  document.getElementById('statElements').textContent = stats.figma_element_count || 0;
+  document.getElementById('statCategories').textContent = allCategories.length || '—';
+
+  const pct = coverage.coverage_pct || 0;
+  document.getElementById('statCoverage').textContent = `${pct}%`;
+  document.getElementById('statCoverageSub').textContent =
+    `${coverage.covered || 0} of ${coverage.total_requirements || 0} tested`;
+}
+
+function renderCoverage(coverage) {
+  const pct = coverage.coverage_pct || 0;
+  const circumference = 2 * Math.PI * 82;
+  const offset = circumference - (pct / 100) * circumference;
+
+  document.getElementById('coverageRing').style.strokeDashoffset = offset;
+  document.getElementById('coveragePct').textContent = `${pct}%`;
+  document.getElementById('legendCovered').textContent = `${coverage.covered || 0} Covered`;
+  document.getElementById('legendUncovered').textContent = `${coverage.uncovered || 0} Uncovered`;
+}
+
+function renderCategories(categories) {
+  const maxCount = Math.max(...categories.map(c => c.count), 1);
+  const container = document.getElementById('categoryBars');
+  container.innerHTML = categories.map(c => {
+    const widthPct = (c.count / maxCount) * 100;
+    const color = catColor(c.category);
+    return `
+      <div class="cat-row">
+        <div class="cat-name">${c.category.replace(/_/g, ' ')}</div>
+        <div class="cat-bar-bg">
+          <div class="cat-bar-fill" style="width:${widthPct}%;background:${color}"></div>
+        </div>
+        <div class="cat-count" style="color:${color}">${c.count}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRequirements(requirements) {
+  allRequirements = requirements;
+  _renderFrTable(requirements);
+}
+
+function _renderFrTable(reqs) {
+  const tbody = document.getElementById('frTableBody');
+  if (!reqs.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">No requirements found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = reqs.map(r => {
+    const statusTag = r.is_covered
+      ? '<span class="tag tag-covered">✓ Covered</span>'
+      : '<span class="tag tag-uncovered">✗ Uncovered</span>';
+    const priTag = `<span class="tag tag-${r.priority || 'medium'}">${r.priority || 'medium'}</span>`;
+    const screens = (r.linked_screens || []).join(', ') || '—';
+    const testedBy = (r.tested_by || []).map(t => `<div style="font-size:11px;color:var(--text-muted)">${t}</div>`).join('') || '—';
+
+    return `
+      <tr>
+        <td><strong style="color:var(--accent-cyan)">${r.fr_id}</strong></td>
+        <td>${statusTag}</td>
+        <td><span class="tag tag-category" style="background:${catColor(r.category)}20;color:${catColor(r.category)}">${r.category}</span></td>
+        <td>${priTag}</td>
+        <td class="fr-text" title="${(r.text || '').replace(/"/g, '&quot;')}">${r.text || ''}</td>
+        <td class="screens-list" title="${screens}">${screens}</td>
+        <td>${testedBy}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function filterRequirements() {
+  const search = document.getElementById('frSearch').value.toLowerCase();
+  const cat = document.getElementById('frCategoryFilter').value;
+  const status = document.getElementById('frStatusFilter').value;
+  const priority = document.getElementById('frPriorityFilter').value;
+
+  let filtered = allRequirements.filter(r => {
+    if (search && !(r.fr_id + ' ' + r.text).toLowerCase().includes(search)) return false;
+    if (cat && r.category !== cat) return false;
+    if (status === 'covered' && !r.is_covered) return false;
+    if (status === 'uncovered' && r.is_covered) return false;
+    if (priority && r.priority !== priority) return false;
+    return true;
+  });
+
+  _renderFrTable(filtered);
+}
+
+function populateCategoryFilter() {
+  const sel = document.getElementById('frCategoryFilter');
+  const existing = sel.querySelectorAll('option:not(:first-child)');
+  existing.forEach(o => o.remove());
+  allCategories.forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat.replace(/_/g, ' ');
+    sel.appendChild(opt);
+  });
+}
+
+function renderTests(tests) {
+  const container = document.getElementById('testsList');
+  document.getElementById('testCardTitle').textContent = `Recent Test Cases (${tests.length})`;
+
+  if (!tests.length) {
+    container.innerHTML = '<div class="empty">No test cases generated yet. Run the simulator first.</div>';
+    return;
+  }
+
+  container.innerHTML = tests.map(t => {
+    const verdictTag = t.verdict === 'pass'
+      ? '<span class="tag tag-pass">✓ Pass</span>'
+      : '<span class="tag tag-failed">✗ Failed</span>';
+    const ts = t.ts ? new Date(t.ts).toLocaleString() : '';
+
+    return `
+      <div class="test-card">
+        <div class="test-header">
+          <div class="test-id">${t.id || '—'}</div>
+          ${verdictTag}
+        </div>
+        <div class="test-title">${t.title || '(no title)'}</div>
+        <div class="test-meta">
+          ${t.notes ? `<span class="tag" style="background:rgba(255,255,255,0.05);color:var(--text-muted)">${t.notes}</span>` : ''}
+          ${ts ? `<span style="font-size:11px;color:var(--text-muted)">${ts}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderScreens(screens) {
+  const grid = document.getElementById('screensGrid');
+  if (!screens.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1">No Figma screens ingested.</div>';
+    return;
+  }
+
+  grid.innerHTML = screens.map(s => {
+    const buttons = (s.buttons || []).slice(0, 6);
+    const inputs = (s.inputs || []).slice(0, 6);
+    const nav = (s.nav || []).slice(0, 4);
+
+    return `
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div style="font-size:14px;font-weight:600">${s.screen_name}</div>
+          <span class="tag tag-category">${(s.purpose || 'other').replace(/_/g, ' ')}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+          ${s.interactive_count || 0} interactive elements
+        </div>
+        ${buttons.length ? `<div style="margin-bottom:8px"><div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">BUTTONS</div><div style="display:flex;flex-wrap:wrap;gap:4px">${buttons.map(b => `<span class="tag" style="background:rgba(59,130,246,0.1);color:var(--accent-blue)">${b}</span>`).join('')}</div></div>` : ''}
+        ${inputs.length ? `<div style="margin-bottom:8px"><div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">INPUTS</div><div style="display:flex;flex-wrap:wrap;gap:4px">${inputs.map(i => `<span class="tag" style="background:rgba(245,158,11,0.1);color:var(--accent-amber)">${i}</span>`).join('')}</div></div>` : ''}
+        ${nav.length ? `<div><div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">NAVIGATION</div><div style="display:flex;flex-wrap:wrap;gap:4px">${nav.map(n => `<span class="tag" style="background:rgba(139,92,246,0.1);color:var(--accent-purple)">${n}</span>`).join('')}</div></div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Tab switching ──
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById(`tab-${name}`).classList.add('active');
+}
+
+// ── Pipeline Viewer ──
+
+function addPipeStep(dotColor, title, service, svcClass, bodyHTML) {
+  const tl = document.getElementById('pipeTimeline');
+  const step = document.createElement('div');
+  step.className = 'pipe-step';
+  step.innerHTML = `
+    <div class="pipe-step-dot ${dotColor}"></div>
+    <div class="pipe-step-card">
+      <div class="pipe-step-header">
+        <div class="pipe-step-title">${title}</div>
+        <span class="pipe-step-service ${svcClass}">${service}</span>
+      </div>
+      <div class="pipe-step-body">${bodyHTML}</div>
+    </div>
+  `;
+  tl.appendChild(step);
+  step.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function clearPipeline() {
+  document.getElementById('pipeTimeline').innerHTML = '';
+}
+
+function setArchActive(...ids) {
+  document.querySelectorAll('.pipe-node, .pipe-arrow').forEach(el => el.classList.remove('active'));
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('active');
+  });
+}
+
+function setPipeStatus(msg) {
+  document.getElementById('pipeStatus').textContent = msg;
+}
+
+async function runPipeline() {
+  const btn = document.getElementById('btnGenerate');
+  btn.disabled = true;
+  btn.textContent = '⏳ Generating...';
+  clearPipeline();
+  setPipeStatus('Calling gateway...');
+
+  try {
+    // Step 1: Show the request
+    setArchActive('archSim', 'arrowSimGw', 'archGw');
+    addPipeStep('blue', '1. Simulator → Gateway', 'Gateway', 'svc-gateway',
+      `<div class="pipe-data-row"><span class="pipe-data-key">Endpoint:</span><span class="pipe-data-val">POST /agent/next-testcase</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Project:</span><span class="pipe-data-val">${PROJECT}</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Objective:</span><span class="pipe-data-val">generate next high-value non-duplicate test case</span></div>`);
+
+    // Actually call the gateway
+    const resp = await fetch(`${GW_URL}/agent/next-testcase`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project: PROJECT,
+        app_name: 'contacts app',
+        objective: 'generate next high-value non-duplicate test case',
+        top_k: 5,
+        max_new_tokens: 700,
+        enable_thinking: false,
+        debug_trace: true,
+      }),
+    });
+    if (!resp.ok) throw new Error(`Gateway returned ${resp.status}`);
+    const data = await resp.json();
+    renderPipelineTrace(data);
+    setPipeStatus('✅ Generation complete');
+  } catch (err) {
+    setPipeStatus(`❌ ${err.message}`);
+    addPipeStep('amber', 'Error', 'System', 'svc-gateway',
+      `<div style="color:var(--accent-red)">${err.message}</div>
+       <div style="color:var(--text-muted);margin-top:6px">Make sure the Gateway (port 9100) and LLM (Kaggle notebook) are running. Use "Show Demo Trace" to see the pipeline without a live LLM.</div>`);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ Generate Test Case (Live)';
+}
+
+function renderPipelineTrace(data) {
+  const dbg = data.debug_trace || {};
+  const plannerRounds = dbg.planner_rounds || [];
+  const retrievedBlocks = dbg.retrieved_blocks || [];
+  const ctxStats = data.retrieved_context_stats || {};
+  const testCase = data.next_testcase || {};
+
+  // Step 2: Brief context loading
+  setArchActive('archGw', 'arrowGwRag', 'archRag', 'arrowRagNeo', 'archNeo');
+  addPipeStep('green', '2. Gateway → RAG API: Load Brief Context', 'RAG API', 'svc-rag',
+    `<div class="pipe-data-row"><span class="pipe-data-key">Endpoint:</span><span class="pipe-data-val">POST /context/brief</span></div>
+     <div class="pipe-data-row"><span class="pipe-data-key">Loads:</span><span class="pipe-data-val">SRS summary, Figma summary, screen index, recent test history</span></div>
+     <div class="pipe-data-row"><span class="pipe-data-key">Purpose:</span><span class="pipe-data-val">Give the LLM a high-level overview to decide what to retrieve</span></div>`);
+
+  // Step 3: Planner rounds
+  for (const pr of plannerRounds) {
+    const pa = pr.parsed_action || {};
+    const rr = pa.retrieval_requests || [];
+    const roundNo = pr.round;
+
+    // LLM request
+    setArchActive('archGw', 'archLlm');
+    let promptSnippet = (pr.prompt || '').slice(0, 300).replace(/</g, '&lt;');
+    if ((pr.prompt || '').length > 300) promptSnippet += '...';
+
+    addPipeStep('purple', `3.${roundNo} Gateway → LLM: Planner Round ${roundNo}`, 'LLM', 'svc-llm',
+      `<div class="pipe-data-row"><span class="pipe-data-key">Action:</span><span class="pipe-data-val">${pa.action || 'retrieve'}</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Reason:</span><span class="pipe-data-val">${pa.reason || '—'}</span></div>
+       ${rr.length ? `<div class="pipe-data-row"><span class="pipe-data-key">Requests:</span><span class="pipe-data-val">${rr.map(r => `${r.source}(${r.query || r.screen || ''})`).join(', ')}</span></div>` : ''}
+       <details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);margin-top:6px">Show prompt sent to LLM</summary><pre>${promptSnippet}</pre></details>`);
+
+    // Retrieved data for this round
+    const roundBlocks = retrievedBlocks.filter(b => b.round === roundNo);
+    for (const rb of roundBlocks) {
+      setArchActive('archGw', 'arrowGwRag', 'archRag', 'arrowRagNeo', 'archNeo');
+      let ctxSnippet = (rb.context || '').slice(0, 250).replace(/</g, '&lt;');
+      if ((rb.context || '').length > 250) ctxSnippet += '...';
+
+      addPipeStep('cyan', `   ↳ RAG API → Neo4j: Fetch ${rb.source}`, 'Neo4j', 'svc-neo4j',
+        `<div class="pipe-data-row"><span class="pipe-data-key">Source:</span><span class="pipe-data-val">${rb.source}</span></div>
+         ${rb.query ? `<div class="pipe-data-row"><span class="pipe-data-key">Query:</span><span class="pipe-data-val">${rb.query}</span></div>` : ''}
+         ${rb.screen ? `<div class="pipe-data-row"><span class="pipe-data-key">Screen:</span><span class="pipe-data-val">${rb.screen}</span></div>` : ''}
+         <details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);margin-top:4px">Show retrieved data</summary><pre>${ctxSnippet}</pre></details>`);
+    }
+  }
+
+  // Step 4: Context assembly
+  addPipeStep('amber', '4. Gateway: Assemble Context', 'Gateway', 'svc-gateway',
+    `<div class="pipe-data-row"><span class="pipe-data-key">SRS chars:</span><span class="pipe-data-val">${ctxStats.srs_context_chars || 0}</span></div>
+     <div class="pipe-data-row"><span class="pipe-data-key">Figma overview:</span><span class="pipe-data-val">${ctxStats.figma_overview_chars || 0} chars</span></div>
+     <div class="pipe-data-row"><span class="pipe-data-key">Figma UI:</span><span class="pipe-data-val">${ctxStats.figma_context_chars || 0} chars</span></div>
+     <div class="pipe-data-row"><span class="pipe-data-key">Figma flow:</span><span class="pipe-data-val">${ctxStats.figma_flow_chars || 0} chars</span></div>
+     <div class="pipe-data-row"><span class="pipe-data-key">Queries:</span><span class="pipe-data-val">${(ctxStats.queries_used || []).join(', ') || '—'}</span></div>
+     <div class="pipe-data-row"><span class="pipe-data-key">Screens:</span><span class="pipe-data-val">${(ctxStats.screens_used || []).join(', ') || '—'}</span></div>`);
+
+  // Step 5: Final generation prompt
+  const finalGen = dbg.final_generation || {};
+  if (finalGen.prompt) {
+    setArchActive('archGw', 'archLlm');
+    let fPrompt = finalGen.prompt.slice(0, 400).replace(/</g, '&lt;');
+    if (finalGen.prompt.length > 400) fPrompt += '...';
+
+    addPipeStep('purple', '5. Gateway → LLM: Generate Test Case', 'LLM', 'svc-llm',
+      `<div class="pipe-data-row"><span class="pipe-data-key">Prompt size:</span><span class="pipe-data-val">${finalGen.prompt.length} chars</span></div>
+       <details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);margin-top:4px">Show final generation prompt</summary><pre>${fPrompt}</pre></details>
+       ${finalGen.model_answer_raw ? `<details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);margin-top:4px">Show LLM raw response</summary><pre>${finalGen.model_answer_raw.slice(0, 500).replace(/</g, '&lt;')}</pre></details>` : ''}`);
+  }
+
+  // Step 5b: Retry if needed
+  const retry = dbg.final_retry || {};
+  if (retry.prompt) {
+    addPipeStep('pink', '5b. Duplicate detected → Retry', 'Gateway', 'svc-gateway',
+      `<div style="color:var(--accent-amber);margin-bottom:4px">⚠ First attempt was too similar to existing tests, retrying with different focus</div>
+       ${retry.model_answer_raw ? `<details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted)">Show retry response</summary><pre>${retry.model_answer_raw.slice(0, 400).replace(/</g, '&lt;')}</pre></details>` : ''}`);
+  }
+
+  // Step 6: Final test case
+  setArchActive('archGw', 'arrowSimGw', 'archSim');
+  if (testCase && testCase.title) {
+    addPipeStep('green', '6. Final Output: Generated Test Case', 'Result', 'svc-gateway',
+      `<div class="pipe-data-row"><span class="pipe-data-key">TC ID:</span><span class="pipe-data-val" style="color:var(--accent-cyan);font-weight:600">${testCase.test_case_id || '—'}</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Title:</span><span class="pipe-data-val" style="font-weight:600">${testCase.title}</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Screen:</span><span class="pipe-data-val">${testCase.screen || '—'}</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Priority:</span><span class="pipe-data-val">${testCase.priority || '—'}</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Area:</span><span class="pipe-data-val">${testCase.area || '—'}</span></div>
+       ${testCase.steps ? `<div style="margin-top:6px"><span class="pipe-data-key">Steps:</span><ol style="margin:4px 0 0 16px;font-size:11px;color:var(--text-secondary)">${testCase.steps.map(s => `<li>${s}</li>`).join('')}</ol></div>` : ''}
+       <div class="pipe-data-row" style="margin-top:6px"><span class="pipe-data-key">Expected:</span><span class="pipe-data-val">${testCase.expected_result || '—'}</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Rationale:</span><span class="pipe-data-val" style="color:var(--text-muted)">${testCase.rationale || '—'}</span></div>`);
+  }
+}
+
+function runDemoPipeline() {
+  clearPipeline();
+  setPipeStatus('Showing demo trace...');
+  document.getElementById('pipelineTitle').textContent = 'Communication Timeline (Demo)';
+
+  setArchActive('archSim', 'arrowSimGw', 'archGw');
+  addPipeStep('blue', '1. Simulator → Gateway: Request Test Case', 'Gateway', 'svc-gateway',
+    `<div class="pipe-data-row"><span class="pipe-data-key">Endpoint:</span><span class="pipe-data-val">POST /agent/next-testcase</span></div>
+     <div class="pipe-data-row"><span class="pipe-data-key">Project:</span><span class="pipe-data-val">${PROJECT}</span></div>
+     <div class="pipe-data-row"><span class="pipe-data-key">Objective:</span><span class="pipe-data-val">generate next high-value non-duplicate test case</span></div>`);
+
+  setTimeout(() => {
+    setArchActive('archGw', 'arrowGwRag', 'archRag', 'arrowRagNeo', 'archNeo');
+    addPipeStep('green', '2. Gateway → RAG API: Load Brief Context', 'RAG API', 'svc-rag',
+      `<div class="pipe-data-row"><span class="pipe-data-key">Endpoint:</span><span class="pipe-data-val">POST /context/brief</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Returns:</span><span class="pipe-data-val">SRS summary (600 chars), Figma summary (400 chars), 7 screens, 3 recent tests</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Purpose:</span><span class="pipe-data-val">High-level view for the LLM planner</span></div>`);
+  }, 400);
+
+  setTimeout(() => {
+    setArchActive('archGw', 'archLlm');
+    addPipeStep('purple', '3.1 Gateway → LLM: Planner Round 1', 'LLM (Qwen)', 'svc-llm',
+      `<div class="pipe-data-row"><span class="pipe-data-key">Action:</span><span class="pipe-data-val">retrieve</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Reason:</span><span class="pipe-data-val">Need validation rules and Create Contact screen elements</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Requests:</span><span class="pipe-data-val">srs(contact validation email phone), figma_ui(Create Contact)</span></div>
+       <details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);margin-top:6px">Show prompt sent to LLM</summary><pre>You are retrieval planner for QA testcase generation...\nDecide your NEXT ACTION only.\nObjective: generate next high-value test case\n...</pre></details>`);
+  }, 900);
+
+  setTimeout(() => {
+    setArchActive('archGw', 'arrowGwRag', 'archRag', 'arrowRagNeo', 'archNeo');
+    addPipeStep('cyan', '   ↳ RAG API → Neo4j: Fetch srs_atomic', 'Neo4j', 'svc-neo4j',
+      `<div class="pipe-data-row"><span class="pipe-data-key">Source:</span><span class="pipe-data-val">srs_atomic (AtomicRequirement nodes)</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Query:</span><span class="pipe-data-val">contact validation email phone</span></div>
+       <details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);margin-top:4px">Show retrieved data</summary><pre>FR-5 [validation] The system shall validate that at least one of phone number or email is present before saving a contact.\nFR-7 [validation] The system shall validate the format of email addresses before saving.\nFR-6 [validation] The system shall validate the format of phone numbers before saving.\nFR-1 [create] The system shall allow the user to create a new contact with at least one phone number or email.</pre></details>`);
+  }, 1400);
+
+  setTimeout(() => {
+    addPipeStep('cyan', '   ↳ RAG API → Neo4j: Fetch figma_ui', 'Neo4j', 'svc-neo4j',
+      `<div class="pipe-data-row"><span class="pipe-data-key">Source:</span><span class="pipe-data-val">figma_ui (FigmaScreen elements)</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Screen:</span><span class="pipe-data-val">Create Contact (No Icons)</span></div>
+       <details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);margin-top:4px">Show retrieved data</summary><pre>[Screen: Create Contact (No Icons)]\n  buttons: Save, Add phone, Email, Birthday, Address\n  inputs: First name, Surname, Company, Phone (Mobile), Notes</pre></details>`);
+  }, 1800);
+
+  setTimeout(() => {
+    setArchActive('archGw', 'archLlm');
+    addPipeStep('purple', '3.2 Gateway → LLM: Planner Round 2', 'LLM (Qwen)', 'svc-llm',
+      `<div class="pipe-data-row"><span class="pipe-data-key">Action:</span><span class="pipe-data-val">produce_testcase ✅</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Reason:</span><span class="pipe-data-val">Sufficient context gathered — validation rules + UI elements available</span></div>`);
+  }, 2300);
+
+  setTimeout(() => {
+    addPipeStep('amber', '4. Gateway: Assemble Context', 'Gateway', 'svc-gateway',
+      `<div class="pipe-data-row"><span class="pipe-data-key">SRS chars:</span><span class="pipe-data-val">420</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Figma overview:</span><span class="pipe-data-val">680 chars</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Figma UI:</span><span class="pipe-data-val">320 chars</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Figma flow:</span><span class="pipe-data-val">540 chars</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Queries:</span><span class="pipe-data-val">contact validation email phone</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Screens:</span><span class="pipe-data-val">Create Contact (No Icons)</span></div>`);
+  }, 2700);
+
+  setTimeout(() => {
+    setArchActive('archGw', 'archLlm');
+    addPipeStep('purple', '5. Gateway → LLM: Generate Test Case', 'LLM (Qwen)', 'svc-llm',
+      `<div class="pipe-data-row"><span class="pipe-data-key">Prompt size:</span><span class="pipe-data-val">2,450 chars</span></div>
+       <details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);margin-top:4px">Show final prompt (excerpt)</summary><pre>You are a senior QA test designer for contacts app.\nTask: generate next high-value non-duplicate test case.\n\n## SRS Requirements\nFR-5 [validation] validate phone/email presence...\nFR-7 [validation] validate email format...\n\n## Figma UI\n[Screen: Create Contact]\n  buttons: Save, Add phone, Email...\n  inputs: First name, Surname, Phone (Mobile)...\n\n## Output\nReturn STRICT JSON only...</pre></details>`);
+  }, 3100);
+
+  setTimeout(() => {
+    setArchActive('archGw', 'arrowSimGw', 'archSim');
+    addPipeStep('green', '6. Final Output: Generated Test Case', 'Result', 'svc-gateway',
+      `<div class="pipe-data-row"><span class="pipe-data-key">TC ID:</span><span class="pipe-data-val" style="color:var(--accent-cyan);font-weight:600">TC-001</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Title:</span><span class="pipe-data-val" style="font-weight:600">Verify email format validation rejects invalid email on Create Contact</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Screen:</span><span class="pipe-data-val">Create Contact (No Icons)</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Priority:</span><span class="pipe-data-val">high</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Area:</span><span class="pipe-data-val">validation</span></div>
+       <div style="margin-top:6px"><span class="pipe-data-key">Steps:</span><ol style="margin:4px 0 0 16px;font-size:11px;color:var(--text-secondary)"><li>Tap 'Create Contact' button</li><li>Enter 'John' in 'First name' input</li><li>Enter 'invalid-email' in 'Email' input</li><li>Tap 'Save' button</li></ol></div>
+       <div class="pipe-data-row" style="margin-top:6px"><span class="pipe-data-key">Expected:</span><span class="pipe-data-val">Error message is displayed, contact is NOT saved</span></div>
+       <div class="pipe-data-row"><span class="pipe-data-key">Rationale:</span><span class="pipe-data-val" style="color:var(--text-muted)">FR-7 requires email format validation before saving</span></div>`);
+    setPipeStatus('✅ Demo trace complete');
+  }, 3600);
+}
+
+// ── Init ──
+loadAll();
+</script>
+</body>
+</html>

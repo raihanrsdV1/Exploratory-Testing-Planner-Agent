@@ -7,13 +7,14 @@ import os
 import re
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from neo4j import GraphDatabase
 from pydantic import BaseModel, Field
 
 NEO4J_URI = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "raihanrashid")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "12345678")
 RAG_API_KEY = os.getenv("RAG_API_KEY", "")
 
 driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
@@ -31,10 +32,17 @@ async def lifespan(_: FastAPI):
         session.run("CREATE CONSTRAINT figma_element_id IF NOT EXISTS FOR (fe:UIElement) REQUIRE fe.id IS UNIQUE")
         session.run("CREATE CONSTRAINT feature_key IF NOT EXISTS FOR (f:FeatureArea) REQUIRE f.key IS UNIQUE")
         session.run("CREATE CONSTRAINT summary_id IF NOT EXISTS FOR (s:Summary) REQUIRE s.id IS UNIQUE")
+        session.run("CREATE CONSTRAINT atomic_req_id IF NOT EXISTS FOR (a:AtomicRequirement) REQUIRE a.id IS UNIQUE")
     yield
 
 
 app = FastAPI(title="Local Neo4j RAG API", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def _utc_now() -> str:
@@ -77,6 +85,149 @@ def _split_text(text: str, chunk_chars: int = 1200, overlap: int = 120) -> list[
     if current:
         chunks.append("\n".join(current).strip())
     return chunks
+
+
+# ── FR atomizer ───────────────────────────────────────────────────────────────
+
+_FR_CATEGORIES = {
+    "create":      ["create", "add", "input", "new", "save"],
+    "read":        ["display", "view", "show", "list", "scroll"],
+    "update":      ["edit", "update", "modify", "change", "rename"],
+    "delete":      ["delete", "remove", "detach"],
+    "search":      ["search", "find", "filter", "partial", "matching", "query"],
+    "validation":  ["validate", "format", "required", "prevent", "restrict", "invalid", "ensure"],
+    "import_export": ["import", "export", "vcf", "backup", "restore"],
+    "sync":        ["sync", "synchronize", "cloud", "conflict", "linked"],
+    "favorites":   ["favorite", "mark", "unmark", "persist"],
+    "groups":      ["group", "label", "organize"],
+    "permissions": ["permission", "access", "grant", "deny"],
+    "communication": ["call", "sms", "email", "dialer", "messaging", "share"],
+    "sort":        ["sort", "alphabetical", "order"],
+    "duplicate":   ["duplicate", "merge", "detect"],
+    "profile":     ["photo", "profile", "avatar"],
+    "multi_select": ["multi-select", "multiple", "batch", "simultaneous"],
+    "data_integrity": ["consistency", "timestamp", "unique", "identifier", "data volume"],
+}
+
+_ACTION_VERBS = [
+    "create", "display", "edit", "delete", "search", "validate", "import",
+    "export", "sync", "sort", "merge", "share", "allow", "prevent",
+    "detect", "resolve", "maintain", "support", "handle", "restrict",
+    "notify", "generate", "normalize", "persist", "open", "initiate",
+]
+
+_ENTITY_KEYWORDS = [
+    "contact", "phone", "email", "address", "group", "name", "photo",
+    "profile", "sim", "vcf", "cloud", "backup", "account", "permission",
+    "favorite", "organization", "notes", "dialer", "messaging", "clipboard",
+]
+
+_SYNONYM_MAP = {
+    "email": ["email", "mail", "e-mail"],
+    "phone": ["phone", "number", "telephone", "dialer", "call"],
+    "delete": ["delete", "remove", "erase"],
+    "create": ["create", "add", "new", "save"],
+    "search": ["search", "find", "filter", "query", "lookup"],
+    "validate": ["validate", "check", "verify", "format", "ensure"],
+    "edit": ["edit", "update", "modify", "change"],
+    "sync": ["sync", "synchronize", "cloud"],
+    "group": ["group", "label", "organize", "category"],
+    "import": ["import", "vcf", "external"],
+    "export": ["export", "vcf", "share"],
+    "favorite": ["favorite", "favourite", "star", "mark"],
+    "sort": ["sort", "order", "alphabetical"],
+    "duplicate": ["duplicate", "merge", "detect"],
+    "permission": ["permission", "access", "grant", "deny"],
+}
+
+
+def _classify_fr(text: str) -> str:
+    """Assign a semantic category to a functional requirement."""
+    text_lower = text.lower()
+    scores: dict[str, int] = {}
+    for cat, keywords in _FR_CATEGORIES.items():
+        score = sum(1 for kw in keywords if kw in text_lower)
+        if score > 0:
+            scores[cat] = score
+    if not scores:
+        return "general"
+    return max(scores, key=scores.get)
+
+
+def _extract_action_verb(text: str) -> str:
+    text_lower = text.lower()
+    for verb in _ACTION_VERBS:
+        if verb in text_lower:
+            return verb
+    return "process"
+
+
+def _extract_entities(text: str) -> list[str]:
+    text_lower = text.lower()
+    return [e for e in _ENTITY_KEYWORDS if e in text_lower]
+
+
+def _extract_keywords(text: str) -> list[str]:
+    """Extract meaningful keywords from FR text (no stopwords)."""
+    stop = {
+        "the", "system", "shall", "allow", "user", "must", "should",
+        "with", "from", "that", "this", "when", "into", "for", "and",
+        "able", "can", "may", "will", "each", "all", "any", "before",
+        "after", "within", "across", "during", "using", "based",
+    }
+    toks = re.findall(r"[a-zA-Z]{3,}", text.lower())
+    seen: dict[str, None] = {}
+    for t in toks:
+        if t not in stop and t not in seen:
+            seen[t] = None
+    return list(seen.keys())[:15]
+
+
+def _priority_from_verb(verb: str) -> str:
+    high = {"validate", "prevent", "restrict", "ensure", "detect", "resolve"}
+    low = {"support", "maintain", "handle", "persist"}
+    if verb in high:
+        return "high"
+    if verb in low:
+        return "low"
+    return "medium"
+
+
+def _expand_tokens_with_synonyms(tokens: list[str]) -> list[str]:
+    """Expand a list of tokens with synonyms for better recall."""
+    expanded = list(tokens)
+    for tok in tokens:
+        for base, syns in _SYNONYM_MAP.items():
+            if tok in syns:
+                for s in syns:
+                    if s not in expanded:
+                        expanded.append(s)
+    return expanded
+
+
+def _parse_atomic_frs(text: str) -> list[dict]:
+    """Parse SRS text into individual atomic FR records."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    frs = []
+    for line in lines:
+        m = re.match(r"^(FR-\d+)\s+(.*)", line, flags=re.IGNORECASE)
+        if not m:
+            continue
+        fr_id = m.group(1).upper()
+        fr_text = m.group(2).strip()
+        action = _extract_action_verb(fr_text)
+        frs.append({
+            "fr_id": fr_id,
+            "text": fr_text,
+            "full_text": line.strip(),
+            "category": _classify_fr(fr_text),
+            "keywords": _extract_keywords(fr_text),
+            "entities": _extract_entities(fr_text),
+            "action_verb": action,
+            "priority_hint": _priority_from_verb(action),
+            "order": int(re.search(r"\d+", fr_id).group()),
+        })
+    return frs
 
 
 def _query_tokens(q: str) -> list[str]:
@@ -770,7 +921,56 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default
                 project=req.project, idx=idx, text=ch, now=now,
             )
 
-    return {"status": "ok", "project": req.project, "srs_id": srs_id, "chunks_written": len(chunks)}
+        # ── Atomize individual FRs ────────────────────────────────────
+        atomic_frs = _parse_atomic_frs(text)
+        for fr in atomic_frs:
+            fr_node_id = f"{req.project}::fr::{fr['fr_id']}"
+            session.run(
+                """
+                MATCH (s:SRS {id:$srs_id})
+                MATCH (p:Project {name:$project})
+                MERGE (afr:AtomicRequirement {id:$fr_node_id})
+                SET afr.project = $project,
+                    afr.fr_id = $fr_id,
+                    afr.text = $text,
+                    afr.full_text = $full_text,
+                    afr.category = $category,
+                    afr.keywords = $keywords,
+                    afr.entities = $entities,
+                    afr.action_verb = $action_verb,
+                    afr.priority_hint = $priority_hint,
+                    afr.order = $fr_order,
+                    afr.updated_at = $now
+                MERGE (s)-[:HAS_REQUIREMENT]->(afr)
+                MERGE (p)-[:HAS_REQUIREMENT]->(afr)
+                MERGE (fa:FeatureArea {key:$feature_key})
+                SET fa.project = $project, fa.label = $category, fa.updated_at = $now
+                MERGE (p)-[:HAS_FEATURE]->(fa)
+                MERGE (afr)-[:IN_FEATURE]->(fa)
+                """,
+                project=req.project,
+                srs_id=srs_id,
+                fr_node_id=fr_node_id,
+                fr_id=fr["fr_id"],
+                text=fr["text"],
+                full_text=fr["full_text"],
+                category=fr["category"],
+                keywords=fr["keywords"],
+                entities=fr["entities"],
+                action_verb=fr["action_verb"],
+                priority_hint=fr["priority_hint"],
+                fr_order=fr["order"],
+                now=now,
+                feature_key=f"{req.project}::{fr['category']}",
+            )
+
+    return {
+        "status": "ok",
+        "project": req.project,
+        "srs_id": srs_id,
+        "chunks_written": len(chunks),
+        "atomic_frs_written": len(atomic_frs),
+    }
 
 
 @app.post("/ingest/figma")
@@ -973,6 +1173,32 @@ def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(def
             MERGE (btn)-[r:NAVIGATES_TO]->(dst)
             SET r.inferred = true,
                 r.updated_at = $now
+            """,
+            project=req.project,
+            now=now,
+        )
+
+        # ── Link Figma screens to AtomicRequirements by keyword overlap ───
+        session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_FIGMA]->(fs:FigmaScreen)
+            MATCH (p)-[:HAS_REQUIREMENT]->(afr:AtomicRequirement)
+            WHERE afr.keywords IS NOT NULL AND fs.purpose IS NOT NULL
+            WITH fs, afr,
+                 reduce(sc = 0, kw IN afr.keywords |
+                    sc + CASE
+                        WHEN toLower(fs.screen_name) CONTAINS kw THEN 2
+                        WHEN toLower(fs.purpose) CONTAINS kw THEN 2
+                        ELSE 0
+                    END
+                 ) AS name_score
+            OPTIONAL MATCH (fs)-[:HAS_ELEMENT]->(el:UIElement)
+            WITH fs, afr, name_score,
+                 sum(CASE WHEN any(kw IN afr.keywords WHERE toLower(el.label) CONTAINS kw) THEN 1 ELSE 0 END) AS el_score
+            WITH fs, afr, name_score + el_score AS total_score
+            WHERE total_score >= 2
+            MERGE (fs)-[r:COVERS_REQUIREMENT]->(afr)
+            SET r.score = total_score, r.updated_at = $now
             """,
             project=req.project,
             now=now,
@@ -1208,6 +1434,27 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             feature_key=f"{req.project}::{area_slug}",
         )
 
+        # Auto-link test to matching AtomicRequirements by keyword overlap
+        session.run(
+            """
+            MATCH (t:TestCase {id:$internal_test_id})
+            MATCH (:Project {name:$project})-[:HAS_REQUIREMENT]->(afr:AtomicRequirement)
+            WITH t, afr,
+                 reduce(sc = 0, kw IN afr.keywords |
+                    sc + CASE WHEN toLower($title) CONTAINS kw THEN 1 ELSE 0 END
+                    + CASE WHEN toLower($notes) CONTAINS kw THEN 1 ELSE 0 END
+                 ) AS score
+            WHERE score >= 2
+            MERGE (t)-[r:TESTS_REQUIREMENT]->(afr)
+            SET r.score = score, r.updated_at = $now
+            """,
+            project=req.project,
+            internal_test_id=internal_test_id,
+            title=req.title,
+            notes=req.notes,
+            now=now,
+        )
+
     return {"status": "ok", "project": req.project, "test_case_id": req.test_case_id, "run_id": run_id}
 
 
@@ -1412,21 +1659,27 @@ def graph_stats(project: str, authorization: str | None = Header(default=None)):
             OPTIONAL MATCH (p)-[:HAS_FIGMA]->(fs:FigmaScreen)
             OPTIONAL MATCH (fs)-[:HAS_ELEMENT]->(el:UIElement)
             OPTIONAL MATCH (fs)-[:RELATED_SCREEN]-(:FigmaScreen)
-                 OPTIONAL MATCH (el)-[:SAME_AS_UI]-(:UIElement)
-                 OPTIONAL MATCH (el)-[:NEXT_UI]->(:UIElement)
-             OPTIONAL MATCH (p)-[:HAS_FEATURE]->(f_all:FeatureArea)
+            OPTIONAL MATCH (el)-[:SAME_AS_UI]-(:UIElement)
+            OPTIONAL MATCH (el)-[:NEXT_UI]->(:UIElement)
+            OPTIONAL MATCH (p)-[:HAS_FEATURE]->(f_all:FeatureArea)
             OPTIONAL MATCH (p)-[:HAS_TEST]->(t:TestCase)
             OPTIONAL MATCH (t)-[:HAS_RUN]->(r:TestRun)
-             OPTIONAL MATCH (t)-[:COVERS_FEATURE]->(f_cov:FeatureArea)
+            OPTIONAL MATCH (t)-[:COVERS_FEATURE]->(f_cov:FeatureArea)
+            OPTIONAL MATCH (p)-[:HAS_REQUIREMENT]->(afr:AtomicRequirement)
+            OPTIONAL MATCH (afr)<-[:TESTS_REQUIREMENT]-(tc_cov:TestCase)
+            OPTIONAL MATCH (afr)<-[:COVERS_REQUIREMENT]-(fs_cov:FigmaScreen)
             RETURN count(DISTINCT s) AS srs_count,
                    count(DISTINCT c) AS chunk_count,
-                     count(DISTINCT sum) AS summary_count,
+                   count(DISTINCT sum) AS summary_count,
                    count(DISTINCT fs) AS figma_screen_count,
                    count(DISTINCT el) AS figma_element_count,
-                 count(DISTINCT f_all) AS feature_count,
+                   count(DISTINCT f_all) AS feature_count,
                    count(DISTINCT t) AS test_case_count,
                    count(DISTINCT r) AS test_run_count,
-                 count(DISTINCT f_cov) AS covered_feature_count,
+                   count(DISTINCT f_cov) AS covered_feature_count,
+                   count(DISTINCT afr) AS atomic_requirement_count,
+                   count(DISTINCT tc_cov) AS tests_covering_requirements,
+                   count(DISTINCT fs_cov) AS screens_covering_requirements,
                    count(DISTINCT fs) + count(DISTINCT el) AS figma_nodes_estimate
             """,
             project=project,
@@ -1628,4 +1881,170 @@ def graph_cypher(project: str, authorization: str | None = Header(default=None))
             "figma_links": q_figma,
             "test_links": q_tests,
         },
+    }
+
+
+# ── Atomic FR retrieval endpoints ─────────────────────────────────────────────
+
+class AtomicRetrieveRequest(BaseModel):
+    project: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1)
+    top_k: int = 8
+
+
+@app.post("/retrieve/atomic")
+def retrieve_atomic(req: AtomicRetrieveRequest, authorization: str | None = Header(default=None)):
+    """Retrieve individual atomic FRs with refined semantic scoring + synonym expansion."""
+    _check_auth(authorization)
+    tokens = _query_tokens(req.query)
+    expanded_tokens = _expand_tokens_with_synonyms(tokens)
+
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(afr:AtomicRequirement)
+            WITH afr,
+                 reduce(kw_score = 0, t IN $tokens |
+                    kw_score + CASE WHEN t IN afr.keywords THEN 3 ELSE 0 END
+                 ) AS keyword_score,
+                 reduce(ft_score = 0, t IN $expanded_tokens |
+                    ft_score + CASE WHEN toLower(afr.text) CONTAINS t THEN 1 ELSE 0 END
+                 ) AS text_score,
+                 reduce(ent_score = 0, t IN $tokens |
+                    ent_score + CASE WHEN t IN afr.entities THEN 2 ELSE 0 END
+                 ) AS entity_score,
+                 CASE WHEN afr.category IN $tokens THEN 3 ELSE 0 END AS cat_score
+            WITH afr, keyword_score + text_score + entity_score + cat_score AS total_score
+            WHERE total_score > 0
+            RETURN afr.fr_id AS fr_id,
+                   afr.text AS text,
+                   afr.category AS category,
+                   afr.action_verb AS action_verb,
+                   afr.priority_hint AS priority_hint,
+                   afr.entities AS entities,
+                   total_score AS score
+            ORDER BY total_score DESC, afr.order ASC
+            LIMIT $top_k
+            """,
+            project=req.project,
+            tokens=tokens,
+            expanded_tokens=expanded_tokens,
+            top_k=req.top_k,
+        )
+        results = [dict(r) for r in rows]
+
+    return {
+        "project": req.project,
+        "query": req.query,
+        "tokens_used": tokens,
+        "expanded_tokens": expanded_tokens,
+        "results": results,
+    }
+
+
+@app.get("/requirements/by-category")
+def requirements_by_category(
+    project: str,
+    category: str,
+    limit: int = 20,
+    authorization: str | None = Header(default=None),
+):
+    """Retrieve all atomic FRs in a given category."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (:Project {name:$project})-[:HAS_REQUIREMENT]->(afr:AtomicRequirement {category:$category})
+            RETURN afr.fr_id AS fr_id, afr.text AS text,
+                   afr.action_verb AS action_verb, afr.priority_hint AS priority
+            ORDER BY afr.order ASC
+            LIMIT $limit
+            """,
+            project=project, category=category, limit=limit,
+        )
+        results = [dict(r) for r in rows]
+    return {"project": project, "category": category, "requirements": results}
+
+
+@app.get("/requirements/categories")
+def requirements_categories(project: str, authorization: str | None = Header(default=None)):
+    """List all categories and their FR counts."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (:Project {name:$project})-[:HAS_REQUIREMENT]->(afr:AtomicRequirement)
+            RETURN afr.category AS category, count(*) AS count
+            ORDER BY count DESC
+            """,
+            project=project,
+        )
+        results = [dict(r) for r in rows]
+    return {"project": project, "categories": results}
+
+
+@app.get("/requirements/uncovered")
+def requirements_uncovered(project: str, limit: int = 30, authorization: str | None = Header(default=None)):
+    """Find atomic FRs that have NO test cases linked to them — highest priority for next test."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(afr:AtomicRequirement)
+            WHERE NOT (afr)<-[:TESTS_REQUIREMENT]-(:TestCase)
+            RETURN afr.fr_id AS fr_id, afr.text AS text,
+                   afr.category AS category, afr.priority_hint AS priority
+            ORDER BY
+                CASE afr.priority_hint WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                afr.order ASC
+            LIMIT $limit
+            """,
+            project=project, limit=limit,
+        )
+        results = [dict(r) for r in rows]
+    return {"project": project, "uncovered_count": len(results), "uncovered": results}
+
+
+@app.get("/requirements/coverage")
+def requirements_coverage(project: str, authorization: str | None = Header(default=None)):
+    """Full coverage report: each FR with its test status and linked screens."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(afr:AtomicRequirement)
+            OPTIONAL MATCH (afr)<-[tr:TESTS_REQUIREMENT]-(tc:TestCase)
+            OPTIONAL MATCH (afr)<-[cr:COVERS_REQUIREMENT]-(fs:FigmaScreen)
+            RETURN afr.fr_id AS fr_id,
+                   afr.text AS text,
+                   afr.category AS category,
+                   afr.priority_hint AS priority,
+                   afr.order AS fr_order,
+                   collect(DISTINCT tc.title) AS tested_by,
+                   collect(DISTINCT tc.last_verdict) AS verdicts,
+                   collect(DISTINCT fs.screen_name) AS linked_screens
+            ORDER BY fr_order ASC
+            """,
+            project=project,
+        )
+        results = []
+        covered = 0
+        for r in rows:
+            d = dict(r)
+            d["is_covered"] = len(d.get("tested_by", [])) > 0 and d["tested_by"] != [None]
+            if d["is_covered"]:
+                covered += 1
+            # Clean up None values from OPTIONAL MATCH
+            d["tested_by"] = [t for t in (d.get("tested_by") or []) if t]
+            d["verdicts"] = [v for v in (d.get("verdicts") or []) if v]
+            d["linked_screens"] = [s for s in (d.get("linked_screens") or []) if s]
+            results.append(d)
+    total = len(results)
+    return {
+        "project": project,
+        "total_requirements": total,
+        "covered": covered,
+        "uncovered": total - covered,
+        "coverage_pct": round((covered / total * 100) if total else 0, 1),
+        "requirements": results,
     }

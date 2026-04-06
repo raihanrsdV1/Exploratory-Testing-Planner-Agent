@@ -1,0 +1,25 @@
+The whole life of the project is something like this : If a QA engineer needs to test this app, what tests should they 
+write, in what order, and why? 
+
+what it produces? : 
+
+{
+  "test_case_id": "TC-001",
+  "title": "Verify email format validation rejects invalid email",
+  "screen": "Create Contact",
+  "preconditions": ["App is open"],
+  "steps": [
+    "Tap Create Contact button",
+    "Enter 'invalid-email' in Email input",
+    "Tap Save button"
+  ],
+  "expected_result": "Error shown, contact not saved",
+  "priority": "high",
+  "area": "validation",
+  "rationale": "FR-7 requires email format validation"
+}
+
+
+The simulation loop(simulation_runner.py) does this : 
+1. Ask: "Generate test case 1" -> gets TC-001
+2. Pretend: "TC-001 passed" (simulated) -> logs it to Neo4j 

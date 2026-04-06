@@ -5,6 +5,7 @@ from pathlib import Path
 
 import requests
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 # Local services (on your device)
@@ -12,11 +13,17 @@ RAG_API_URL = os.getenv("RAG_API_URL", "http://127.0.0.1:9010").rstrip("/")
 RAG_API_KEY = os.getenv("RAG_API_KEY", "")
 
 # Model API — Gemini local server by default, or set to ngrok URL for Kaggle notebook
-MODEL_API_URL = os.getenv("MODEL_API_URL", "https://d7bf-34-90-11-71.ngrok-free.app").rstrip("/")
+MODEL_API_URL = os.getenv("MODEL_API_URL", "https://toccara-syncopated-vicky.ngrok-free.dev").rstrip("/")
 
 GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "")
 
 app = FastAPI(title="Local Agent Gateway")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class ChatRequest(BaseModel):
@@ -163,6 +170,18 @@ def _call_model(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict
 def _get_srs_and_history(project: str, query: str, top_k: int) -> dict:
     """Fetch SRS chunks + test history from the knowledge graph."""
     return _rag_post("/retrieve", {"project": project, "query": query, "top_k": top_k, "include_history": False})
+
+
+def _get_atomic_frs(project: str, query: str, top_k: int) -> list[dict]:
+    """Fetch individual atomic FRs using refined semantic scoring."""
+    data = _rag_post("/retrieve/atomic", {"project": project, "query": query, "top_k": top_k})
+    return data.get("results", [])
+
+
+def _get_uncovered_frs(project: str, limit: int = 10) -> list[dict]:
+    """Fetch FRs with no test coverage — highest priority for next test."""
+    data = _rag_get("/requirements/uncovered", {"project": project, "limit": limit})
+    return data.get("uncovered", [])
 
 
 def _get_figma_screens(project: str) -> list[dict]:
@@ -766,13 +785,26 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
                 q = _to_query_expr(query, req.objective)
                 if q not in collected_queries:
                     collected_queries.append(q)
-                data = _get_srs_and_history(req.project, q, top_k=min(req.top_k, 2))
-                block = data.get("context", "")
-                if block:
+                # Use atomic retrieval first (per-FR, scored, synonym-expanded)
+                atomic_results = _get_atomic_frs(req.project, q, top_k=min(req.top_k, 5))
+                if atomic_results:
+                    block = "\n".join(
+                        f"{r['fr_id']} [{r.get('category','')}] {r['text']}"
+                        for r in atomic_results
+                    )
                     srs_context_blocks.append(block)
-                    round_retrieved_notes.append(f"srs | query={q} | {_compact_note(block)}")
+                    round_retrieved_notes.append(f"srs_atomic | query={q} | {_compact_note(block)}")
                     if req.debug_trace:
-                        debug_trace["retrieved_blocks"].append({"round": round_no, "source": source, "query": q, "context": block})
+                        debug_trace["retrieved_blocks"].append({"round": round_no, "source": "srs_atomic", "query": q, "context": block})
+                else:
+                    # Fallback to legacy chunk retrieval
+                    data = _get_srs_and_history(req.project, q, top_k=min(req.top_k, 2))
+                    block = data.get("context", "")
+                    if block:
+                        srs_context_blocks.append(block)
+                        round_retrieved_notes.append(f"srs | query={q} | {_compact_note(block)}")
+                        if req.debug_trace:
+                            debug_trace["retrieved_blocks"].append({"round": round_no, "source": source, "query": q, "context": block})
 
             elif source == "figma_ui":
                 s = screen or (action.get("target_screens", []) or fallback_screens[:1])[0] if (action.get("target_screens", []) or fallback_screens) else ""
