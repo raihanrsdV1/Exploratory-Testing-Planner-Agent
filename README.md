@@ -149,7 +149,7 @@ If ngrok URL changes, restart gateway with updated `MODEL_API_URL`.
 ```bash
 curl -X POST http://127.0.0.1:9100/srs/ingest \
   -H 'Content-Type: application/json' \
-  -d '{"project":"contacts-app","source_path":"./SRS1.txt"}'
+  -d '{"project":"contacts-app","source_path":"./data/inputs/SRS1.txt"}'
 ```
 
 Expected output includes `chunks_written`.

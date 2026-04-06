@@ -1,0 +1,1 @@
+./start.sh --stop && sleep 1 && ./start.sh --no-ingest

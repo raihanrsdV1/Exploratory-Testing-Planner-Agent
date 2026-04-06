@@ -3,9 +3,10 @@
 # start.sh — Start all QA Agent services and verify they are healthy
 #
 # Usage:
-#   ./start.sh              # start everything + ingest SRS & Figma
-#   ./start.sh --no-ingest  # start services only, skip ingest
-#   ./start.sh --stop       # kill all managed services
+#   ./start.sh               # start everything + ingest SRS & Figma + executor
+#   ./start.sh --no-ingest   # start services only, skip ingest
+#   ./start.sh --no-executor # start services + ingest, but skip executor
+#   ./start.sh --stop        # kill all managed services
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -19,12 +20,13 @@ GATEWAY_PORT=9100
 
 RAG_LOG="$DIR/logs/rag_api.log"
 GATEWAY_LOG="$DIR/logs/gateway.log"
+EXECUTOR_LOG="$DIR/logs/simulation_result.txt"
 
 PID_FILE="$DIR/logs/services.pid"
 
 PROJECT="contacts-app"
-SRS_PATH="./SRS1.txt"
-FIGMA_PATH="./GENERATED_JSON.json"
+SRS_PATH="./data/inputs/SRS1.txt"
+FIGMA_PATH="./data/inputs/GENERATED_JSON.json"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -48,7 +50,11 @@ if [[ "${1:-}" == "--stop" ]]; then
 fi
 
 NO_INGEST=false
-[[ "${1:-}" == "--no-ingest" ]] && NO_INGEST=true
+NO_EXECUTOR=false
+for arg in "$@"; do
+  [[ "$arg" == "--no-ingest" ]]   && NO_INGEST=true
+  [[ "$arg" == "--no-executor" ]] && NO_EXECUTOR=true
+done
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 mkdir -p "$DIR/logs"
@@ -62,6 +68,20 @@ if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
+fi
+
+# ── Resolve Python executable ────────────────────────────────────────────────
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  if [[ -x "$DIR/venv/bin/python" ]]; then
+    PYTHON_BIN="$DIR/venv/bin/python"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python)"
+  elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+  else
+    err "No Python executable found. Install Python or set PYTHON_BIN in .env"
+    exit 1
+  fi
 fi
 
 echo ""
@@ -103,7 +123,7 @@ check_port() {
 ERRORS=0
 
 # ── 1. RAG API ────────────────────────────────────────────────────────────────
-echo -e "${CYAN}[1/2] RAG API (Neo4j + SRS/Figma store)${NC}"
+echo -e "${CYAN}[1/3] RAG API (Neo4j + SRS/Figma store)${NC}"
 if check_port $RAG_PORT "RAG API"; then
   uvicorn local_rag_api:app --host 0.0.0.0 --port $RAG_PORT \
     > "$RAG_LOG" 2>&1 &
@@ -115,7 +135,7 @@ wait_for_health "RAG API" "http://127.0.0.1:$RAG_PORT/health" || ERRORS=$((ERROR
 echo ""
 
 # ── 2. Agent Gateway ──────────────────────────────────────────────────────────
-echo -e "${CYAN}[2/2] Agent Gateway${NC}"
+echo -e "${CYAN}[2/3] Agent Gateway${NC}"
 if [[ -z "${MODEL_API_URL:-}" ]]; then
   err "MODEL_API_URL is not set. Point it to your Kaggle/ngrok planner /generate API."
   err "Example: export MODEL_API_URL=https://xxxx.ngrok-free.app"
@@ -142,9 +162,9 @@ if [[ $ERRORS -gt 0 ]]; then
   exit 1
 fi
 
-# ── 4. Ingest SRS + Figma ─────────────────────────────────────────────────────
+# ── 3. Ingest SRS + Figma ─────────────────────────────────────────────────────
 if [[ "$NO_INGEST" == false ]]; then
-  echo -e "${CYAN}[4/4] Ingesting SRS + Figma into Neo4j${NC}"
+  echo -e "${CYAN}[3/3] Ingesting SRS + Figma into Neo4j${NC}"
 
   if [[ -f "$SRS_PATH" && -f "$FIGMA_PATH" ]]; then
     info "Running ingest_all.py (reset + SRS + Figma + stats)"
@@ -153,7 +173,7 @@ if [[ "$NO_INGEST" == false ]]; then
       PROJECT="$PROJECT" \
       SRS_PATH="$SRS_PATH" \
       FIGMA_PATH="$FIGMA_PATH" \
-      python ingest_all.py 2>&1) || {
+      "$PYTHON_BIN" ingest_all.py 2>&1) || {
       err "ingest_all.py failed"
       echo "$INGEST_OUTPUT"
       ERRORS=$((ERRORS+1))
@@ -164,6 +184,31 @@ if [[ "$NO_INGEST" == false ]]; then
     fi
   else
     warn "SRS or Figma file missing (SRS=$SRS_PATH, FIGMA=$FIGMA_PATH) — skipping ingest"
+  fi
+  echo ""
+fi
+
+# ── 4. Droidrun Executor ──────────────────────────────────────────────────────
+if [[ "$NO_EXECUTOR" == false ]]; then
+  echo -e "${CYAN}[4/4] Droidrun Executor${NC}"
+
+  # Check ADB device is connected
+  if ! command -v adb &>/dev/null; then
+    warn "adb not found — skipping executor. Install: brew install android-platform-tools"
+  else
+    ADB_DEVICES=$(adb devices 2>/dev/null | grep -v '^List' | grep 'device$' | wc -l | tr -d ' ')
+    if [[ "$ADB_DEVICES" -eq 0 ]]; then
+      warn "No ADB device/emulator connected — skipping executor."
+      warn "  Start your Android emulator then re-run, or use: ./start.sh --no-executor"
+    else
+      info "ADB device found (${ADB_DEVICES} device(s)). Launching executor..."
+      "$PYTHON_BIN" executor_runner.py \
+        > "$EXECUTOR_LOG" 2>&1 &
+      EXECUTOR_PID=$!
+      echo "$EXECUTOR_PID" >> "$PID_FILE"
+      ok "Executor started (PID $EXECUTOR_PID) → logs/simulation_result.txt"
+      info "  Watch live: tail -f $DIR/logs/simulation_result.txt"
+    fi
   fi
   echo ""
 fi
@@ -181,9 +226,11 @@ echo "  Model      → $MODEL_API_URL"
 echo "  Gateway    → http://127.0.0.1:$GATEWAY_PORT"
 echo ""
 echo "  Next steps:"
-echo "    python test_loop_client.py    # interactive QA loop"
-echo "    python simulator_runner.py    # automated simulation"
-echo "    ./start.sh --stop             # stop all services"
+echo "    tail -f simulation_result.txt      # watch live executor output"
+echo "    $PYTHON_BIN test_loop_client.py    # interactive QA loop"
+echo "    $PYTHON_BIN executor_runner.py     # run executor manually"
+echo "    ./start.sh --no-executor       # start services without executor"
+echo "    ./start.sh --stop              # stop all services"
 echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
 echo ""
 

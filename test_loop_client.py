@@ -5,7 +5,7 @@ import requests
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
 PROJECT = os.getenv("PROJECT_NAME", "contacts-app")
 APP_NAME = os.getenv("APP_NAME", "contacts app")
-SRS_PATH = os.getenv("SRS_PATH", "./SRS1.txt")
+SRS_PATH = os.getenv("SRS_PATH", "./data/inputs/SRS1.txt")
 GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "")
 
 

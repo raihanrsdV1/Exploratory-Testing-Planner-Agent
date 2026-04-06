@@ -4,8 +4,8 @@ import requests
 BASE_GATEWAY = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
 BASE_RAG = os.getenv("RAG_URL", "http://127.0.0.1:9010").rstrip("/")
 PROJECT = os.getenv("PROJECT", "contacts-app")
-SRS_PATH = os.getenv("SRS_PATH", "./SRS1.txt")
-FIGMA_PATH = os.getenv("FIGMA_PATH", "./GENERATED_JSON.json")
+SRS_PATH = os.getenv("SRS_PATH", "./data/inputs/SRS1.txt")
+FIGMA_PATH = os.getenv("FIGMA_PATH", "./data/inputs/GENERATED_JSON.json")
 
 
 def post(url: str, payload: dict):

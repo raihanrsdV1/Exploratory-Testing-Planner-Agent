@@ -7,12 +7,29 @@ import requests
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+try:
+    from google import genai
+    from google.genai import types
+    HAS_GEMINI = True
+except ImportError:
+    HAS_GEMINI = False
+
 # Local services (on your device)
 RAG_API_URL = os.getenv("RAG_API_URL", "http://127.0.0.1:9010").rstrip("/")
 RAG_API_KEY = os.getenv("RAG_API_KEY", "")
 
-# Model API — Gemini local server by default, or set to ngrok URL for Kaggle notebook
+# Model API — ngrok/local server OR OpenRouter OR Gemini
+MODEL_BACKEND = os.getenv("MODEL_BACKEND", "ngrok").strip().lower()  # "ngrok", "openrouter", "gemini"
 MODEL_API_URL = os.getenv("MODEL_API_URL", "https://d7bf-34-90-11-71.ngrok-free.app").rstrip("/")
+
+# Gemini config (used when MODEL_BACKEND=gemini)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+PLANNER_GEMINI_MODEL = os.getenv("PLANNER_GEMINI_MODEL", "gemini-2.5-pro")
+
+# OpenRouter config (used when MODEL_BACKEND=openrouter)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "qwen/qwen3.6-plus:free")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "")
 
@@ -23,7 +40,7 @@ class ChatRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
     project: str = "default"
     top_k: int = 3
-    max_new_tokens: int = 1024
+    max_new_tokens: int = 2048
     enable_thinking: bool = False
 
 
@@ -60,7 +77,7 @@ class IngestSRSRequest(BaseModel):
     require_model_summary: bool = True
 
 
-def _summarize_srs_with_model(srs_text: str, max_new_tokens: int = 700) -> str:
+def _summarize_srs_with_model(srs_text: str, max_new_tokens: int = 1000) -> str:
     """Create a planner-friendly SRS summary from full source text using the model backend."""
     prompt = (
         "You are an expert software requirements analyst.\n"
@@ -146,16 +163,113 @@ def _rag_post(path: str, body: dict) -> dict:
 
 
 def _call_model(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict:
+    """
+    Call the LLM. Supports multiple backends controlled by MODEL_BACKEND env var:
+      - "ngrok"      → custom /generate endpoint
+      - "openrouter" → OpenAI-compatible chat completions via OpenRouter
+      - "gemini"     → Native Google GenAI SDK
+    """
+    if MODEL_BACKEND == "gemini":
+        return _call_gemini(prompt, max_new_tokens, enable_thinking)
+    elif MODEL_BACKEND == "openrouter":
+        return _call_openrouter(prompt, max_new_tokens, enable_thinking)
+    else:
+        return _call_ngrok(prompt, max_new_tokens, enable_thinking)
+
+
+def _call_gemini(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict:
+    """Call Google's Gemini models via the GenAI SDK."""
+    if not HAS_GEMINI:
+        raise HTTPException(status_code=500, detail="google-genai package not installed.")
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not set in .env")
+
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model=PLANNER_GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                max_output_tokens=max_new_tokens,
+                temperature=0.7,
+                system_instruction=(
+                    "You are a senior QA engineer generating exploratory test cases. "
+                    "Always respond with valid JSON when asked for test cases. "
+                    "Follow the exact output format specified in the user prompt."
+                )
+            ),
+        )
+        return {"answer": response.text, "thinking": ""}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Model backend (Gemini) unavailable: {e}")
+
+
+def _call_ngrok(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict:
     try:
         resp = requests.post(
             f"{MODEL_API_URL}/generate",
             json={"prompt": prompt, "max_new_tokens": max_new_tokens, "enable_thinking": enable_thinking},
-            timeout=180,
+            timeout=300,
         )
         resp.raise_for_status()
         return resp.json()
     except requests.RequestException as e:
-        raise HTTPException(status_code=503, detail=f"Model backend unavailable: {e}")
+        raise HTTPException(status_code=503, detail=f"Model backend (ngrok) unavailable: {e}")
+
+def _call_openrouter(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict:
+    """Call OpenRouter's OpenAI-compatible chat completions API."""
+    if not OPENROUTER_API_KEY:
+        raise HTTPException(status_code=503, detail="OPENROUTER_API_KEY not set in .env")
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://qa-planner-agent.local",
+        "X-Title": "QA Planner Agent",
+    }
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a senior QA engineer generating exploratory test cases. "
+                "Always respond with valid JSON when asked for test cases. "
+                "Follow the exact output format specified in the user prompt."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": messages,
+        "max_tokens": max_new_tokens,
+        "temperature": 0.7,
+    }
+
+    try:
+        resp = requests.post(
+            f"{OPENROUTER_BASE_URL}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=180,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Extract answer from OpenAI-compatible response
+        answer = ""
+        thinking = ""
+        if "choices" in data and len(data["choices"]) > 0:
+            message = data["choices"][0].get("message", {})
+            answer = message.get("content", "")
+            # Some models return thinking in a separate field
+            thinking = message.get("reasoning", "") or message.get("thinking", "")
+
+        return {"answer": answer, "thinking": thinking}
+
+    except requests.RequestException as e:
+        raise HTTPException(status_code=503, detail=f"Model backend (OpenRouter) unavailable: {e}")
 
 
 # ── Knowledge graph queries ───────────────────────────────────────────────────
@@ -613,7 +727,18 @@ def _parse_testcase(raw: str) -> dict:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "rag_api": RAG_API_URL, "model_api": MODEL_API_URL}
+    model_info = {
+        "backend": MODEL_BACKEND,
+    }
+    if MODEL_BACKEND == "gemini":
+        model_info["model"] = PLANNER_GEMINI_MODEL
+        model_info["api"] = "Google GenAI API"
+    elif MODEL_BACKEND == "openrouter":
+        model_info["model"] = OPENROUTER_MODEL
+        model_info["api"] = OPENROUTER_BASE_URL
+    else:
+        model_info["api"] = MODEL_API_URL
+    return {"status": "ok", "rag_api": RAG_API_URL, "model_api": MODEL_API_URL, "model": model_info}
 
 
 @app.post("/srs/ingest")

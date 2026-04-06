@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 NEO4J_URI = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "raihanrashid")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "hihi")
 RAG_API_KEY = os.getenv("RAG_API_KEY", "")
 
 driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
@@ -1538,7 +1538,7 @@ def demo_endpoints():
                     "path": "/ingest/srs",
                     "body": {
                         "project": "contacts-app",
-                        "source_path": "./SRS1.txt",
+                        "source_path": "./data/inputs/SRS1.txt",
                     },
                 },
                 {
