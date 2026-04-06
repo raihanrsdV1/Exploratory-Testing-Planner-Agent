@@ -12,6 +12,7 @@ set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$DIR/.env"
 
 RAG_PORT=9010
 GATEWAY_PORT=9100
@@ -53,6 +54,15 @@ NO_INGEST=false
 mkdir -p "$DIR/logs"
 > "$PID_FILE"
 cd "$DIR"
+
+# ── Load environment from .env if present ────────────────────────────────────
+if [[ -f "$ENV_FILE" ]]; then
+  info "Loading environment from .env"
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
 
 echo ""
 echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
@@ -109,6 +119,7 @@ echo -e "${CYAN}[2/2] Agent Gateway${NC}"
 if [[ -z "${MODEL_API_URL:-}" ]]; then
   err "MODEL_API_URL is not set. Point it to your Kaggle/ngrok planner /generate API."
   err "Example: export MODEL_API_URL=https://xxxx.ngrok-free.app"
+  err "Or add MODEL_API_URL=... to .env in this project root."
   exit 1
 fi
 if check_port $GATEWAY_PORT "Gateway"; then

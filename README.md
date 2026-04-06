@@ -34,11 +34,11 @@ It is designed for iterative QA testing:
 
 - **Local Gateway (local_agent_gateway.py)**
   - Calls RAG API + model API
-  - Uses **multi-stage generation**:
+  - Uses **iterative retrieval-agent generation**:
     1) fetch brief summaries + recent tests
-    2) ask model for retrieval plan (queries + target screens)
-    3) fetch targeted SRS + Figma elements only
-    4) generate one structured test case
+    2) ask model for next action in strict JSON (`retrieve` or `produce_testcase`)
+    3) if `retrieve`, fetch targeted SRS/Figma context and repeat (up to capped rounds)
+    4) when `produce_testcase`, generate one structured test case
   - Logs verdict and returns next test case
 
 - **Simulator loop client (simulator_runner.py)**
@@ -216,7 +216,30 @@ curl -X POST http://127.0.0.1:9100/agent/log-verdict-and-next \
 python simulator_runner.py
 ```
 
-This demonstrates multiple rounds and prints recently saved tests from Neo4j.
+This demonstrates multiple rounds and prints:
+- preflight checks (gateway, RAG, model health)
+- stage flow per round:
+  1) summary context loaded (SRS/Figma/test history)
+  2) retrieval plan decision (`action`, `retrieval_requests`, `target_screens`)
+  3) next testcase generation
+- recently saved tests from Neo4j
+- conversation view per round:
+  - what the agent asked to retrieve first
+  - what the DB returned (summarized)
+  - protocol trace until final testcase
+
+Optional simulator controls:
+
+```bash
+# print full planner prompts, retrieved context, and raw model responses
+DEBUG_TRACE=1 python simulator_runner.py
+
+# start fresh by deleting only previous tests first
+RESET_TESTS_FIRST=1 python simulator_runner.py
+
+# full reset (tests + SRS + Figma) before run
+RESET_ALL_FIRST=1 python simulator_runner.py
+```
 
 ---
 

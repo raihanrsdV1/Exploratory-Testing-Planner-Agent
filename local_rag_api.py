@@ -45,18 +45,50 @@ def _split_text(text: str, chunk_chars: int = 1200, overlap: int = 120) -> list[
     text = (text or "").strip()
     if not text:
         return []
+
+    # Semantic-ish SRS chunking: group FR lines first (better retrieval granularity)
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    req_lines = [ln for ln in lines if re.match(r"^FR-\d+", ln, flags=re.IGNORECASE)]
+    if req_lines:
+        grouped: list[str] = []
+        group_size = 8
+        step = 6  # overlap of 2 requirements
+        for i in range(0, len(req_lines), step):
+            block = req_lines[i:i + group_size]
+            if block:
+                grouped.append("\n".join(block))
+        return grouped
+
+    # Fallback sentence-aware chunking for non-FR texts
+    units = [u.strip() for u in re.split(r"\n\s*\n|(?<=[.!?])\s+", text) if u.strip()]
     chunks: list[str] = []
-    i = 0
-    n = len(text)
-    while i < n:
-        j = min(i + chunk_chars, n)
-        chunk = text[i:j].strip()
-        if chunk:
-            chunks.append(chunk)
-        if j >= n:
-            break
-        i = max(j - overlap, i + 1)
+    current: list[str] = []
+    cur_len = 0
+    for u in units:
+        if cur_len + len(u) + 1 <= chunk_chars or not current:
+            current.append(u)
+            cur_len += len(u) + 1
+        else:
+            chunks.append("\n".join(current).strip())
+            # small overlap from previous chunk tail
+            tail = current[-1:] if overlap > 0 else []
+            current = tail + [u]
+            cur_len = sum(len(x) + 1 for x in current)
+    if current:
+        chunks.append("\n".join(current).strip())
     return chunks
+
+
+def _query_tokens(q: str) -> list[str]:
+    toks = [t.strip().lower() for t in re.findall(r"[a-zA-Z0-9_]+", q or "")]
+    out: list[str] = []
+    stop = {"the", "and", "for", "with", "that", "this", "what", "when", "from", "into", "about"}
+    for t in toks:
+        if len(t) < 3 or t in stop:
+            continue
+        if t not in out:
+            out.append(t)
+    return out[:10]
 
 
 def _strip_markdown_fence(raw: str) -> str:
@@ -73,13 +105,40 @@ def _strip_markdown_fence(raw: str) -> str:
 
 
 def _build_srs_summary(text: str) -> str:
-    """Compact project-level SRS summary for planner stage-1 context."""
+    """Fallback project-level SRS summary for planner stage-1 context."""
     lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
-    req_lines = [ln for ln in lines if re.match(r"^FR-\d+", ln)]
     title = lines[0] if lines else "Product requirements"
-    sample = req_lines[:10] if req_lines else lines[:10]
-    summary = [f"{title}", f"Total requirements: {len(req_lines) if req_lines else 'unknown'}", "Key requirements:"]
-    summary.extend([f"- {ln[:180]}" for ln in sample])
+    fr_lines = [ln for ln in lines if re.match(r"^FR-\d+", ln, flags=re.IGNORECASE)]
+    nfr_lines = [ln for ln in lines if re.match(r"^NFR-\d+", ln, flags=re.IGNORECASE)]
+    if not nfr_lines:
+        nfr_lines = [
+            ln for ln in lines
+            if any(k in ln.lower() for k in ["non-functional", "performance", "security", "usability", "reliability", "availability"])
+        ]
+
+    summary = [
+        f"Document: {title}",
+        f"Total FR requirements: {len(fr_lines) if fr_lines else 'unknown'}",
+        f"Total NFR requirements: {len(nfr_lines) if nfr_lines else 0}",
+        "Functional requirements summary:",
+    ]
+    for ln in (fr_lines[:12] if fr_lines else lines[:12]):
+        summary.append(f"- {ln[:220]}")
+
+    summary.append("Non-functional requirements summary:")
+    if nfr_lines:
+        for ln in nfr_lines[:8]:
+            summary.append(f"- {ln[:220]}")
+    else:
+        summary.append("- Not explicitly tagged in source text.")
+
+    summary.append("Validation and constraints:")
+    val = [
+        ln for ln in (fr_lines + nfr_lines + lines)
+        if any(k in ln.lower() for k in ["validate", "must", "shall", "required", "format", "constraint"])
+    ]
+    for ln in val[:8]:
+        summary.append(f"- {ln[:220]}")
     return "\n".join(summary)
 
 
@@ -270,6 +329,7 @@ class RetrieveRequest(BaseModel):
     project: str = Field(..., min_length=1)
     query: str = Field(..., min_length=1)
     top_k: int = 5
+    include_history: bool = True
 
 
 class BriefContextRequest(BaseModel):
@@ -281,7 +341,8 @@ class IngestSRSRequest(BaseModel):
     project: str = Field(..., min_length=1)
     source_path: str = Field(..., min_length=1)
     srs_text: str | None = None
-    chunk_chars: int = 1200
+    chunk_chars: int = 700
+    srs_summary: str | None = None
 
 
 class LogTestRequest(BaseModel):
@@ -430,6 +491,10 @@ def _graph_summary_payload(project: str, top: int) -> dict:
               WITH p
               MATCH (p)-[:HAS_FIGMA]->(:FigmaScreen)-[:HAS_ELEMENT]->(:UIElement)-[r:IN_FEATURE|NEXT_UI|SAME_AS_UI]->()
               RETURN r
+                            UNION
+                            WITH p
+                            MATCH (p)-[:HAS_FIGMA]->(:FigmaScreen)-[:HAS_ELEMENT]->(:UIElement)-[r:NAVIGATES_TO]->(:FigmaScreen)
+                            RETURN r
               UNION
               WITH p
               MATCH (p)-[:HAS_TEST]->(:TestCase)-[r:HAS_RUN|COVERS_FEATURE]->()
@@ -657,8 +722,9 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default
             raise HTTPException(status_code=404, detail=f"SRS file not found: {req.source_path}")
         text = src.read_text(encoding="utf-8", errors="ignore")
 
-    chunks = _split_text(text, chunk_chars=req.chunk_chars)
-    srs_summary = _build_srs_summary(text)
+    overlap = max(40, min(120, int(req.chunk_chars * 0.12)))
+    chunks = _split_text(text, chunk_chars=req.chunk_chars, overlap=overlap)
+    srs_summary = (req.srs_summary or "").strip() or _build_srs_summary(text)
     now = _utc_now()
     srs_id = f"{req.project}::srs::{Path(req.source_path).name}"
     srs_summary_id = f"{req.project}::summary::srs"
@@ -885,6 +951,33 @@ def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(def
             project=req.project,
         )
 
+        # Inferred button/navigation to screen transitions (NAVIGATES_TO)
+        session.run(
+            """
+            MATCH (:Project {name:$project})-[:HAS_FIGMA]->(:FigmaScreen)-[:HAS_ELEMENT]->(e:UIElement)-[r:NAVIGATES_TO]->(:FigmaScreen)
+            DELETE r
+            """,
+            project=req.project,
+        )
+        session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_FIGMA]->(src:FigmaScreen)-[:HAS_ELEMENT]->(btn:UIElement)
+            MATCH (p)-[:HAS_FIGMA]->(dst:FigmaScreen)
+            WHERE src.id <> dst.id
+              AND btn.kind IN ['button','navigation']
+              AND (
+                    toLower(btn.label) CONTAINS toLower(dst.purpose)
+                 OR toLower(btn.label) CONTAINS toLower(dst.screen_name)
+                 OR any(tok IN split(toLower(dst.screen_name), ' ') WHERE size(tok) >= 4 AND toLower(btn.label) CONTAINS tok)
+              )
+            MERGE (btn)-[r:NAVIGATES_TO]->(dst)
+            SET r.inferred = true,
+                r.updated_at = $now
+            """,
+            project=req.project,
+            now=now,
+        )
+
     return {
         "status": "ok",
         "project": req.project,
@@ -912,7 +1005,7 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
         tests = session.run(
             """
             MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
-            RETURN t.id AS id, t.title AS title, t.area AS area,
+            RETURN coalesce(t.external_id, t.id) AS id, t.title AS title, t.area AS area,
                    t.last_verdict AS verdict, t.last_run_at AS ts
             ORDER BY t.last_run_at DESC
             LIMIT $limit
@@ -964,6 +1057,85 @@ def figma_screens(project: str, authorization: str | None = Header(default=None)
     return {"project": project, "screens": screens}
 
 
+@app.get("/figma/overview")
+def figma_overview(project: str, top_labels: int = 4, authorization: str | None = Header(default=None)):
+    """Compact all-screen UI overview for planner prompts."""
+    _check_auth(authorization)
+    top_labels = max(2, min(top_labels, 10))
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (:Project {name:$project})-[:HAS_FIGMA]->(fs:FigmaScreen)
+            OPTIONAL MATCH (fs)-[:HAS_ELEMENT]->(e:UIElement)
+            WITH fs,
+                 [x IN collect(CASE WHEN e.kind='button' THEN e.label END) WHERE x IS NOT NULL][0..$top_labels] AS buttons,
+                 [x IN collect(CASE WHEN e.kind='input' THEN e.label END) WHERE x IS NOT NULL][0..$top_labels] AS inputs,
+                 [x IN collect(CASE WHEN e.kind='navigation' THEN e.label END) WHERE x IS NOT NULL][0..$top_labels] AS nav
+            RETURN fs.screen_name AS screen_name,
+                   fs.purpose AS purpose,
+                   fs.interactive_count AS interactive_count,
+                   buttons,
+                   inputs,
+                   nav
+            ORDER BY fs.interactive_count DESC, fs.screen_name ASC
+            """,
+            project=project,
+            top_labels=top_labels,
+        )
+        screens = [dict(r) for r in rows]
+    return {"project": project, "screens": screens}
+
+
+@app.get("/figma/transitions")
+def figma_transitions(
+    project: str,
+    screen_name: str | None = None,
+    limit: int = 80,
+    authorization: str | None = Header(default=None),
+):
+    """Return inferred UI navigation transitions (button/navigation element -> target screen)."""
+    _check_auth(authorization)
+    limit = max(10, min(limit, 400))
+    with driver.session() as session:
+        if screen_name:
+            rows = session.run(
+                """
+                MATCH (:Project {name:$project})-[:HAS_FIGMA]->(src:FigmaScreen {screen_name:$screen_name})
+                      -[:HAS_ELEMENT]->(e:UIElement)-[r:NAVIGATES_TO]->(dst:FigmaScreen)
+                RETURN src.screen_name AS from_screen,
+                       e.label AS via_element,
+                       e.kind AS element_kind,
+                       dst.screen_name AS to_screen,
+                       dst.purpose AS to_purpose,
+                       r.inferred AS inferred
+                ORDER BY src.screen_name, via_element
+                LIMIT $limit
+                """,
+                project=project,
+                screen_name=screen_name,
+                limit=limit,
+            )
+        else:
+            rows = session.run(
+                """
+                MATCH (:Project {name:$project})-[:HAS_FIGMA]->(src:FigmaScreen)
+                      -[:HAS_ELEMENT]->(e:UIElement)-[r:NAVIGATES_TO]->(dst:FigmaScreen)
+                RETURN src.screen_name AS from_screen,
+                       e.label AS via_element,
+                       e.kind AS element_kind,
+                       dst.screen_name AS to_screen,
+                       dst.purpose AS to_purpose,
+                       r.inferred AS inferred
+                ORDER BY src.screen_name, via_element
+                LIMIT $limit
+                """,
+                project=project,
+                limit=limit,
+            )
+        items = [dict(r) for r in rows]
+    return {"project": project, "screen_name": screen_name, "transitions": items}
+
+
 @app.get("/figma/elements")
 def figma_elements(
     project: str,
@@ -1001,7 +1173,10 @@ def figma_elements(
 def log_test(req: LogTestRequest, authorization: str | None = Header(default=None)):
     _check_auth(authorization)
     now = _utc_now()
-    run_id = f"{req.project}::{req.test_case_id}::run::{now}"
+    # Keep a stable internal testcase key by semantic title so repeated external IDs
+    # (e.g., TC-001 in multiple rounds) do not overwrite different testcases.
+    internal_test_id = f"{req.project}::tc::{_slug(req.title)}"
+    run_id = f"{internal_test_id}::run::{now}"
     area_slug = _slug(req.area)
 
     with driver.session() as session:
@@ -1010,8 +1185,9 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             MERGE (p:Project {name:$project})
             ON CREATE SET p.created_at = $now
             SET p.updated_at = $now
-            MERGE (t:TestCase {id:$test_case_id})
+            MERGE (t:TestCase {id:$internal_test_id})
             SET t.project = $project, t.title = $title, t.area = $area,
+                t.external_id = $external_test_case_id,
                 t.last_verdict = $verdict, t.last_notes = $notes,
                 t.last_run_at = $now, t.updated_at = $now
             MERGE (p)-[:HAS_TEST]->(t)
@@ -1024,7 +1200,9 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
                 r.notes = $notes, r.created_at = $now
             MERGE (t)-[:HAS_RUN]->(r)
             """,
-            project=req.project, test_case_id=req.test_case_id,
+            project=req.project,
+            internal_test_id=internal_test_id,
+            external_test_case_id=req.test_case_id,
             title=req.title, area=req.area, verdict=req.verdict,
             notes=req.notes, now=now, run_id=run_id,
             feature_key=f"{req.project}::{area_slug}",
@@ -1143,17 +1321,26 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
     Figma is NOT included here — query /figma/elements per screen separately.
     """
     _check_auth(authorization)
+    tokens = _query_tokens(req.query)
 
     with driver.session() as session:
-        # SRS keyword match
+        # token-overlap scoring for semantically better chunk selection
         srs_rows = session.run(
             """
             MATCH (p:Project {name:$project})-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk)
-            WHERE c.text IS NOT NULL AND toLower(c.text) CONTAINS toLower($q)
-            RETURN c.text AS text
+            WHERE c.text IS NOT NULL
+            WITH c,
+                 reduce(sc = 0, t IN $tokens |
+                    sc + CASE WHEN toLower(c.text) CONTAINS t THEN 1 ELSE 0 END
+                 ) AS score
+            WHERE score > 0
+            RETURN c.id AS id, c.text AS text, score
+            ORDER BY score DESC, c.order ASC
             LIMIT $top_k
             """,
-            project=req.project, q=req.query, top_k=req.top_k,
+            project=req.project,
+            tokens=tokens,
+            top_k=req.top_k,
         )
         srs_chunks = [r["text"] for r in srs_rows if r.get("text")]
 
@@ -1167,18 +1354,29 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
             )
             srs_chunks = [r["text"] for r in fallback if r.get("text")]
 
-        # Recent test history
-        test_rows = session.run(
-            """
-            MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
-            RETURN t.id AS id, t.title AS title, t.last_verdict AS verdict,
-                   t.last_notes AS notes, t.last_run_at AS ts
-            ORDER BY t.last_run_at DESC
-            LIMIT $top_k
-            """,
-            project=req.project, top_k=req.top_k,
-        )
-        recent_tests = [dict(r) for r in test_rows]
+        # de-duplicate near-identical chunks
+        deduped: list[str] = []
+        seen = set()
+        for c in srs_chunks:
+            key = re.sub(r"\s+", " ", (c or "").lower()).strip()
+            if key and key not in seen:
+                seen.add(key)
+                deduped.append(c)
+        srs_chunks = deduped[: max(1, req.top_k)]
+
+        recent_tests = []
+        if req.include_history:
+            test_rows = session.run(
+                """
+                MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
+                RETURN t.id AS id, t.title AS title, t.last_verdict AS verdict,
+                       t.last_notes AS notes, t.last_run_at AS ts
+                ORDER BY t.last_run_at DESC
+                LIMIT $top_k
+                """,
+                project=req.project, top_k=req.top_k,
+            )
+            recent_tests = [dict(r) for r in test_rows]
 
     history_lines = [
         f"- [{t.get('verdict','unknown')}] {t.get('id','')}: {t.get('title','')}"
@@ -1189,7 +1387,7 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
     context_parts = []
     if srs_chunks:
         context_parts.append("SRS requirements:\n" + "\n\n".join(srs_chunks))
-    if history_lines:
+    if req.include_history and history_lines:
         context_parts.append("Recent test history:\n" + "\n".join(history_lines))
 
     return {

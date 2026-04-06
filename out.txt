@@ -1,0 +1,2243 @@
+
+========================================================================
+PREFLIGHT CHECK
+========================================================================
+Gateway health: {'status': 'ok', 'rag_api': 'http://127.0.0.1:9010', 'model_api': 'https://d7bf-34-90-11-71.ngrok-free.app'}
+RAG health: {'status': 'ok', 'neo4j_uri': 'neo4j://127.0.0.1:7687'}
+Model health: {'status': 'ok', 'model': 'Qwen/Qwen3-32B', 'device': 'cuda:0', 'dtype': 'torch.bfloat16'}
+
+========================================================================
+STAGE FLOW: SUMMARY CONTEXT -> RETRIEVAL PLAN -> NEXT TEST
+========================================================================
+1) Global summary context loaded from RAG:
+   - SRS summary
+   - Figma summary + screen index
+   - Recent test history
+2) Planner decided retrieval plan:
+   focus_queries: ['validation AND (email OR phone)']
+   target_screens: ['create_contact']
+   reason: Need UI-specific details for validation messages and error handling during contact creation to ensure comprehensive test coverage.
+   retrieval rounds:
+    - round 1 | action= retrieve | queries= ['validation rules for contact creation', 'UI elements available for input on Create Contact screen'] | screens= ['create_contact', 'contact_list']
+    - round 2 | action= retrieve | queries= ['email validation', 'phone validation'] | screens= ['create_contact']
+   finalization_mode: no_new_context_early_finalize
+   context_sent: srs_chars= 1512 figma_chars= 0
+3) Generated next testcase:
+    TC-104 | Verify system allows saving a contact to a SIM storage source and confirms successful save
+   area: business_logic
+
+========================================================================
+CONVERSATION VIEW (ROUND)
+========================================================================
+Agent[1]: action=retrieve | reason=Need to retrieve validation rules for contact creation and UI elements on the Create Contact screen to generate a relevant and non-duplicate test case.
+  asks -> source=srs query=validation AND (email OR phone) screen=
+  asks -> source=figma_ui query=Create Contact screen elements screen=create_contact
+  asks -> source=figma_flow query=navigation from Create Contact to Contacts List screen=
+  db -> source=srs summary=SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The  ...
+  db -> source=figma_flow summary=Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Shar ...
+Agent[2]: action=retrieve | reason=Need UI-specific details for validation messages and error handling during contact creation to ensure comprehensive test coverage.
+  asks -> source=figma_ui query=email validation OR phone validation screen=create_contact
+  asks -> source=figma_flow query=create contact AND error message screen=create_contact
+System protocol:
+  1) Agent asks retrieval requests in strict JSON.
+  2) Gateway retrieves from SRS/Figma UI/Figma flow DB.
+  3) Agent gets additional summarized context and decides continue or finalize.
+  4) Final output is one strict testcase JSON.
+
+========================================================================
+DEBUG TRACE: PROMPTS, CONTEXT, RAW MODEL OUTPUT
+========================================================================
+[Planner round 1] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate next high-value non-duplicate test case
+Retrieval round: 1/3
+Collected queries so far: []
+Collected screens so far: []
+Collected context size (chars): 0
+
+Retrieved context so far (continuation from earlier requests):
+- none yet
+
+Full global context (round 1):
+SRS summary:
+Document: Samsung Contacts Application SRS
+
+Functional requirements summary:
+- FR-1: User can create a new contact with at least one phone number or email.
+- FR-2: User can input multiple phone numbers per contact.
+- FR-3: User can input multiple email addresses per contact.
+- FR-4: User can input optional fields like address, organization, notes, and photo.
+- FR-5: Contact must have at least one phone or email to save.
+- FR-6: Validate phone number format before saving.
+- FR-7: Validate email format before saving.
+- FR-8: Save contacts to local storage, SIM, or cloud.
+- FR-9: Display list of all contacts from device and accounts.
+- FR-12: View detailed info of a selected contact.
+- FR-14: Edit any contact field.
+- FR-15: Update contact data immediately after edits.
+- FR-16: Delete a single contact.
+- FR-17: Delete multiple contacts simultaneously.
+- FR-18: Prompt for confirmation before deletion.
+- FR-19: Remove deleted contacts from all groups.
+- FR-20: Search contacts by name.
+- FR-21: Search contacts by phone number.
+- FR-22: Search contacts by email.
+- FR-25: Update search results dynamically.
+- FR-26: Sort contacts alphabetically.
+- FR-27: Sort by first or last name.
+- FR-29: Mark a contact as favorite.
+- FR-31: Provide a separate view for favorites.
+- FR-33: Create new contact group.
+- FR-37: Add contacts to groups.
+- FR-39: Display contacts in selected group.
+- FR-40: Initiate phone call from contact.
+- FR-42: Send SMS from contact.
+- FR-44: Send email from contact.
+- FR-46: Import contacts from SIM.
+- FR-47: Import from external storage (VCF).
+- FR-49: Handle duplicate contacts during import.
+- FR-50: Export contacts to VCF.
+- FR-53: Enable auto-sync with cloud accounts.
+- FR-54: Allow manual sync.
+- FR-55: Sync contacts across devices.
+- FR-64: Detect duplicate contacts.
+- FR-65: Suggest merging duplicates.
+- FR-66: Merge selected contacts.
+- FR-68: Assign profile photo to contact.
+- FR-70: Display profile photos in UI.
+- FR-78: Copy contact details to clipboard.
+- FR-79: Share contact details via apps.
+- FR-80: Generate VCF on share.
+- FR-84: Display error messages for invalid operations.
+- FR-85: Prevent saving contacts with invalid required data.
+- FR-87: Maintain timestamps for contact modifications.
+- FR-91: Add custom fields to contacts.
+- FR-92: Store and retrieve custom fields correctly.
+- FR-95: Support international phone number formats.
+- FR-97: Handle special characters in contact names.
+- FR-98: Support multilingual contact names.
+
+Non-functional requirements summary:
+- NFR-1: Not explicitly listed. Non-functional requirements are not provided in the SRS.
+
+Figma summary:
+Total screens: 7
+Screens:
+- Contacts List (Updated) (purpose=contact_list, elements=12)
+- Highlights (No FAB) (purpose=highlights, elements=18)
+- Create Contact (No Icons) (purpose=create_contact, elements=18)
+- Contact Details (Dark Mode) (purpose=contact_details, elements=11)
+- Settings (No Bottom Bar) (purpose=settings, elements=8)
+- Organise (Merged List) (purpose=organise, elements=31)
+- Search Results (purpose=search, elements=8)
+
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Figma UI overview (generalized):
+Total screens: 7
+Screens by purpose:
+- Organise (Merged List) (purpose=organise, interactive=16)
+- Create Contact (No Icons) (purpose=create_contact, interactive=15)
+- Highlights (No FAB) (purpose=highlights, interactive=9)
+- Contact Details (Dark Mode) (purpose=contact_details, interactive=8)
+- Contacts List (Updated) (purpose=contact_list, interactive=8)
+- Settings (No Bottom Bar) (purpose=settings, interactive=4)
+- Search Results (purpose=search, interactive=2)
+Recent tests (exact): TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "retrieve",
+  "retrieval_requests": [
+    {
+      "source": "srs",
+      "query": "validation AND (email OR phone)"
+    },
+    {
+      "source": "figma_ui",
+      "query": "Create Contact screen elements",
+      "screen": "create_contact"
+    },
+    {
+      "source": "figma_flow",
+      "query": "navigation from Create Contact to Contacts List"
+    }
+  ],
+  "focus_queries": [
+    "validation rules for contact creation",
+    "UI elements available for input on Create Contact screen"
+  ],
+  "target_screens": [
+    "create_contact",
+    "contact_list"
+  ],
+  "reason": "Need to retrieve validation rules for contact creation and UI elements on the Create Contact screen to generate a relevant and non-duplicate test case."
+}
+------------------------------------------------------------------------
+[Planner round 2] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate next high-value non-duplicate test case
+Retrieval round: 2/3
+Collected queries so far: ['validation AND (email OR phone)']
+Collected screens so far: ['create_contact']
+Collected context size (chars): 1512
+
+This prompt is a response to your previous retrieval request and includes the requested DB context.
+
+Retrieved context so far (continuation from earlier requests):
+- srs | query=validation AND (email OR phone) | SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The system shall allow the user to input mul ...
+- figma_flow | screen=* | Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)  ...
+
+Global memo (do not re-ask same broad context):
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Recent tests (exact): TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+Use Retrieved context so far to refine, not restart.
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "retrieve",
+  "retrieval_requests": [
+    {
+      "source": "figma_ui",
+      "query": "email validation OR phone validation",
+      "screen": "create_contact"
+    },
+    {
+      "source": "figma_flow",
+      "query": "create contact AND error message",
+      "screen": "create_contact"
+    }
+  ],
+  "focus_queries": ["email validation", "phone validation", "error handling"],
+  "target_screens": ["create_contact"],
+  "reason": "Need UI-specific details for validation messages and error handling during contact creation to ensure comprehensive test coverage."
+}
+------------------------------------------------------------------------
+[Retrieved context round 1 query=validation AND (email OR phone)]
+
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+------------------------------------------------------------------------
+[Retrieved context round 1 query=None]
+
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+------------------------------------------------------------------------
+[Final generation prompt]:
+You are a senior QA test designer for contacts app.
+Task: generate next high-value non-duplicate test case.
+Propose exactly ONE test case not already in the executed list.
+
+## SRS Requirements (relevant excerpt)
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+
+## Figma UI overview (all screens, compact)
+Available screens and key UI elements:
+- Organise (Merged List) (purpose=organise, interactive=16)
+  buttons: Contact ringtones / Set ringtones for specific contacts, Google Contacts sync settings / Manage preferences and accounts, Merge and fix / Clean up duplicates and errors, Reminders / Birthdays and key anniversaries
+  navigation: Contacts | Highlights | Organise
+- Create Contact (No Icons) (purpose=create_contact, interactive=15)
+  buttons: Email, Birthday, Address, Other
+  inputs: Notes, First name / Surname / Company / Add phone / Notes, Add phone, First name
+- Highlights (No FAB) (purpose=highlights, interactive=9)
+  buttons: Organise, Contacts, Add, Call
+  navigation: Contacts | Highlights | Organise
+- Contact Details (Dark Mode) (purpose=contact_details, interactive=8)
+  buttons: Button, Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS), Reminders, Verify keys / Verify end-to-end encryption with this
+contact
+- Contacts List (Updated) (purpose=contact_list, interactive=8)
+  buttons: Button:css-transform, Button - FAB: Create Contact, All contacts, Button
+  navigation: Contacts | Highlights | Organise
+- Settings (No Bottom Bar) (purpose=settings, interactive=4)
+  buttons: Button, Accounts, Your info, Undo changes
+- Search Results (purpose=search, interactive=2)
+  buttons: Button
+  inputs: ba
+
+## Figma flow hints (button/navigation transitions)
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+
+## Already executed tests (avoid semantic duplicates)
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system rejects contact save when email format is invalid and provides appropriate error message
+- Verify system allows saving a contact with multiple phone numbers and validates phone number format
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates contact saving when no phone number or email is provided
+- Verify system allows saving a contact to a cloud account
+- Verify system validates email format before saving a contact
+- Verify system suggests merging duplicate contacts during restore from backup
+- Verify system suggests merging duplicate contacts during import from VCF file
+
+## Failed tests (prioritise adjacent coverage)
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates email format before saving a contact
+
+## Decision policy
+1. Do NOT propose a test semantically similar to executed titles.
+2. Prefer tests adjacent to failed behaviours or that close a coverage gap.
+3. Vary the area — avoid repeating the same feature in consecutive rounds.
+4. Validate either business logic (SRS), UI behavior (Figma UI), or navigation flow (Figma flow).
+
+## Output
+Return STRICT JSON only — no markdown, no commentary.
+Keys: test_case_id, title, screen, preconditions (array), steps (array),
+      expected_result, priority (high/medium/low), area, rationale
+Steps must reference actual UI element names from the Figma context above.
+
+[Final generation raw answer]:
+```json
+{
+  "test_case_id": "TC-001",
+  "title": "Verify system allows saving a contact to a SIM storage source and confirms successful save",
+  "screen": "Create Contact (No Icons)",
+  "preconditions": [
+    "User has a SIM card inserted in the device.",
+    "User is on the 'Create Contact (No Icons)' screen.",
+    "User has not created a contact yet."
+  ],
+  "steps": [
+    "Enter a valid first name in the 'First name' input field.",
+    "Click the 'Add phone' button and enter a valid phone number.",
+    "Navigate to the 'Organise' screen and select 'Google Contacts sync settings'.",
+    "Navigate back to the 'Create Contact (No Icons)' screen.",
+    "Select the 'Save to SIM' option (if available in the UI) or use the storage selector (if present).",
+    "Click the 'Save' or 'Done' button to save the contact."
+  ],
+  "expected_result": "The contact is saved to the SIM card, and a confirmation message is displayed. The contact should also appear in the 'Contacts List (Updated)' under the appropriate storage category.",
+  "priority": "high",
+  "area": "business_logic",
+  "rationale": "This test ensures the system supports saving a contact to a SIM card as per FR-8 and validates the storage functionality beyond local/cloud, which was not previously tested."
+}
+```
+------------------------------------------------------------------------
+
+========================================================================
+ROUND 1
+========================================================================
+Logged: TC-104 | pass | contacts-app::tc::verify_system_allows_saving_a_contact_to_a_sim_storage_source_and_confirms_successful_save::run::2026-04-06T03:55:49.386495+00:00
+
+========================================================================
+STAGE FLOW: SUMMARY CONTEXT -> RETRIEVAL PLAN -> NEXT TEST
+========================================================================
+1) Global summary context loaded from RAG:
+   - SRS summary
+   - Figma summary + screen index
+   - Recent test history
+2) Planner decided retrieval plan:
+   focus_queries: ['validation AND (email OR phone)', 'multiple AND phone AND validation']
+   target_screens: ['Create Contact (No Icons)']
+   reason: Collected context covers requirements for multiple phone validation and relevant UI elements. Ready to produce test case.
+   retrieval rounds:
+    - round 1 | action= retrieve | queries= ['Validation rules for email and phone fields during contact creation', 'UI elements available for contact creation'] | screens= ['Create Contact (No Icons)', 'Contacts List (Updated)']
+    - round 2 | action= retrieve | queries= ['phone number validation', 'multiple phone numbers'] | screens= ['Create Contact (No Icons)']
+    - round 3 | action= produce_testcase | queries= ['multiple AND phone AND validation', 'validation AND (email OR phone)'] | screens= ['Create Contact (No Icons)']
+   finalization_mode: agent_signaled_sufficient_context
+   context_sent: srs_chars= 1512 figma_chars= 236
+3) Generated next testcase:
+    TC-105 | Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields (phone or email) are present
+   area: Business Logic
+
+========================================================================
+CONVERSATION VIEW (ROUND)
+========================================================================
+Agent[1]: action=retrieve | reason=To gather validation rules for contact creation and understand UI flow for generating relevant test cases.
+  asks -> source=srs query=validation AND (email OR phone) screen=
+  asks -> source=figma_ui query=contact creation screen elements screen=Create Contact (No Icons)
+  asks -> source=figma_flow query=navigation from contact list to contact creation screen=
+  db -> source=srs summary=SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The  ...
+  db -> source=figma_ui summary=[Screen: Create Contact (No Icons)]   buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save   inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone ( ...
+  db -> source=figma_flow summary=Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Shar ...
+Agent[2]: action=retrieve | reason=To understand the UI flow and validation rules for adding multiple phone numbers during contact creation.
+  asks -> source=figma_flow query=Add phone AND navigation screen=Create Contact (No Icons)
+  asks -> source=srs query=multiple AND phone AND validation screen=
+  asks -> source=figma_ui query=Save button AND Create Contact (No Icons) screen=
+  db -> source=srs summary=SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The  ...
+  db -> source=figma_ui summary=[Screen: Create Contact (No Icons)]   buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save   inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone ( ...
+Agent[3]: action=produce_testcase | reason=Collected context covers requirements for multiple phone validation and relevant UI elements. Ready to produce test case.
+System protocol:
+  1) Agent asks retrieval requests in strict JSON.
+  2) Gateway retrieves from SRS/Figma UI/Figma flow DB.
+  3) Agent gets additional summarized context and decides continue or finalize.
+  4) Final output is one strict testcase JSON.
+
+========================================================================
+DEBUG TRACE: PROMPTS, CONTEXT, RAW MODEL OUTPUT
+========================================================================
+[Planner round 1] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate the next best test case after latest verdict
+Retrieval round: 1/3
+Collected queries so far: []
+Collected screens so far: []
+Collected context size (chars): 0
+
+Retrieved context so far (continuation from earlier requests):
+- none yet
+
+Full global context (round 1):
+SRS summary:
+Document: Samsung Contacts Application SRS
+
+Functional requirements summary:
+- FR-1: User can create a new contact with at least one phone number or email.
+- FR-2: User can input multiple phone numbers per contact.
+- FR-3: User can input multiple email addresses per contact.
+- FR-4: User can input optional fields like address, organization, notes, and photo.
+- FR-5: Contact must have at least one phone or email to save.
+- FR-6: Validate phone number format before saving.
+- FR-7: Validate email format before saving.
+- FR-8: Save contacts to local storage, SIM, or cloud.
+- FR-9: Display list of all contacts from device and accounts.
+- FR-12: View detailed info of a selected contact.
+- FR-14: Edit any contact field.
+- FR-15: Update contact data immediately after edits.
+- FR-16: Delete a single contact.
+- FR-17: Delete multiple contacts simultaneously.
+- FR-18: Prompt for confirmation before deletion.
+- FR-19: Remove deleted contacts from all groups.
+- FR-20: Search contacts by name.
+- FR-21: Search contacts by phone number.
+- FR-22: Search contacts by email.
+- FR-25: Update search results dynamically.
+- FR-26: Sort contacts alphabetically.
+- FR-27: Sort by first or last name.
+- FR-29: Mark a contact as favorite.
+- FR-31: Provide a separate view for favorites.
+- FR-33: Create new contact group.
+- FR-37: Add contacts to groups.
+- FR-39: Display contacts in selected group.
+- FR-40: Initiate phone call from contact.
+- FR-42: Send SMS from contact.
+- FR-44: Send email from contact.
+- FR-46: Import contacts from SIM.
+- FR-47: Import from external storage (VCF).
+- FR-49: Handle duplicate contacts during import.
+- FR-50: Export contacts to VCF.
+- FR-53: Enable auto-sync with cloud accounts.
+- FR-54: Allow manual sync.
+- FR-55: Sync contacts across devices.
+- FR-64: Detect duplicate contacts.
+- FR-65: Suggest merging duplicates.
+- FR-66: Merge selected contacts.
+- FR-68: Assign profile photo to contact.
+- FR-70: Display profile photos in UI.
+- FR-78: Copy contact details to clipboard.
+- FR-79: Share contact details via apps.
+- FR-80: Generate VCF on share.
+- FR-84: Display error messages for invalid operations.
+- FR-85: Prevent saving contacts with invalid required data.
+- FR-87: Maintain timestamps for contact modifications.
+- FR-91: Add custom fields to contacts.
+- FR-92: Store and retrieve custom fields correctly.
+- FR-95: Support international phone number formats.
+- FR-97: Handle special characters in contact names.
+- FR-98: Support multilingual contact names.
+
+Non-functional requirements summary:
+- NFR-1: Not explicitly listed. Non-functional requirements are not provided in the SRS.
+
+Figma summary:
+Total screens: 7
+Screens:
+- Contacts List (Updated) (purpose=contact_list, elements=12)
+- Highlights (No FAB) (purpose=highlights, elements=18)
+- Create Contact (No Icons) (purpose=create_contact, elements=18)
+- Contact Details (Dark Mode) (purpose=contact_details, elements=11)
+- Settings (No Bottom Bar) (purpose=settings, elements=8)
+- Organise (Merged List) (purpose=organise, elements=31)
+- Search Results (purpose=search, elements=8)
+
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Figma UI overview (generalized):
+Total screens: 7
+Screens by purpose:
+- Organise (Merged List) (purpose=organise, interactive=16)
+- Create Contact (No Icons) (purpose=create_contact, interactive=15)
+- Highlights (No FAB) (purpose=highlights, interactive=9)
+- Contact Details (Dark Mode) (purpose=contact_details, interactive=8)
+- Contacts List (Updated) (purpose=contact_list, interactive=8)
+- Settings (No Bottom Bar) (purpose=settings, interactive=4)
+- Search Results (purpose=search, interactive=2)
+Recent tests (exact): TC-104|pass|business_logic|Verify system allows saving a contact to a SIM storage source and confirms successful save; TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "retrieve",
+  "retrieval_requests": [
+    {
+      "source": "srs",
+      "query": "validation AND (email OR phone)"
+    },
+    {
+      "source": "figma_ui",
+      "query": "contact creation screen elements",
+      "screen": "Create Contact (No Icons)"
+    },
+    {
+      "source": "figma_flow",
+      "query": "navigation from contact list to contact creation"
+    }
+  ],
+  "focus_queries": [
+    "Validation rules for email and phone fields during contact creation",
+    "UI elements available for contact creation",
+    "User journey from contact list to creating a new contact"
+  ],
+  "target_screens": [
+    "Create Contact (No Icons)",
+    "Contacts List (Updated)"
+  ],
+  "reason": "To gather validation rules for contact creation and understand UI flow for generating relevant test cases."
+}
+------------------------------------------------------------------------
+[Planner round 2] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate the next best test case after latest verdict
+Retrieval round: 2/3
+Collected queries so far: ['validation AND (email OR phone)']
+Collected screens so far: ['Create Contact (No Icons)']
+Collected context size (chars): 1512
+
+This prompt is a response to your previous retrieval request and includes the requested DB context.
+
+Retrieved context so far (continuation from earlier requests):
+- srs | query=validation AND (email OR phone) | SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The system shall allow the user to input mul ...
+- figma_ui | screen=Create Contact (No Icons) | [Screen: Create Contact (No Icons)] buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+- figma_flow | screen=* | Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)  ...
+
+Global memo (do not re-ask same broad context):
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Recent tests (exact): TC-104|pass|business_logic|Verify system allows saving a contact to a SIM storage source and confirms successful save; TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+Use Retrieved context so far to refine, not restart.
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "retrieve",
+  "retrieval_requests": [
+    {"source": "figma_flow", "query": "Add phone AND navigation", "screen": "Create Contact (No Icons)"},
+    {"source": "srs", "query": "multiple AND phone AND validation"},
+    {"source": "figma_ui", "query": "Save button AND Create Contact (No Icons)"}
+  ],
+  "focus_queries": ["phone number validation", "multiple phone numbers", "UI flow for adding phone numbers"],
+  "target_screens": ["Create Contact (No Icons)"],
+  "reason": "To understand the UI flow and validation rules for adding multiple phone numbers during contact creation."
+}
+------------------------------------------------------------------------
+[Planner round 3] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate the next best test case after latest verdict
+Retrieval round: 3/3
+Collected queries so far: ['validation AND (email OR phone)', 'multiple AND phone AND validation']
+Collected screens so far: ['Create Contact (No Icons)']
+Collected context size (chars): 3026
+
+This prompt is a response to your previous retrieval request and includes the requested DB context.
+
+Retrieved context so far (continuation from earlier requests):
+- srs | query=multiple AND phone AND validation | SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The system shall allow the user to input mul ...
+- figma_ui | screen=Create Contact (No Icons) | [Screen: Create Contact (No Icons)] buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+
+Global memo (do not re-ask same broad context):
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Recent tests (exact): TC-104|pass|business_logic|Verify system allows saving a contact to a SIM storage source and confirms successful save; TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+Use Retrieved context so far to refine, not restart.
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "produce_testcase",
+  "retrieval_requests": [],
+  "focus_queries": ["multiple AND phone AND validation", "validation AND (email OR phone)"],
+  "target_screens": ["Create Contact (No Icons)"],
+  "reason": "Collected context covers requirements for multiple phone validation and relevant UI elements. Ready to produce test case."
+}
+------------------------------------------------------------------------
+[Retrieved context round 1 query=validation AND (email OR phone)]
+
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+------------------------------------------------------------------------
+[Retrieved context round 1 query=None]
+
+[Screen: Create Contact (No Icons)]
+  buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save
+  inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+------------------------------------------------------------------------
+[Retrieved context round 1 query=None]
+
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+------------------------------------------------------------------------
+[Retrieved context round 2 query=multiple AND phone AND validation]
+
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+------------------------------------------------------------------------
+[Retrieved context round 2 query=None]
+
+[Screen: Create Contact (No Icons)]
+  buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save
+  inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+------------------------------------------------------------------------
+[Final generation prompt]:
+You are a senior QA test designer for contacts app.
+Task: generate the next best test case after latest verdict.
+Propose exactly ONE test case not already in the executed list.
+
+## SRS Requirements (relevant excerpt)
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+
+## Figma UI overview (all screens, compact)
+Available screens and key UI elements:
+- Organise (Merged List) (purpose=organise, interactive=16)
+  buttons: Contact ringtones / Set ringtones for specific contacts, Google Contacts sync settings / Manage preferences and accounts, Merge and fix / Clean up duplicates and errors, Reminders / Birthdays and key anniversaries
+  navigation: Contacts | Highlights | Organise
+- Create Contact (No Icons) (purpose=create_contact, interactive=15)
+  buttons: Email, Birthday, Address, Other
+  inputs: Notes, First name / Surname / Company / Add phone / Notes, Add phone, First name
+- Highlights (No FAB) (purpose=highlights, interactive=9)
+  buttons: Organise, Contacts, Add, Call
+  navigation: Contacts | Highlights | Organise
+- Contact Details (Dark Mode) (purpose=contact_details, interactive=8)
+  buttons: Button, Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS), Reminders, Verify keys / Verify end-to-end encryption with this
+contact
+- Contacts List (Updated) (purpose=contact_list, interactive=8)
+  buttons: Button:css-transform, Button - FAB: Create Contact, All contacts, Button
+  navigation: Contacts | Highlights | Organise
+- Settings (No Bottom Bar) (purpose=settings, interactive=4)
+  buttons: Button, Accounts, Your info, Undo changes
+- Search Results (purpose=search, interactive=2)
+  buttons: Button
+  inputs: ba
+
+## Figma UI — interactive elements on relevant screens
+(Use exact button labels / input names in your steps)
+[Screen: Create Contact (No Icons)]
+  buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save
+  inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+
+## Figma flow hints (button/navigation transitions)
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+
+## Already executed tests (avoid semantic duplicates)
+- Verify system allows saving a contact to a SIM storage source and confirms successful save
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system rejects contact save when email format is invalid and provides appropriate error message
+- Verify system allows saving a contact with multiple phone numbers and validates phone number format
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates contact saving when no phone number or email is provided
+- Verify system allows saving a contact to a cloud account
+- Verify system validates email format before saving a contact
+- Verify system suggests merging duplicate contacts during restore from backup
+- Verify system suggests merging duplicate contacts during import from VCF file
+
+## Failed tests (prioritise adjacent coverage)
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates email format before saving a contact
+
+## Decision policy
+1. Do NOT propose a test semantically similar to executed titles.
+2. Prefer tests adjacent to failed behaviours or that close a coverage gap.
+3. Vary the area — avoid repeating the same feature in consecutive rounds.
+4. Validate either business logic (SRS), UI behavior (Figma UI), or navigation flow (Figma flow).
+
+## Output
+Return STRICT JSON only — no markdown, no commentary.
+Keys: test_case_id, title, screen, preconditions (array), steps (array),
+      expected_result, priority (high/medium/low), area, rationale
+Steps must reference actual UI element names from the Figma context above.
+
+[Final generation raw answer]:
+```json
+{
+  "test_case_id": "TC-012",
+  "title": "Verify system displays fallback identifiers in contact list when name is missing",
+  "screen": "Contacts List (Updated)",
+  "preconditions": [
+    "A contact is created without a name but with at least one valid phone number or email address",
+    "The contact is saved to the local storage"
+  ],
+  "steps": [
+    "Open the Contacts app",
+    "Navigate to the 'Contacts List (Updated)' screen",
+    "Locate the contact that was saved without a name",
+    "Verify that the contact list displays the phone number or email as the fallback identifier"
+  ],
+  "expected_result": "The contact list displays the phone number or email instead of a name for contacts without a name.",
+  "priority": "high",
+  "area": "UI Behavior",
+  "rationale": "This test directly addresses a previously failed test and validates FR-11 (fallback identifiers in the list). It ensures the system adheres to the SRS requirement and improves UI reliability."
+}
+```
+------------------------------------------------------------------------
+[Final retry prompt]:
+You are a senior QA test designer for contacts app.
+Task: generate the next best test case after latest verdict (choose a DISTINCT testcase, not semantically similar to blocked titles).
+Propose exactly ONE test case not already in the executed list.
+
+## SRS Requirements (relevant excerpt)
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+
+## Figma UI overview (all screens, compact)
+Available screens and key UI elements:
+- Organise (Merged List) (purpose=organise, interactive=16)
+  buttons: Contact ringtones / Set ringtones for specific contacts, Google Contacts sync settings / Manage preferences and accounts, Merge and fix / Clean up duplicates and errors, Reminders / Birthdays and key anniversaries
+  navigation: Contacts | Highlights | Organise
+- Create Contact (No Icons) (purpose=create_contact, interactive=15)
+  buttons: Email, Birthday, Address, Other
+  inputs: Notes, First name / Surname / Company / Add phone / Notes, Add phone, First name
+- Highlights (No FAB) (purpose=highlights, interactive=9)
+  buttons: Organise, Contacts, Add, Call
+  navigation: Contacts | Highlights | Organise
+- Contact Details (Dark Mode) (purpose=contact_details, interactive=8)
+  buttons: Button, Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS), Reminders, Verify keys / Verify end-to-end encryption with this
+contact
+- Contacts List (Updated) (purpose=contact_list, interactive=8)
+  buttons: Button:css-transform, Button - FAB: Create Contact, All contacts, Button
+  navigation: Contacts | Highlights | Organise
+- Settings (No Bottom Bar) (purpose=settings, interactive=4)
+  buttons: Button, Accounts, Your info, Undo changes
+- Search Results (purpose=search, interactive=2)
+  buttons: Button
+  inputs: ba
+
+## Figma UI — interactive elements on relevant screens
+(Use exact button labels / input names in your steps)
+[Screen: Organise (Merged List)]
+  buttons: Bin / Items deleted within 30 days, Blocked numbers / Numbers you won't receive calls from, Button, Button:css-transform, Check Sync, Contact ringtones / Set ringtones for specific contacts, Export to file, Family group / Shared contacts for the household, Google Contacts sync settings / Manage preferences and accounts, Import from file
+  navigations: Contacts | Highlights | Organise
+[Screen: Highlights (No FAB)]
+  buttons: Add, Button, Call, Contacts, Highlights, Highlights / Your circle at a glance / For you / Recents / Contacts / Organise, Message, Organise
+  navigations: Contacts | Highlights | Organise
+
+## Figma flow hints (button/navigation transitions)
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+
+## Already executed tests (avoid semantic duplicates)
+- Verify system allows saving a contact to a SIM storage source and confirms successful save
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system rejects contact save when email format is invalid and provides appropriate error message
+- Verify system allows saving a contact with multiple phone numbers and validates phone number format
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates contact saving when no phone number or email is provided
+- Verify system allows saving a contact to a cloud account
+- Verify system validates email format before saving a contact
+- Verify system suggests merging duplicate contacts during restore from backup
+- Verify system suggests merging duplicate contacts during import from VCF file
+
+## Failed tests (prioritise adjacent coverage)
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates email format before saving a contact
+
+## Decision policy
+1. Do NOT propose a test semantically similar to executed titles.
+2. Prefer tests adjacent to failed behaviours or that close a coverage gap.
+3. Vary the area — avoid repeating the same feature in consecutive rounds.
+4. Validate either business logic (SRS), UI behavior (Figma UI), or navigation flow (Figma flow).
+
+## Output
+Return STRICT JSON only — no markdown, no commentary.
+Keys: test_case_id, title, screen, preconditions (array), steps (array),
+      expected_result, priority (high/medium/low), area, rationale
+Steps must reference actual UI element names from the Figma context above.
+
+Blocked titles (must avoid semantic overlap):
+- Verify system allows saving a contact to a SIM storage source and confirms successful save
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system rejects contact save when email format is invalid and provides appropriate error message
+- Verify system allows saving a contact with multiple phone numbers and validates phone number format
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates contact saving when no phone number or email is provided
+- Verify system allows saving a contact to a cloud account
+- Verify system validates email format before saving a contact
+- Verify system suggests merging duplicate contacts during restore from backup
+- Verify system suggests merging duplicate contacts during import from VCF file
+
+[Final retry raw answer]:
+```json
+{
+  "test_case_id": "TC-011",
+  "title": "Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields (phone or email) are present",
+  "screen": "Create Contact (No Icons)",
+  "preconditions": [
+    "User is on the 'Create Contact (No Icons)' screen",
+    "User has not previously created a contact with the same details",
+    "System is connected to local storage"
+  ],
+  "steps": [
+    "Enter a first name (e.g., 'John')",
+    "Leave the phone number field empty",
+    "Enter an invalid email address (e.g., 'john.com')",
+    "Click 'Add phone'",
+    "Leave the phone number input empty",
+    "Click 'Other'",
+    "Enter an address (e.g., '123 Main St')",
+    "Enter an organization (e.g., 'Acme Inc')",
+    "Enter notes (e.g., 'Meeting scheduled for 3 PM')",
+    "Click the 'Save' button"
+  ],
+  "expected_result": "System displays an error message indicating that at least one valid phone number or email is required to save the contact. Optional fields (address, organization, notes) are retained and should still be populated when returning to the form.",
+  "priority": "high",
+  "area": "Business Logic",
+  "rationale": "This test ensures that the system enforces the mandatory requirement of at least one valid phone or email (FR-5) even when optional fields (FR-4) are filled, which is critical for contact validity and data integrity."
+}
+```
+------------------------------------------------------------------------
+
+========================================================================
+ROUND 2
+========================================================================
+Logged: TC-105 | pass | contacts-app::tc::verify_system_allows_saving_a_contact_with_optional_fields_address_organization_notes_and_validates_mandatory_fields_phone_or_email_are_present::run::2026-04-06T03:56:37.391006+00:00
+
+========================================================================
+STAGE FLOW: SUMMARY CONTEXT -> RETRIEVAL PLAN -> NEXT TEST
+========================================================================
+1) Global summary context loaded from RAG:
+   - SRS summary
+   - Figma summary + screen index
+   - Recent test history
+2) Planner decided retrieval plan:
+   focus_queries: ['validation AND (email OR phone) AND error', 'validation AND (format OR mandatory)']
+   target_screens: ['Create Contact (No Icons)']
+   reason: Sufficient context has been collected to generate a test case related to validation of mandatory fields and format checks for email and phone on the Create Contact screen.
+   retrieval rounds:
+    - round 1 | action= retrieve | queries= ['email validation', 'phone validation'] | screens= ['Create Contact (No Icons)', 'Contact Details (Dark Mode)']
+    - round 2 | action= retrieve | queries= ['validation AND (email OR phone) AND error', 'validation AND (format OR mandatory)'] | screens= ['Create Contact (No Icons)']
+    - round 3 | action= produce_testcase | queries= ['validation AND (email OR phone) AND error', 'validation AND (format OR mandatory)'] | screens= ['Create Contact (No Icons)']
+   finalization_mode: agent_signaled_sufficient_context
+   context_sent: srs_chars= 1512 figma_chars= 236
+3) Generated next testcase:
+    TC-106 | Verify system allows editing an existing contact's email and validates the updated email format before saving
+   area: business_logic
+
+========================================================================
+CONVERSATION VIEW (ROUND)
+========================================================================
+Agent[1]: action=retrieve | reason=To gather validation rules for email and phone fields, and understand the UI flow for creating a contact and navigating to details.
+  asks -> source=srs query=validation AND (email OR phone) AND error screen=
+  asks -> source=figma_ui query=contact creation screen=Create Contact (No Icons)
+  asks -> source=figma_flow query=create contact to contact details screen=
+  db -> source=srs summary=SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The  ...
+  db -> source=figma_ui summary=[Screen: Create Contact (No Icons)]   buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save   inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone ( ...
+  db -> source=figma_flow summary=Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Shar ...
+Agent[2]: action=retrieve | reason=Refine understanding of validation rules (format and mandatory fields) and ensure full UI flow for contact creation is mapped to generate a comprehensive test case.
+  asks -> source=srs query=validation AND (format OR mandatory) screen=
+  asks -> source=figma_ui query= screen=Create Contact (No Icons)
+  asks -> source=figma_flow query=Create Contact (No Icons) AND transitions screen=
+  db -> source=srs summary=SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The  ...
+  db -> source=figma_ui summary=[Screen: Create Contact (No Icons)]   buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save   inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone ( ...
+  db -> source=figma_flow summary=Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Shar ...
+Agent[3]: action=produce_testcase | reason=Sufficient context has been collected to generate a test case related to validation of mandatory fields and format checks for email and phone on the Create Contact screen.
+System protocol:
+  1) Agent asks retrieval requests in strict JSON.
+  2) Gateway retrieves from SRS/Figma UI/Figma flow DB.
+  3) Agent gets additional summarized context and decides continue or finalize.
+  4) Final output is one strict testcase JSON.
+
+========================================================================
+DEBUG TRACE: PROMPTS, CONTEXT, RAW MODEL OUTPUT
+========================================================================
+[Planner round 1] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate the next best test case after latest verdict
+Retrieval round: 1/3
+Collected queries so far: []
+Collected screens so far: []
+Collected context size (chars): 0
+
+Retrieved context so far (continuation from earlier requests):
+- none yet
+
+Full global context (round 1):
+SRS summary:
+Document: Samsung Contacts Application SRS
+
+Functional requirements summary:
+- FR-1: User can create a new contact with at least one phone number or email.
+- FR-2: User can input multiple phone numbers per contact.
+- FR-3: User can input multiple email addresses per contact.
+- FR-4: User can input optional fields like address, organization, notes, and photo.
+- FR-5: Contact must have at least one phone or email to save.
+- FR-6: Validate phone number format before saving.
+- FR-7: Validate email format before saving.
+- FR-8: Save contacts to local storage, SIM, or cloud.
+- FR-9: Display list of all contacts from device and accounts.
+- FR-12: View detailed info of a selected contact.
+- FR-14: Edit any contact field.
+- FR-15: Update contact data immediately after edits.
+- FR-16: Delete a single contact.
+- FR-17: Delete multiple contacts simultaneously.
+- FR-18: Prompt for confirmation before deletion.
+- FR-19: Remove deleted contacts from all groups.
+- FR-20: Search contacts by name.
+- FR-21: Search contacts by phone number.
+- FR-22: Search contacts by email.
+- FR-25: Update search results dynamically.
+- FR-26: Sort contacts alphabetically.
+- FR-27: Sort by first or last name.
+- FR-29: Mark a contact as favorite.
+- FR-31: Provide a separate view for favorites.
+- FR-33: Create new contact group.
+- FR-37: Add contacts to groups.
+- FR-39: Display contacts in selected group.
+- FR-40: Initiate phone call from contact.
+- FR-42: Send SMS from contact.
+- FR-44: Send email from contact.
+- FR-46: Import contacts from SIM.
+- FR-47: Import from external storage (VCF).
+- FR-49: Handle duplicate contacts during import.
+- FR-50: Export contacts to VCF.
+- FR-53: Enable auto-sync with cloud accounts.
+- FR-54: Allow manual sync.
+- FR-55: Sync contacts across devices.
+- FR-64: Detect duplicate contacts.
+- FR-65: Suggest merging duplicates.
+- FR-66: Merge selected contacts.
+- FR-68: Assign profile photo to contact.
+- FR-70: Display profile photos in UI.
+- FR-78: Copy contact details to clipboard.
+- FR-79: Share contact details via apps.
+- FR-80: Generate VCF on share.
+- FR-84: Display error messages for invalid operations.
+- FR-85: Prevent saving contacts with invalid required data.
+- FR-87: Maintain timestamps for contact modifications.
+- FR-91: Add custom fields to contacts.
+- FR-92: Store and retrieve custom fields correctly.
+- FR-95: Support international phone number formats.
+- FR-97: Handle special characters in contact names.
+- FR-98: Support multilingual contact names.
+
+Non-functional requirements summary:
+- NFR-1: Not explicitly listed. Non-functional requirements are not provided in the SRS.
+
+Figma summary:
+Total screens: 7
+Screens:
+- Contacts List (Updated) (purpose=contact_list, elements=12)
+- Highlights (No FAB) (purpose=highlights, elements=18)
+- Create Contact (No Icons) (purpose=create_contact, elements=18)
+- Contact Details (Dark Mode) (purpose=contact_details, elements=11)
+- Settings (No Bottom Bar) (purpose=settings, elements=8)
+- Organise (Merged List) (purpose=organise, elements=31)
+- Search Results (purpose=search, elements=8)
+
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Figma UI overview (generalized):
+Total screens: 7
+Screens by purpose:
+- Organise (Merged List) (purpose=organise, interactive=16)
+- Create Contact (No Icons) (purpose=create_contact, interactive=15)
+- Highlights (No FAB) (purpose=highlights, interactive=9)
+- Contact Details (Dark Mode) (purpose=contact_details, interactive=8)
+- Contacts List (Updated) (purpose=contact_list, interactive=8)
+- Settings (No Bottom Bar) (purpose=settings, interactive=4)
+- Search Results (purpose=search, interactive=2)
+Recent tests (exact): TC-105|pass|Business Logic|Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields; TC-104|pass|business_logic|Verify system allows saving a contact to a SIM storage source and confirms successful save; TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "retrieve",
+  "retrieval_requests": [
+    {"source": "srs", "query": "validation AND (email OR phone) AND error"},
+    {"source": "figma_ui", "query": "contact creation", "screen": "Create Contact (No Icons)"},
+    {"source": "figma_flow", "query": "create contact to contact details"}
+  ],
+  "focus_queries": ["email validation", "phone validation", "contact creation flow"],
+  "target_screens": ["Create Contact (No Icons)", "Contact Details (Dark Mode)"],
+  "reason": "To gather validation rules for email and phone fields, and understand the UI flow for creating a contact and navigating to details."
+}
+------------------------------------------------------------------------
+[Planner round 2] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate the next best test case after latest verdict
+Retrieval round: 2/3
+Collected queries so far: ['validation AND (email OR phone) AND error']
+Collected screens so far: ['Create Contact (No Icons)']
+Collected context size (chars): 1512
+
+This prompt is a response to your previous retrieval request and includes the requested DB context.
+
+Retrieved context so far (continuation from earlier requests):
+- srs | query=validation AND (email OR phone) AND error | SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The system shall allow the user to input mul ...
+- figma_ui | screen=Create Contact (No Icons) | [Screen: Create Contact (No Icons)] buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+- figma_flow | screen=* | Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)  ...
+
+Global memo (do not re-ask same broad context):
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Recent tests (exact): TC-105|pass|Business Logic|Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields; TC-104|pass|business_logic|Verify system allows saving a contact to a SIM storage source and confirms successful save; TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+Use Retrieved context so far to refine, not restart.
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "retrieve",
+  "retrieval_requests": [
+    {
+      "source": "srs",
+      "query": "validation AND (format OR mandatory)"
+    },
+    {
+      "source": "figma_ui",
+      "screen": "Create Contact (No Icons)"
+    },
+    {
+      "source": "figma_flow",
+      "query": "Create Contact (No Icons) AND transitions"
+    }
+  ],
+  "focus_queries": ["validation AND (email OR phone) AND error", "validation AND (format OR mandatory)"],
+  "target_screens": ["Create Contact (No Icons)"],
+  "reason": "Refine understanding of validation rules (format and mandatory fields) and ensure full UI flow for contact creation is mapped to generate a comprehensive test case."
+}
+------------------------------------------------------------------------
+[Planner round 3] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate the next best test case after latest verdict
+Retrieval round: 3/3
+Collected queries so far: ['validation AND (email OR phone) AND error', 'validation AND (format OR mandatory)']
+Collected screens so far: ['Create Contact (No Icons)']
+Collected context size (chars): 3026
+
+This prompt is a response to your previous retrieval request and includes the requested DB context.
+
+Retrieved context so far (continuation from earlier requests):
+- srs | query=validation AND (format OR mandatory) | SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The system shall allow the user to input mul ...
+- figma_ui | screen=Create Contact (No Icons) | [Screen: Create Contact (No Icons)] buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+- figma_flow | screen=* | Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)  ...
+
+Global memo (do not re-ask same broad context):
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Recent tests (exact): TC-105|pass|Business Logic|Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields; TC-104|pass|business_logic|Verify system allows saving a contact to a SIM storage source and confirms successful save; TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+Use Retrieved context so far to refine, not restart.
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "produce_testcase",
+  "retrieval_requests": [],
+  "focus_queries": ["validation AND (email OR phone) AND error", "validation AND (format OR mandatory)"],
+  "target_screens": ["Create Contact (No Icons)"],
+  "reason": "Sufficient context has been collected to generate a test case related to validation of mandatory fields and format checks for email and phone on the Create Contact screen."
+}
+------------------------------------------------------------------------
+[Retrieved context round 1 query=validation AND (email OR phone) AND error]
+
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+------------------------------------------------------------------------
+[Retrieved context round 1 query=None]
+
+[Screen: Create Contact (No Icons)]
+  buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save
+  inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+------------------------------------------------------------------------
+[Retrieved context round 1 query=None]
+
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+------------------------------------------------------------------------
+[Retrieved context round 2 query=validation AND (format OR mandatory)]
+
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+------------------------------------------------------------------------
+[Retrieved context round 2 query=None]
+
+[Screen: Create Contact (No Icons)]
+  buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save
+  inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+------------------------------------------------------------------------
+[Retrieved context round 2 query=None]
+
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+------------------------------------------------------------------------
+[Final generation prompt]:
+You are a senior QA test designer for contacts app.
+Task: generate the next best test case after latest verdict.
+Propose exactly ONE test case not already in the executed list.
+
+## SRS Requirements (relevant excerpt)
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+
+## Figma UI overview (all screens, compact)
+Available screens and key UI elements:
+- Organise (Merged List) (purpose=organise, interactive=16)
+  buttons: Contact ringtones / Set ringtones for specific contacts, Google Contacts sync settings / Manage preferences and accounts, Merge and fix / Clean up duplicates and errors, Reminders / Birthdays and key anniversaries
+  navigation: Contacts | Highlights | Organise
+- Create Contact (No Icons) (purpose=create_contact, interactive=15)
+  buttons: Email, Birthday, Address, Other
+  inputs: Notes, First name / Surname / Company / Add phone / Notes, Add phone, First name
+- Highlights (No FAB) (purpose=highlights, interactive=9)
+  buttons: Organise, Contacts, Add, Call
+  navigation: Contacts | Highlights | Organise
+- Contact Details (Dark Mode) (purpose=contact_details, interactive=8)
+  buttons: Button, Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS), Reminders, Verify keys / Verify end-to-end encryption with this
+contact
+- Contacts List (Updated) (purpose=contact_list, interactive=8)
+  buttons: Button:css-transform, Button - FAB: Create Contact, All contacts, Button
+  navigation: Contacts | Highlights | Organise
+- Settings (No Bottom Bar) (purpose=settings, interactive=4)
+  buttons: Button, Accounts, Your info, Undo changes
+- Search Results (purpose=search, interactive=2)
+  buttons: Button
+  inputs: ba
+
+## Figma UI — interactive elements on relevant screens
+(Use exact button labels / input names in your steps)
+[Screen: Create Contact (No Icons)]
+  buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save
+  inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+
+## Figma flow hints (button/navigation transitions)
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+
+## Already executed tests (avoid semantic duplicates)
+- Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields (phone or email) are present
+- Verify system allows saving a contact to a SIM storage source and confirms successful save
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system rejects contact save when email format is invalid and provides appropriate error message
+- Verify system allows saving a contact with multiple phone numbers and validates phone number format
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates contact saving when no phone number or email is provided
+- Verify system allows saving a contact to a cloud account
+- Verify system validates email format before saving a contact
+- Verify system suggests merging duplicate contacts during restore from backup
+- Verify system suggests merging duplicate contacts during import from VCF file
+
+## Failed tests (prioritise adjacent coverage)
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates email format before saving a contact
+
+## Decision policy
+1. Do NOT propose a test semantically similar to executed titles.
+2. Prefer tests adjacent to failed behaviours or that close a coverage gap.
+3. Vary the area — avoid repeating the same feature in consecutive rounds.
+4. Validate either business logic (SRS), UI behavior (Figma UI), or navigation flow (Figma flow).
+
+## Output
+Return STRICT JSON only — no markdown, no commentary.
+Keys: test_case_id, title, screen, preconditions (array), steps (array),
+      expected_result, priority (high/medium/low), area, rationale
+Steps must reference actual UI element names from the Figma context above.
+
+[Final generation raw answer]:
+```json
+{
+  "test_case_id": "TC-CONTACT-EMAIL-VALIDATION-003",
+  "title": "Verify system correctly validates and rejects contact save with invalid phone number format and valid email",
+  "screen": "Create Contact (No Icons)",
+  "preconditions": [
+    "User is on the 'Create Contact (No Icons)' screen",
+    "User has not created any contact with the same phone number or email previously"
+  ],
+  "steps": [
+    "Enter a valid first name in the 'First name' input field",
+    "Click on 'Add phone' button",
+    "Enter an invalid phone number (e.g., '12345') in the 'Phone (Mobile)' input field",
+    "Click on 'Email' button",
+    "Enter a valid email address (e.g., 'user@example.com') in the email input field",
+    "Click on 'Save' button"
+  ],
+  "expected_result": "System rejects the contact save, displays an error message indicating the invalid phone number format, and does not save the contact",
+  "priority": "high",
+  "area": "business_logic",
+  "rationale": "This test case focuses on validating phone number format in conjunction with valid email input to ensure system behavior is consistent and adheres to FR-5, FR-6, and FR-7. It addresses adjacent coverage to recent failed tests and fills a validation gap."
+}
+```
+------------------------------------------------------------------------
+[Final retry prompt]:
+You are a senior QA test designer for contacts app.
+Task: generate the next best test case after latest verdict (choose a DISTINCT testcase, not semantically similar to blocked titles).
+Propose exactly ONE test case not already in the executed list.
+
+## SRS Requirements (relevant excerpt)
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+
+## Figma UI overview (all screens, compact)
+Available screens and key UI elements:
+- Organise (Merged List) (purpose=organise, interactive=16)
+  buttons: Contact ringtones / Set ringtones for specific contacts, Google Contacts sync settings / Manage preferences and accounts, Merge and fix / Clean up duplicates and errors, Reminders / Birthdays and key anniversaries
+  navigation: Contacts | Highlights | Organise
+- Create Contact (No Icons) (purpose=create_contact, interactive=15)
+  buttons: Email, Birthday, Address, Other
+  inputs: Notes, First name / Surname / Company / Add phone / Notes, Add phone, First name
+- Highlights (No FAB) (purpose=highlights, interactive=9)
+  buttons: Organise, Contacts, Add, Call
+  navigation: Contacts | Highlights | Organise
+- Contact Details (Dark Mode) (purpose=contact_details, interactive=8)
+  buttons: Button, Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS), Reminders, Verify keys / Verify end-to-end encryption with this
+contact
+- Contacts List (Updated) (purpose=contact_list, interactive=8)
+  buttons: Button:css-transform, Button - FAB: Create Contact, All contacts, Button
+  navigation: Contacts | Highlights | Organise
+- Settings (No Bottom Bar) (purpose=settings, interactive=4)
+  buttons: Button, Accounts, Your info, Undo changes
+- Search Results (purpose=search, interactive=2)
+  buttons: Button
+  inputs: ba
+
+## Figma UI — interactive elements on relevant screens
+(Use exact button labels / input names in your steps)
+[Screen: Organise (Merged List)]
+  buttons: Bin / Items deleted within 30 days, Blocked numbers / Numbers you won't receive calls from, Button, Button:css-transform, Check Sync, Contact ringtones / Set ringtones for specific contacts, Export to file, Family group / Shared contacts for the household, Google Contacts sync settings / Manage preferences and accounts, Import from file
+  navigations: Contacts | Highlights | Organise
+[Screen: Highlights (No FAB)]
+  buttons: Add, Button, Call, Contacts, Highlights, Highlights / Your circle at a glance / For you / Recents / Contacts / Organise, Message, Organise
+  navigations: Contacts | Highlights | Organise
+
+## Figma flow hints (button/navigation transitions)
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+
+## Already executed tests (avoid semantic duplicates)
+- Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields (phone or email) are present
+- Verify system allows saving a contact to a SIM storage source and confirms successful save
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system rejects contact save when email format is invalid and provides appropriate error message
+- Verify system allows saving a contact with multiple phone numbers and validates phone number format
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates contact saving when no phone number or email is provided
+- Verify system allows saving a contact to a cloud account
+- Verify system validates email format before saving a contact
+- Verify system suggests merging duplicate contacts during restore from backup
+- Verify system suggests merging duplicate contacts during import from VCF file
+
+## Failed tests (prioritise adjacent coverage)
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates email format before saving a contact
+
+## Decision policy
+1. Do NOT propose a test semantically similar to executed titles.
+2. Prefer tests adjacent to failed behaviours or that close a coverage gap.
+3. Vary the area — avoid repeating the same feature in consecutive rounds.
+4. Validate either business logic (SRS), UI behavior (Figma UI), or navigation flow (Figma flow).
+
+## Output
+Return STRICT JSON only — no markdown, no commentary.
+Keys: test_case_id, title, screen, preconditions (array), steps (array),
+      expected_result, priority (high/medium/low), area, rationale
+Steps must reference actual UI element names from the Figma context above.
+
+Blocked titles (must avoid semantic overlap):
+- Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields (phone or email) are present
+- Verify system allows saving a contact to a SIM storage source and confirms successful save
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system rejects contact save when email format is invalid and provides appropriate error message
+- Verify system allows saving a contact with multiple phone numbers and validates phone number format
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates contact saving when no phone number or email is provided
+- Verify system allows saving a contact to a cloud account
+- Verify system validates email format before saving a contact
+- Verify system suggests merging duplicate contacts during restore from backup
+- Verify system suggests merging duplicate contacts during import from VCF file
+
+[Final retry raw answer]:
+```json
+{
+  "test_case_id": "TC-12",
+  "title": "Verify system allows editing an existing contact's email and validates the updated email format before saving",
+  "screen": "Contact Details (Dark Mode)",
+  "preconditions": [
+    "A contact exists with valid email and phone number",
+    "User is on the Contact Details screen of the selected contact"
+  ],
+  "steps": [
+    "Tap [Edit] to open the contact for editing",
+    "Locate the email field and replace the existing valid email with an invalid email format (e.g., 'invalidemail.com')",
+    "Scroll to the bottom of the form and tap [Save]",
+    "Observe the system's response to the invalid email format"
+  ],
+  "expected_result": "The system prevents the contact from being saved and displays an error message indicating the invalid email format.",
+  "priority": "high",
+  "area": "business_logic",
+  "rationale": "This test focuses on validating the email format during the editing process, which is adjacent to previously failed email validation tests. It ensures the system enforces FR-7 even when modifying existing contacts, closing a potential coverage gap."
+}
+```
+------------------------------------------------------------------------
+
+========================================================================
+ROUND 3
+========================================================================
+Logged: TC-106 | pass | contacts-app::tc::verify_system_allows_editing_an_existing_contact_s_email_and_validates_the_updated_email_format_before_saving::run::2026-04-06T03:57:24.759799+00:00
+
+========================================================================
+STAGE FLOW: SUMMARY CONTEXT -> RETRIEVAL PLAN -> NEXT TEST
+========================================================================
+1) Global summary context loaded from RAG:
+   - SRS summary
+   - Figma summary + screen index
+   - Recent test history
+2) Planner decided retrieval plan:
+   focus_queries: ['contact creation AND (phone OR email) AND validation', 'validation AND (phone OR email) AND (format OR mandatory)']
+   target_screens: ['Contacts List (Updated)', 'Create Contact (No Icons)']
+   reason: Sufficient context available to generate the next test case based on validation logic, UI elements, and recent test history.
+   retrieval rounds:
+    - round 1 | action= retrieve | queries= ['contact creation validation', 'UI elements for contact creation'] | screens= ['Contacts List (Updated)', 'Create Contact (No Icons)']
+    - round 2 | action= retrieve | queries= ['contact creation AND validation AND mandatory fields', 'UI elements AND Create Contact screen'] | screens= ['Create Contact (No Icons)', 'Contacts List (Updated)']
+    - round 3 | action= produce_testcase | queries= [] | screens= ['Organise (Merged List)', 'Create Contact (No Icons)']
+   finalization_mode: agent_signaled_sufficient_context
+   context_sent: srs_chars= 1512 figma_chars= 435
+3) Generated next testcase:
+    TC-107 | Verify system allows saving a contact with multiple email addresses and validates all email formats before saving
+   area: business_logic
+
+========================================================================
+CONVERSATION VIEW (ROUND)
+========================================================================
+Agent[1]: action=retrieve | reason=Need to gather context about contact creation validation rules and UI flow to generate a relevant test case.
+  asks -> source=srs query=contact creation AND (phone OR email) AND validation screen=
+  asks -> source=figma_ui query=contact creation screen elements screen=
+  asks -> source=figma_flow query=navigation from contacts list to create contact screen screen=
+  db -> source=srs summary=SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The  ...
+  db -> source=figma_ui summary=[Screen: Contacts List (Updated)]   buttons: All contacts, Button, Button - FAB: Create Contact, Button:css-transform, Contacts, Highlights, Organise   navigations: Contacts | Highlights | Organise
+  db -> source=figma_flow summary=Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Shar ...
+Agent[2]: action=retrieve | reason=Need detailed UI layout and validation rules for the Create Contact screen to generate a precise test case focused on validation and mandatory fields.
+  asks -> source=figma_ui query=Create Contact (No Icons) AND interactive elements screen=Create Contact (No Icons)
+  asks -> source=srs query=validation AND (phone OR email) AND (format OR mandatory) screen=
+  asks -> source=figma_flow query=Create Contact (No Icons) AND navigation screen=
+  db -> source=figma_ui summary=[Screen: Create Contact (No Icons)]   buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save   inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone ( ...
+  db -> source=srs summary=SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The  ...
+  db -> source=figma_flow summary=Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Shar ...
+Agent[3]: action=produce_testcase | reason=Sufficient context available to generate the next test case based on validation logic, UI elements, and recent test history.
+System protocol:
+  1) Agent asks retrieval requests in strict JSON.
+  2) Gateway retrieves from SRS/Figma UI/Figma flow DB.
+  3) Agent gets additional summarized context and decides continue or finalize.
+  4) Final output is one strict testcase JSON.
+
+========================================================================
+DEBUG TRACE: PROMPTS, CONTEXT, RAW MODEL OUTPUT
+========================================================================
+[Planner round 1] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate the next best test case after latest verdict
+Retrieval round: 1/3
+Collected queries so far: []
+Collected screens so far: []
+Collected context size (chars): 0
+
+Retrieved context so far (continuation from earlier requests):
+- none yet
+
+Full global context (round 1):
+SRS summary:
+Document: Samsung Contacts Application SRS
+
+Functional requirements summary:
+- FR-1: User can create a new contact with at least one phone number or email.
+- FR-2: User can input multiple phone numbers per contact.
+- FR-3: User can input multiple email addresses per contact.
+- FR-4: User can input optional fields like address, organization, notes, and photo.
+- FR-5: Contact must have at least one phone or email to save.
+- FR-6: Validate phone number format before saving.
+- FR-7: Validate email format before saving.
+- FR-8: Save contacts to local storage, SIM, or cloud.
+- FR-9: Display list of all contacts from device and accounts.
+- FR-12: View detailed info of a selected contact.
+- FR-14: Edit any contact field.
+- FR-15: Update contact data immediately after edits.
+- FR-16: Delete a single contact.
+- FR-17: Delete multiple contacts simultaneously.
+- FR-18: Prompt for confirmation before deletion.
+- FR-19: Remove deleted contacts from all groups.
+- FR-20: Search contacts by name.
+- FR-21: Search contacts by phone number.
+- FR-22: Search contacts by email.
+- FR-25: Update search results dynamically.
+- FR-26: Sort contacts alphabetically.
+- FR-27: Sort by first or last name.
+- FR-29: Mark a contact as favorite.
+- FR-31: Provide a separate view for favorites.
+- FR-33: Create new contact group.
+- FR-37: Add contacts to groups.
+- FR-39: Display contacts in selected group.
+- FR-40: Initiate phone call from contact.
+- FR-42: Send SMS from contact.
+- FR-44: Send email from contact.
+- FR-46: Import contacts from SIM.
+- FR-47: Import from external storage (VCF).
+- FR-49: Handle duplicate contacts during import.
+- FR-50: Export contacts to VCF.
+- FR-53: Enable auto-sync with cloud accounts.
+- FR-54: Allow manual sync.
+- FR-55: Sync contacts across devices.
+- FR-64: Detect duplicate contacts.
+- FR-65: Suggest merging duplicates.
+- FR-66: Merge selected contacts.
+- FR-68: Assign profile photo to contact.
+- FR-70: Display profile photos in UI.
+- FR-78: Copy contact details to clipboard.
+- FR-79: Share contact details via apps.
+- FR-80: Generate VCF on share.
+- FR-84: Display error messages for invalid operations.
+- FR-85: Prevent saving contacts with invalid required data.
+- FR-87: Maintain timestamps for contact modifications.
+- FR-91: Add custom fields to contacts.
+- FR-92: Store and retrieve custom fields correctly.
+- FR-95: Support international phone number formats.
+- FR-97: Handle special characters in contact names.
+- FR-98: Support multilingual contact names.
+
+Non-functional requirements summary:
+- NFR-1: Not explicitly listed. Non-functional requirements are not provided in the SRS.
+
+Figma summary:
+Total screens: 7
+Screens:
+- Contacts List (Updated) (purpose=contact_list, elements=12)
+- Highlights (No FAB) (purpose=highlights, elements=18)
+- Create Contact (No Icons) (purpose=create_contact, elements=18)
+- Contact Details (Dark Mode) (purpose=contact_details, elements=11)
+- Settings (No Bottom Bar) (purpose=settings, elements=8)
+- Organise (Merged List) (purpose=organise, elements=31)
+- Search Results (purpose=search, elements=8)
+
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Figma UI overview (generalized):
+Total screens: 7
+Screens by purpose:
+- Organise (Merged List) (purpose=organise, interactive=16)
+- Create Contact (No Icons) (purpose=create_contact, interactive=15)
+- Highlights (No FAB) (purpose=highlights, interactive=9)
+- Contact Details (Dark Mode) (purpose=contact_details, interactive=8)
+- Contacts List (Updated) (purpose=contact_list, interactive=8)
+- Settings (No Bottom Bar) (purpose=settings, interactive=4)
+- Search Results (purpose=search, interactive=2)
+Recent tests (exact): TC-106|pass|business_logic|Verify system allows editing an existing contact's email and validates the updated email format before saving; TC-105|pass|Business Logic|Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields; TC-104|pass|business_logic|Verify system allows saving a contact to a SIM storage source and confirms successful save; TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "retrieve",
+  "retrieval_requests": [
+    {
+      "source": "srs",
+      "query": "contact creation AND (phone OR email) AND validation"
+    },
+    {
+      "source": "figma_ui",
+      "query": "contact creation screen elements"
+    },
+    {
+      "source": "figma_flow",
+      "query": "navigation from contacts list to create contact screen"
+    }
+  ],
+  "focus_queries": ["contact creation validation", "UI elements for contact creation"],
+  "target_screens": ["Contacts List (Updated)", "Create Contact (No Icons)"],
+  "reason": "Need to gather context about contact creation validation rules and UI flow to generate a relevant test case."
+}
+------------------------------------------------------------------------
+[Planner round 2] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate the next best test case after latest verdict
+Retrieval round: 2/3
+Collected queries so far: ['contact creation AND (phone OR email) AND validation']
+Collected screens so far: ['Contacts List (Updated)']
+Collected context size (chars): 1512
+
+This prompt is a response to your previous retrieval request and includes the requested DB context.
+
+Retrieved context so far (continuation from earlier requests):
+- srs | query=contact creation AND (phone OR email) AND validation | SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The system shall allow the user to input mul ...
+- figma_ui | screen=Contacts List (Updated) | [Screen: Contacts List (Updated)] buttons: All contacts, Button, Button - FAB: Create Contact, Button:css-transform, Contacts, Highlights, Organise navigations: Contacts | Highlights | Organise
+- figma_flow | screen=* | Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)  ...
+
+Global memo (do not re-ask same broad context):
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Recent tests (exact): TC-106|pass|business_logic|Verify system allows editing an existing contact's email and validates the updated email format before saving; TC-105|pass|Business Logic|Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields; TC-104|pass|business_logic|Verify system allows saving a contact to a SIM storage source and confirms successful save; TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+Use Retrieved context so far to refine, not restart.
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "retrieve",
+  "retrieval_requests": [
+    {
+      "source": "figma_ui",
+      "query": "Create Contact (No Icons) AND interactive elements",
+      "screen": "Create Contact (No Icons)"
+    },
+    {
+      "source": "srs",
+      "query": "validation AND (phone OR email) AND (format OR mandatory)"
+    },
+    {
+      "source": "figma_flow",
+      "query": "Create Contact (No Icons) AND navigation"
+    }
+  ],
+  "focus_queries": [
+    "contact creation AND validation AND mandatory fields",
+    "UI elements AND Create Contact screen"
+  ],
+  "target_screens": [
+    "Create Contact (No Icons)",
+    "Contacts List (Updated)"
+  ],
+  "reason": "Need detailed UI layout and validation rules for the Create Contact screen to generate a precise test case focused on validation and mandatory fields."
+}
+------------------------------------------------------------------------
+[Planner round 3] Prompt:
+You are retrieval planner for QA testcase generation in contacts app.
+You are interacting with a knowledge database (SRS + Figma KG + test history).
+Decide your NEXT ACTION only.
+
+Objective: generate the next best test case after latest verdict
+Retrieval round: 3/3
+Collected queries so far: ['contact creation AND (phone OR email) AND validation', 'validation AND (phone OR email) AND (format OR mandatory)']
+Collected screens so far: ['Contacts List (Updated)', 'Create Contact (No Icons)']
+Collected context size (chars): 3026
+
+This prompt is a response to your previous retrieval request and includes the requested DB context.
+
+Retrieved context so far (continuation from earlier requests):
+- figma_ui | screen=Create Contact (No Icons) | [Screen: Create Contact (No Icons)] buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+- srs | query=validation AND (phone OR email) AND (format OR mandatory) | SRS requirements: FR-1 The system shall allow the user to create a new contact with at least one phone number or email. FR-2 The system shall allow the user to input multiple phone numbers for a single contact. FR-3 The system shall allow the user to input mul ...
+- figma_flow | screen=* | Known UI transitions (inferred from labels): - Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022 produced by SUGA of BTS)]--> Create Contact (No Icons) - Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)  ...
+
+Global memo (do not re-ask same broad context):
+Screen index (compact): [Create Contact (No Icons)|purpose=create_contact|interactive=15; Organise (Merged List)|purpose=organise|interactive=16; Highlights (No FAB)|purpose=highlights|interactive=9; Contact Details (Dark Mode)|purpose=contact_details|interactive=8; Contacts List (Updated)|purpose=contact_list|interactive=8; Settings (No Bottom Bar)|purpose=settings|interactive=4; Search Results|purpose=search|interactive=2]
+Recent tests (exact): TC-106|pass|business_logic|Verify system allows editing an existing contact's email and validates the updated email format before saving; TC-105|pass|Business Logic|Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields; TC-104|pass|business_logic|Verify system allows saving a contact to a SIM storage source and confirms successful save; TC-103|failed|UI behavior|Verify system displays fallback identifiers (phone/email) in contact list when name is missing; TC-102|pass|business_logic|Verify system rejects contact save when email format is invalid and provides appropriate error message; TC-007|pass|contact creation and validation|Verify system allows saving a contact with multiple phone numbers and validates phone number format; TC-012|failed|business logic|Verify system correctly validates and rejects contact save with invalid email format; TC-012|pass|business logic|Verify system validates contact saving when no phone number or email is provided; TC-015|pass|Contact Storage (Cloud)|Verify system allows saving a contact to a cloud account; TC-003|failed|business_logic|Verify system validates email format before saving a contact; TC-101|pass|Contacts Management|Verify system suggests merging duplicate contacts during restore from backup; TC-001|pass|duplicate handling|Verify system suggests merging duplicate contacts during import from VCF file
+Use Retrieved context so far to refine, not restart.
+
+Return STRICT JSON only with this schema:
+{
+  "action": "retrieve" | "produce_testcase",
+  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],
+  "focus_queries": ["...", "..."],
+  "target_screens": ["...", "..."],
+  "reason": "short reason"
+}
+Rules:
+- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).
+- Use source=srs for business rules/validation logic.
+- Use source=figma_ui for screen elements and control availability.
+- Use source=figma_flow for navigation/button-to-screen behavior.
+- For source=srs, query must be keyword expression (not question), e.g. "validation AND (email OR phone)".
+- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.
+- If context is sufficient, set action=produce_testcase.
+- Never output markdown or text outside JSON.
+
+[Planner round raw answer]:
+{
+  "action": "produce_testcase",
+  "retrieval_requests": [],
+  "focus_queries": [],
+  "target_screens": [],
+  "reason": "Sufficient context available to generate the next test case based on validation logic, UI elements, and recent test history."
+}
+------------------------------------------------------------------------
+[Retrieved context round 1 query=contact creation AND (phone OR email) AND validation]
+
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+------------------------------------------------------------------------
+[Retrieved context round 1 query=None]
+
+[Screen: Contacts List (Updated)]
+  buttons: All contacts, Button, Button - FAB: Create Contact, Button:css-transform, Contacts, Highlights, Organise
+  navigations: Contacts | Highlights | Organise
+------------------------------------------------------------------------
+[Retrieved context round 1 query=None]
+
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+------------------------------------------------------------------------
+[Retrieved context round 2 query=None]
+
+[Screen: Create Contact (No Icons)]
+  buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save
+  inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+------------------------------------------------------------------------
+[Retrieved context round 2 query=validation AND (phone OR email) AND (format OR mandatory)]
+
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+------------------------------------------------------------------------
+[Retrieved context round 2 query=None]
+
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+------------------------------------------------------------------------
+[Final generation prompt]:
+You are a senior QA test designer for contacts app.
+Task: generate the next best test case after latest verdict.
+Propose exactly ONE test case not already in the executed list.
+
+## SRS Requirements (relevant excerpt)
+SRS requirements:
+FR-1 The system shall allow the user to create a new contact with at least one phone number or email.
+FR-2 The system shall allow the user to input multiple phone numbers for a single contact.
+FR-3 The system shall allow the user to input multiple email addresses for a single contact.
+FR-4 The system shall allow the user to input optional fields including address, organization, notes, and profile photo.
+FR-5 The system shall validate that at least one of phone number or email is present before saving a contact.
+FR-6 The system shall validate the format of phone numbers before saving.
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+
+FR-7 The system shall validate the format of email addresses before saving.
+FR-8 The system shall allow saving contacts to different storage sources including local storage, SIM, and cloud accounts.
+FR-9 The system shall display a list of all contacts stored on the device and linked accounts.
+FR-10 The system shall display contacts in a scrollable list view.
+FR-11 The system shall display contact names or fallback identifiers (phone/email) in the list.
+FR-12 The system shall allow the user to view detailed information of a selected contact.
+FR-13 The system shall display all associated fields of a contact in the detail view.
+FR-14 The system shall allow editing any field of an existing contact.
+
+## Figma UI overview (all screens, compact)
+Available screens and key UI elements:
+- Organise (Merged List) (purpose=organise, interactive=16)
+  buttons: Contact ringtones / Set ringtones for specific contacts, Google Contacts sync settings / Manage preferences and accounts, Merge and fix / Clean up duplicates and errors, Reminders / Birthdays and key anniversaries
+  navigation: Contacts | Highlights | Organise
+- Create Contact (No Icons) (purpose=create_contact, interactive=15)
+  buttons: Email, Birthday, Address, Other
+  inputs: Notes, First name / Surname / Company / Add phone / Notes, Add phone, First name
+- Highlights (No FAB) (purpose=highlights, interactive=9)
+  buttons: Organise, Contacts, Add, Call
+  navigation: Contacts | Highlights | Organise
+- Contact Details (Dark Mode) (purpose=contact_details, interactive=8)
+  buttons: Button, Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS), Reminders, Verify keys / Verify end-to-end encryption with this
+contact
+- Contacts List (Updated) (purpose=contact_list, interactive=8)
+  buttons: Button:css-transform, Button - FAB: Create Contact, All contacts, Button
+  navigation: Contacts | Highlights | Organise
+- Settings (No Bottom Bar) (purpose=settings, interactive=4)
+  buttons: Button, Accounts, Your info, Undo changes
+- Search Results (purpose=search, interactive=2)
+  buttons: Button
+  inputs: ba
+
+## Figma UI — interactive elements on relevant screens
+(Use exact button labels / input names in your steps)
+[Screen: Contacts List (Updated)]
+  buttons: All contacts, Button, Button - FAB: Create Contact, Button:css-transform, Contacts, Highlights, Organise
+  navigations: Contacts | Highlights | Organise
+
+[Screen: Create Contact (No Icons)]
+  buttons: Add phone, Address, Birthday, Button, Email, Labels, Other, Save
+  inputs: Add phone, Company, First name, First name / Surname / Company / Add phone / Notes, Notes, Phone (Mobile), Surname
+
+## Figma flow hints (button/navigation transitions)
+Known UI transitions (inferred from labels):
+- Contact Details (Dark Mode) --[Contact ringtone / Default (Over the Horizon 2022
+produced by SUGA of BTS)]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Share contact]--> Create Contact (No Icons)
+- Contact Details (Dark Mode) --[Verify keys / Verify end-to-end encryption with this
+contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[All contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[All contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Button - FAB: Create Contact]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts]--> Contact Details (Dark Mode)
+- Contacts List (Updated) --[Contacts]--> Create Contact (No Icons)
+- Contacts List (Updated) --[Contacts | Highlights | Organise]--> Contact Details (Dark Mode)
+
+## Already executed tests (avoid semantic duplicates)
+- Verify system allows editing an existing contact's email and validates the updated email format before saving
+- Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields (phone or email) are present
+- Verify system allows saving a contact to a SIM storage source and confirms successful save
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system rejects contact save when email format is invalid and provides appropriate error message
+- Verify system allows saving a contact with multiple phone numbers and validates phone number format
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates contact saving when no phone number or email is provided
+- Verify system allows saving a contact to a cloud account
+- Verify system validates email format before saving a contact
+- Verify system suggests merging duplicate contacts during restore from backup
+- Verify system suggests merging duplicate contacts during import from VCF file
+
+## Failed tests (prioritise adjacent coverage)
+- Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- Verify system correctly validates and rejects contact save with invalid email format
+- Verify system validates email format before saving a contact
+
+## Decision policy
+1. Do NOT propose a test semantically similar to executed titles.
+2. Prefer tests adjacent to failed behaviours or that close a coverage gap.
+3. Vary the area — avoid repeating the same feature in consecutive rounds.
+4. Validate either business logic (SRS), UI behavior (Figma UI), or navigation flow (Figma flow).
+
+## Output
+Return STRICT JSON only — no markdown, no commentary.
+Keys: test_case_id, title, screen, preconditions (array), steps (array),
+      expected_result, priority (high/medium/low), area, rationale
+Steps must reference actual UI element names from the Figma context above.
+
+[Final generation raw answer]:
+```json
+{
+  "test_case_id": "TC-015",
+  "title": "Verify system allows saving a contact with multiple email addresses and validates all email formats before saving",
+  "screen": "Create Contact (No Icons)",
+  "preconditions": [
+    "User is on the Create Contact screen",
+    "User has not previously saved a contact with multiple email addresses"
+  ],
+  "steps": [
+    "Enter a valid first name in the 'First name' input field",
+    "Click on the 'Email' button to add an email field",
+    "Enter an invalid email address (e.g., 'invalidemail.com') in the first email field",
+    "Click on the 'Email' button again to add a second email field",
+    "Enter a valid email address (e.g., 'valid@example.com') in the second email field",
+    "Click on the 'Save' button to attempt to save the contact"
+  ],
+  "expected_result": "The system rejects the contact save and displays an error message indicating the invalid email format. Only valid email fields are accepted for saving.",
+  "priority": "high",
+  "area": "business_logic",
+  "rationale": "This test ensures compliance with FR-3 (multiple emails) and FR-7 (email format validation). It targets a coverage gap adjacent to failed tests related to email validation and confirms that the system handles multiple email entries correctly."
+}
+```
+------------------------------------------------------------------------
+
+========================================================================
+RECENT TESTS SAVED IN NEO4J
+========================================================================
+- contacts-app::tc::verify_system_allows_editing_an_existing_contact_s_email_and_validates_the_updated_email_format_before_saving | pass | Verify system allows editing an existing contact's email and validates the updated email format before saving
+- contacts-app::tc::verify_system_allows_saving_a_contact_with_optional_fields_address_organization_notes_and_validates_mandatory_fields_phone_or_email_are_present | pass | Verify system allows saving a contact with optional fields (address, organization, notes) and validates mandatory fields (phone or email) are present
+- contacts-app::tc::verify_system_allows_saving_a_contact_to_a_sim_storage_source_and_confirms_successful_save | pass | Verify system allows saving a contact to a SIM storage source and confirms successful save
+- contacts-app::tc::verify_system_displays_fallback_identifiers_phone_email_in_contact_list_when_name_is_missing | failed | Verify system displays fallback identifiers (phone/email) in contact list when name is missing
+- contacts-app::tc::verify_system_rejects_contact_save_when_email_format_is_invalid_and_provides_appropriate_error_message | pass | Verify system rejects contact save when email format is invalid and provides appropriate error message
+- contacts-app::tc::verify_system_allows_saving_a_contact_with_multiple_phone_numbers_and_validates_phone_number_format | pass | Verify system allows saving a contact with multiple phone numbers and validates phone number format
+- contacts-app::tc::verify_system_correctly_validates_and_rejects_contact_save_with_invalid_email_format | failed | Verify system correctly validates and rejects contact save with invalid email format
+- contacts-app::tc::verify_system_validates_contact_saving_when_no_phone_number_or_email_is_provided | pass | Verify system validates contact saving when no phone number or email is provided
+- contacts-app::tc::verify_system_allows_saving_a_contact_to_a_cloud_account | pass | Verify system allows saving a contact to a cloud account
+- TC-003 | failed | Verify system validates email format before saving a contact

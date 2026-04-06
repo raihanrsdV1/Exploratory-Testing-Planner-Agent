@@ -9,7 +9,7 @@ FIGMA_PATH = os.getenv("FIGMA_PATH", "./GENERATED_JSON.json")
 
 
 def post(url: str, payload: dict):
-    r = requests.post(url, json=payload, timeout=120)
+    r = requests.post(url, json=payload, timeout=240)
     r.raise_for_status()
     return r.json()
 
