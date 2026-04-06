@@ -45,6 +45,7 @@ class LogVerdictRequest(BaseModel):
     verdict: str = Field(..., pattern="^(pass|failed)$")
     notes: str = ""
     area: str = "general"
+    testcase_payload: dict | None = None
     top_k: int = 5
     max_new_tokens: int = 2048
     enable_thinking: bool = False
@@ -357,6 +358,9 @@ def _planner_prompt_for_action(
     figma_overview_general = _build_figma_overview_generalized(figma_overview)
     recent_tests = brief.get("recent_tests", []) if isinstance(brief, dict) else []
     recent_tests_exact = _recent_tests_exact(recent_tests)
+    uncovered_frs = brief.get("uncovered_fr_ids", []) if isinstance(brief, dict) else []
+    coverage = brief.get("coverage", {}) if isinstance(brief, dict) else {}
+    uncovered_frs_text = ", ".join(uncovered_frs[:20]) if uncovered_frs else "none"
 
     if retrieval_round <= 1:
         global_context_block = (
@@ -366,12 +370,15 @@ def _planner_prompt_for_action(
             f"Screen index (compact): {_screen_index_compact(brief.get('screen_index', []) if isinstance(brief, dict) else [])}\n"
             f"Figma UI overview (generalized):\n{figma_overview_general}\n"
             f"Recent tests (exact): {recent_tests_exact}\n\n"
+            f"FR coverage: total={coverage.get('total_frs', 0)}, covered={coverage.get('covered_frs', 0)}, uncovered={coverage.get('uncovered_frs', 0)}, percent={coverage.get('percent', 0)}\n"
+            f"Uncovered FR IDs (prioritize): {uncovered_frs_text}\n\n"
         )
     else:
         global_context_block = (
             "Global memo (do not re-ask same broad context):\n"
             f"Screen index (compact): {_screen_index_compact(brief.get('screen_index', []) if isinstance(brief, dict) else [])}\n"
             f"Recent tests (exact): {recent_tests_exact}\n"
+            f"Uncovered FR IDs (prioritize): {uncovered_frs_text}\n"
             "Use Retrieved context so far to refine, not restart.\n\n"
         )
 
@@ -504,6 +511,8 @@ def _build_prompt(
     figma_flow_context: str,
     done_titles: list[str],
     failed_titles: list[str],
+    uncovered_frs: list[str],
+    coverage_summary: dict,
 ) -> str:
     parts = [
         f"You are a senior QA test designer for {app_name}.",
@@ -529,6 +538,15 @@ def _build_prompt(
     if figma_flow_context:
         parts += ["## Figma flow hints (button/navigation transitions)", figma_flow_context, ""]
 
+    if coverage_summary or uncovered_frs:
+        parts += [
+            "## SRS FR coverage status",
+            f"Coverage: total={coverage_summary.get('total_frs', 0)}, covered={coverage_summary.get('covered_frs', 0)}, uncovered={coverage_summary.get('uncovered_frs', 0)}, percent={coverage_summary.get('percent', 0)}",
+            "Prioritize uncovered FR IDs first:",
+            ", ".join(uncovered_frs[:25]) if uncovered_frs else "none",
+            "",
+        ]
+
     history_block = "\n".join(f"- {t}" for t in done_titles[:30]) or "- none"
     failed_block = "\n".join(f"- {t}" for t in failed_titles[:20]) or "- none"
 
@@ -542,6 +560,7 @@ def _build_prompt(
         "## Decision policy",
         "1. Do NOT propose a test semantically similar to executed titles.",
         "2. Prefer tests adjacent to failed behaviours or that close a coverage gap.",
+        "2b. Prefer uncovered FR IDs when available.",
         "3. Vary the area — avoid repeating the same feature in consecutive rounds.",
         "4. Validate either business logic (SRS), UI behavior (Figma UI), or navigation flow (Figma flow).",
         "",
@@ -686,6 +705,8 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
     ]
     done_areas = [str(t.get("area", "")) for t in recent_tests if t.get("area")]
     figma_screens = brief.get("screen_index", []) if isinstance(brief, dict) else []
+    uncovered_frs = brief.get("uncovered_fr_ids", []) if isinstance(brief, dict) else []
+    coverage_summary = brief.get("coverage", {}) if isinstance(brief, dict) else {}
     figma_overview = _get_figma_overview(req.project)
     fallback_screens = _pick_relevant_screens(figma_screens, done_areas, recent_tests)
 
@@ -845,6 +866,8 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
         figma_flow_context=figma_flow_context,
         done_titles=done_titles,
         failed_titles=failed_titles,
+        uncovered_frs=uncovered_frs,
+        coverage_summary=coverage_summary,
     )
 
     # 4. Call model
@@ -879,6 +902,8 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
             figma_flow_context=figma_flow_context,
             done_titles=done_titles,
             failed_titles=failed_titles,
+            uncovered_frs=uncovered_frs,
+            coverage_summary=coverage_summary,
         ) + "\n\nBlocked titles (must avoid semantic overlap):\n" + blocked
         model_data = _call_model(retry_prompt, req.max_new_tokens, req.enable_thinking)
         raw_answer = model_data.get("answer", "")
@@ -915,6 +940,8 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
         "next_testcase": parsed,
         "recent_tests_count": len(recent_tests),
         "failed_tests_count": len(failed_titles),
+        "coverage": coverage_summary,
+        "uncovered_fr_ids": uncovered_frs[:30],
         "thinking": model_data.get("thinking", ""),
     }
 
@@ -935,6 +962,7 @@ def log_verdict_and_next(req: LogVerdictRequest, authorization: str | None = Hea
         "verdict": req.verdict,
         "notes": req.notes,
         "area": req.area,
+        "testcase_payload": req.testcase_payload,
     })
 
     next_req = NextTestCaseRequest(

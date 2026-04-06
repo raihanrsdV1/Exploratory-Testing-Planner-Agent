@@ -158,6 +158,7 @@ def log_and_next(tc: dict, verdict: str, notes: str, max_new_tokens: int = 600):
         "verdict": verdict,
         "notes": notes,
         "area": tc.get("area", "general"),
+        "testcase_payload": tc,
         "top_k": TOP_K,
         "max_new_tokens": max_new_tokens,
         "enable_thinking": False,

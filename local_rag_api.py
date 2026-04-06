@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 import json
 import os
 import re
@@ -41,27 +41,53 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _split_text(text: str, chunk_chars: int = 1200, overlap: int = 120) -> list[str]:
+def _split_text(text: str, chunk_chars: int = 1200, overlap: int = 120) -> list[dict]:
     text = (text or "").strip()
     if not text:
         return []
 
-    # Semantic-ish SRS chunking: group FR lines first (better retrieval granularity)
+    # Requirement-aware chunking: keep each FR/NFR as its own chunk block
+    # so retrieval and coverage are atomic and precise.
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    req_lines = [ln for ln in lines if re.match(r"^FR-\d+", ln, flags=re.IGNORECASE)]
-    if req_lines:
-        grouped: list[str] = []
-        group_size = 8
-        step = 6  # overlap of 2 requirements
-        for i in range(0, len(req_lines), step):
-            block = req_lines[i:i + group_size]
-            if block:
-                grouped.append("\n".join(block))
-        return grouped
+    req_hdr = re.compile(r"^(FR|NFR)-(\d+)\b", flags=re.IGNORECASE)
+    if any(req_hdr.match(ln) for ln in lines):
+        blocks: list[dict] = []
+        current_id = ""
+        current_type = ""
+        current_lines: list[str] = []
+
+        def _flush_current():
+            nonlocal current_id, current_type, current_lines
+            if current_lines:
+                blocks.append(
+                    {
+                        "text": "\n".join(current_lines).strip(),
+                        "requirement_id": current_id or None,
+                        "requirement_type": current_type or None,
+                    }
+                )
+            current_id = ""
+            current_type = ""
+            current_lines = []
+
+        for ln in lines:
+            m = req_hdr.match(ln)
+            if m:
+                _flush_current()
+                current_type = m.group(1).upper()
+                current_id = f"{current_type}-{m.group(2)}"
+                current_lines = [ln]
+            else:
+                if current_lines:
+                    current_lines.append(ln)
+
+        _flush_current()
+        if blocks:
+            return blocks
 
     # Fallback sentence-aware chunking for non-FR texts
     units = [u.strip() for u in re.split(r"\n\s*\n|(?<=[.!?])\s+", text) if u.strip()]
-    chunks: list[str] = []
+    chunks: list[dict] = []
     current: list[str] = []
     cur_len = 0
     for u in units:
@@ -69,13 +95,13 @@ def _split_text(text: str, chunk_chars: int = 1200, overlap: int = 120) -> list[
             current.append(u)
             cur_len += len(u) + 1
         else:
-            chunks.append("\n".join(current).strip())
+            chunks.append({"text": "\n".join(current).strip(), "requirement_id": None, "requirement_type": None})
             # small overlap from previous chunk tail
             tail = current[-1:] if overlap > 0 else []
             current = tail + [u]
             cur_len = sum(len(x) + 1 for x in current)
     if current:
-        chunks.append("\n".join(current).strip())
+        chunks.append({"text": "\n".join(current).strip(), "requirement_id": None, "requirement_type": None})
     return chunks
 
 
@@ -140,6 +166,16 @@ def _build_srs_summary(text: str) -> str:
     for ln in val[:8]:
         summary.append(f"- {ln[:220]}")
     return "\n".join(summary)
+
+
+def _extract_fr_ids(text: str) -> list[str]:
+    ids = re.findall(r"\b(?:FR|NFR)-\d+\b", text or "", flags=re.IGNORECASE)
+    out: list[str] = []
+    for x in ids:
+        val = x.upper()
+        if val not in out:
+            out.append(val)
+    return out
 
 
 def _build_figma_summary(screens: list[dict]) -> str:
@@ -352,6 +388,7 @@ class LogTestRequest(BaseModel):
     verdict: Literal["pass", "failed"]
     notes: str = ""
     area: str = "general"
+    testcase_payload: dict[str, Any] | None = None
 
 
 class ResetProjectRequest(BaseModel):
@@ -758,16 +795,25 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default
             summary_id=srs_summary_id,
         )
         for idx, ch in enumerate(chunks):
+            ch_text = str(ch.get("text", "") if isinstance(ch, dict) else ch)
+            req_id = str(ch.get("requirement_id", "") or "") if isinstance(ch, dict) else ""
+            req_type = str(ch.get("requirement_type", "") or "") if isinstance(ch, dict) else ""
+            fr_ids = _extract_fr_ids(ch_text)
             session.run(
                 """
                 MATCH (s:SRS {id:$srs_id})
                 MERGE (c:Chunk {id:$chunk_id})
                 SET c.project = $project, c.source = 'srs', c.order = $idx,
-                    c.text = $text, c.updated_at = $now
+                    c.text = $text, c.fr_ids = $fr_ids,
+                    c.requirement_id = $requirement_id,
+                    c.requirement_type = $requirement_type,
+                    c.updated_at = $now
                 MERGE (s)-[:HAS_CHUNK]->(c)
                 """,
                 srs_id=srs_id, chunk_id=f"{srs_id}::chunk::{idx}",
-                project=req.project, idx=idx, text=ch, now=now,
+                project=req.project, idx=idx, text=ch_text, fr_ids=fr_ids,
+                requirement_id=req_id, requirement_type=req_type,
+                now=now,
             )
 
     return {"status": "ok", "project": req.project, "srs_id": srs_id, "chunks_written": len(chunks)}
@@ -1027,6 +1073,30 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
         )
         screen_index = [dict(r) for r in screens]
 
+        all_fr_rows = session.run(
+            """
+            MATCH (:Project {name:$project})-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk)
+            UNWIND coalesce(c.fr_ids, []) AS fr
+            RETURN DISTINCT toUpper(fr) AS fr
+            ORDER BY fr ASC
+            """,
+            project=req.project,
+        )
+        all_frs = [str(r["fr"]) for r in all_fr_rows if r.get("fr")]
+
+        covered_fr_rows = session.run(
+            """
+            MATCH (:Project {name:$project})-[:HAS_TEST]->(:TestCase)-[:COVERS_FR]->(c:Chunk)
+            UNWIND coalesce(c.fr_ids, []) AS fr
+            RETURN DISTINCT toUpper(fr) AS fr
+            ORDER BY fr ASC
+            """,
+            project=req.project,
+        )
+        covered_frs = [str(r["fr"]) for r in covered_fr_rows if r.get("fr")]
+        covered_set = set(covered_frs)
+        uncovered_frs = [fr for fr in all_frs if fr not in covered_set]
+
     return {
         "project": req.project,
         "srs_summary": (proj_row["srs_summary"] if proj_row else "") or "",
@@ -1034,6 +1104,14 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
         "figma_source": (proj_row["figma_source"] if proj_row else "") or "",
         "recent_tests": recent_tests,
         "screen_index": screen_index,
+        "coverage": {
+            "total_frs": len(all_frs),
+            "covered_frs": len(covered_frs),
+            "uncovered_frs": len(uncovered_frs),
+            "percent": round((len(covered_frs) * 100.0 / len(all_frs)), 2) if all_frs else 0.0,
+        },
+        "covered_fr_ids": covered_frs[:120],
+        "uncovered_fr_ids": uncovered_frs[:120],
     }
 
 
@@ -1179,6 +1257,28 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
     run_id = f"{internal_test_id}::run::{now}"
     area_slug = _slug(req.area)
 
+    payload = req.testcase_payload or {}
+    payload_steps = payload.get("steps", []) if isinstance(payload, dict) else []
+    payload_preconditions = payload.get("preconditions", []) if isinstance(payload, dict) else []
+    if not isinstance(payload_steps, list):
+        payload_steps = []
+    if not isinstance(payload_preconditions, list):
+        payload_preconditions = []
+
+    coverage_text = "\n".join(
+        [
+            req.title or "",
+            req.notes or "",
+            req.area or "",
+            str(payload.get("screen", "")) if isinstance(payload, dict) else "",
+            str(payload.get("rationale", "")) if isinstance(payload, dict) else "",
+            str(payload.get("expected_result", "")) if isinstance(payload, dict) else "",
+            "\n".join(str(x) for x in payload_steps),
+            "\n".join(str(x) for x in payload_preconditions),
+        ]
+    )
+    coverage_tokens = _query_tokens(coverage_text)
+
     with driver.session() as session:
         session.run(
             """
@@ -1208,7 +1308,59 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             feature_key=f"{req.project}::{area_slug}",
         )
 
-    return {"status": "ok", "project": req.project, "test_case_id": req.test_case_id, "run_id": run_id}
+        if coverage_tokens:
+            cov_rows = session.run(
+                """
+                MATCH (p:Project {name:$project})-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk)
+                WHERE c.text IS NOT NULL AND size(coalesce(c.fr_ids, [])) > 0
+                WITH c,
+                     reduce(sc = 0, t IN $tokens |
+                        sc + CASE WHEN toLower(c.text) CONTAINS t THEN 1 ELSE 0 END
+                     ) AS score
+                WHERE score > 0
+                RETURN c.id AS chunk_id, coalesce(c.fr_ids, []) AS fr_ids, score
+                ORDER BY score DESC, c.order ASC
+                LIMIT 5
+                """,
+                project=req.project,
+                tokens=coverage_tokens,
+            )
+            for row in cov_rows:
+                chunk_id = row.get("chunk_id")
+                if not chunk_id:
+                    continue
+                session.run(
+                    """
+                    MATCH (t:TestCase {id:$test_id}), (c:Chunk {id:$chunk_id})
+                    MERGE (t)-[r:COVERS_FR]->(c)
+                    SET r.updated_at = $now,
+                        r.score = $score,
+                        r.source = 'auto'
+                    """,
+                    test_id=internal_test_id,
+                    chunk_id=chunk_id,
+                    now=now,
+                    score=int(row.get("score", 0) or 0),
+                )
+
+        covered_rows = session.run(
+            """
+            MATCH (t:TestCase {id:$test_id})-[:COVERS_FR]->(c:Chunk)
+            UNWIND coalesce(c.fr_ids, []) AS fr
+            RETURN DISTINCT toUpper(fr) AS fr
+            ORDER BY fr ASC
+            """,
+            test_id=internal_test_id,
+        )
+        covered_fr_ids = [str(r["fr"]) for r in covered_rows if r.get("fr")]
+
+    return {
+        "status": "ok",
+        "project": req.project,
+        "test_case_id": req.test_case_id,
+        "run_id": run_id,
+        "covered_fr_ids": covered_fr_ids,
+    }
 
 
 @app.get("/tests/recent")
@@ -1322,6 +1474,7 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
     """
     _check_auth(authorization)
     tokens = _query_tokens(req.query)
+    query_req_ids = _extract_fr_ids(req.query)
 
     with driver.session() as session:
         # token-overlap scoring for semantically better chunk selection
@@ -1332,7 +1485,9 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
             WITH c,
                  reduce(sc = 0, t IN $tokens |
                     sc + CASE WHEN toLower(c.text) CONTAINS t THEN 1 ELSE 0 END
-                 ) AS score
+                 )
+                 + CASE WHEN size($query_req_ids) > 0 AND toUpper(coalesce(c.requirement_id, '')) IN $query_req_ids THEN 100 ELSE 0 END
+                 AS score
             WHERE score > 0
             RETURN c.id AS id, c.text AS text, score
             ORDER BY score DESC, c.order ASC
@@ -1340,6 +1495,7 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
             """,
             project=req.project,
             tokens=tokens,
+            query_req_ids=query_req_ids,
             top_k=req.top_k,
         )
         srs_chunks = [r["text"] for r in srs_rows if r.get("text")]
