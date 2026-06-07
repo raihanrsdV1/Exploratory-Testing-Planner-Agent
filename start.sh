@@ -55,6 +55,15 @@ mkdir -p "$DIR/logs"
 > "$PID_FILE"
 cd "$DIR"
 
+PYTHON="$DIR/.venv/bin/python"
+if [[ ! -f "$PYTHON" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON="python3"
+  else
+    PYTHON="python"
+  fi
+fi
+
 # ── Load environment from .env if present ────────────────────────────────────
 if [[ -f "$ENV_FILE" ]]; then
   info "Loading environment from .env"
@@ -153,7 +162,7 @@ if [[ "$NO_INGEST" == false ]]; then
       PROJECT="$PROJECT" \
       SRS_PATH="$SRS_PATH" \
       FIGMA_PATH="$FIGMA_PATH" \
-      python ingest_all.py 2>&1) || {
+      "$PYTHON" ingest_all.py 2>&1) || {
       err "ingest_all.py failed"
       echo "$INGEST_OUTPUT"
       ERRORS=$((ERRORS+1))
