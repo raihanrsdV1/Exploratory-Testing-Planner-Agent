@@ -5,7 +5,7 @@ from pathlib import Path
 
 import requests
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 try:
     from google import genai
@@ -37,50 +37,128 @@ OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/ap
 GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "")
 APP_NAME = os.getenv("APP_NAME", "the app under test")
 
-app = FastAPI(title="Local Agent Gateway")
+app = FastAPI(
+    title="Exploratory Testing Planner — Agent Gateway",
+    description=(
+        "Orchestrates an adaptive exploratory QA testing session for Android apps.\n\n"
+        "**How it works:**\n"
+        "1. Ingest the app's SRS and Figma files into a Neo4j knowledge graph.\n"
+        "2. Call `/agent/next-testcase` — the planner retrieves targeted context and generates "
+        "a structured JSON test case, guided by live coverage state and testing heuristics.\n"
+        "3. The executor (Droidrun) runs the test on a real device.\n"
+        "4. Call `/agent/log-verdict-and-next` — the verdict is logged and the next test case "
+        "is generated, adapting toward failures and unexplored areas automatically.\n\n"
+        "**Authentication:** Set `GATEWAY_API_KEY` in `.env` to require "
+        "`Authorization: Bearer <key>` on every request. Leave blank to disable auth."
+    ),
+    version="1.0.0",
+    openapi_tags=[
+        {"name": "system",  "description": "Health checks and backend diagnostics."},
+        {"name": "ingest",  "description": "Load SRS and Figma design files into the knowledge graph."},
+        {"name": "project", "description": "Manage project-level data (reset slices, lifecycle)."},
+        {"name": "agent",   "description": "Core exploratory test generation and coverage tracking."},
+        {"name": "chat",    "description": "RAG-backed free-form Q&A against the project knowledge graph."},
+    ],
+)
 
 
 class ChatRequest(BaseModel):
-    prompt: str = Field(..., min_length=1)
-    project: str = "default"
-    top_k: int = 3
-    max_new_tokens: int = 2048
-    enable_thinking: bool = False
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "project": "contacts-app",
+        "prompt": "What validation rules apply to the phone number field?",
+        "top_k": 3,
+        "max_new_tokens": 512,
+        "enable_thinking": False,
+    }})
+
+    prompt: str = Field(..., min_length=1, description="Question or instruction for the LLM, automatically augmented with relevant SRS context retrieved from the knowledge graph.")
+    project: str = Field(default="default", description="Project identifier used to scope knowledge-graph retrieval.")
+    top_k: int = Field(default=3, ge=1, le=20, description="Number of SRS chunks to retrieve as RAG context.")
+    max_new_tokens: int = Field(default=2048, ge=64, le=8192, description="Maximum tokens in the LLM response.")
+    enable_thinking: bool = Field(default=False, description="Enable extended chain-of-thought reasoning (supported models only).")
 
 
 class NextTestCaseRequest(BaseModel):
-    project: str = Field(..., min_length=1)
-    app_name: str = APP_NAME
-    objective: str = "generate the next best high-value non-duplicate test case"
-    top_k: int = 5
-    max_new_tokens: int = 2048
-    enable_thinking: bool = False
-    debug_trace: bool = False
-    max_retrieval_rounds: int = 3
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "project": "contacts-app",
+        "app_name": "contacts app",
+        "objective": "generate next high-value non-duplicate test case",
+        "top_k": 8,
+        "max_new_tokens": 700,
+        "enable_thinking": False,
+        "debug_trace": False,
+        "max_retrieval_rounds": 3,
+    }})
+
+    project: str = Field(..., min_length=1, description="Project identifier scoping the Neo4j knowledge graph.")
+    app_name: str = Field(default=APP_NAME, description="Display name of the app under test, injected into every LLM prompt.")
+    objective: str = Field(
+        default="generate the next best high-value non-duplicate test case",
+        description="High-level exploration goal for this round. The planner adapts automatically based on live coverage state — override only for targeted sessions.",
+    )
+    top_k: int = Field(default=5, ge=1, le=20, description="Max SRS chunks retrieved per knowledge-graph query during the retrieval planning loop.")
+    max_new_tokens: int = Field(default=2048, ge=64, le=8192, description="Token budget for the final test case generation call.")
+    enable_thinking: bool = Field(default=False, description="Enable extended reasoning traces (supported models only). Increases latency.")
+    debug_trace: bool = Field(default=False, description="Include full debug trace in the response: prompt texts, raw model output, and retrieved context blocks for every planning round.")
+    max_retrieval_rounds: int = Field(default=3, ge=1, le=6, description="Maximum planning/retrieval rounds before the gateway forces test case generation. Higher values gather more context but increase latency.")
 
 
 class LogVerdictRequest(BaseModel):
-    project: str = Field(..., min_length=1)
-    app_name: str = APP_NAME
-    test_case_id: str = Field(..., min_length=1)
-    title: str = Field(..., min_length=1)
-    verdict: str = Field(..., pattern="^(pass|failed|blocked|skipped)$")
-    notes: str = ""
-    area: str = "general"
-    next_objective: str = ""
-    top_k: int = 5
-    max_new_tokens: int = 2048
-    enable_thinking: bool = False
-    debug_trace: bool = False
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "project": "contacts-app",
+        "app_name": "contacts app",
+        "test_case_id": "TC-003",
+        "title": "Verify email field rejects invalid format on Create Contact screen",
+        "verdict": "failed",
+        "notes": "App accepted 'user@' without a TLD — no validation error was shown.",
+        "area": "create_contact",
+        "next_objective": "",
+        "top_k": 8,
+        "max_new_tokens": 700,
+        "enable_thinking": False,
+        "debug_trace": False,
+    }})
+
+    project: str = Field(..., min_length=1, description="Project identifier.")
+    app_name: str = Field(default=APP_NAME, description="Display name of the app under test.")
+    test_case_id: str = Field(..., min_length=1, description="ID of the executed test case (e.g. 'TC-003'). Must match the value returned by the planner.")
+    title: str = Field(..., min_length=1, description="Title of the executed test case.")
+    verdict: str = Field(
+        ...,
+        pattern="^(pass|failed|blocked|skipped)$",
+        description=(
+            "Execution outcome. Accepted values:\n"
+            "- `pass` — test ran successfully, expected result met.\n"
+            "- `failed` — test ran but expected result was NOT met (bug found).\n"
+            "- `blocked` — test could not run due to a prerequisite or environment issue.\n"
+            "- `skipped` — test was intentionally skipped.\n\n"
+            "`blocked` and `skipped` are stored as `failed` in the knowledge graph with the original verdict prepended to notes."
+        ),
+    )
+    notes: str = Field(default="", description="Execution notes, error messages, or observations from the executor. Stored in the knowledge graph and used to inform subsequent test generation.")
+    area: str = Field(default="general", description="Feature area of the test case (e.g. 'create_contact', 'search'). Used to compute the coverage map and drive the adaptive next-test objective.")
+    next_objective: str = Field(default="", description="Override the adaptive objective for the next test case. Leave blank to let the planner derive the objective from the verdict and coverage state (recommended).")
+    top_k: int = Field(default=5, ge=1, le=20, description="Max SRS chunks retrieved for the next test case generation.")
+    max_new_tokens: int = Field(default=2048, ge=64, le=8192, description="Token budget for the next test case generation call.")
+    enable_thinking: bool = Field(default=False, description="Enable extended reasoning for the next test generation call.")
+    debug_trace: bool = Field(default=False, description="Include full debug trace in the next test case response.")
 
 
 class IngestSRSRequest(BaseModel):
-    project: str = Field(..., min_length=1)
-    source_path: str = Field(..., min_length=1)
-    srs_text: str | None = None
-    chunk_chars: int = 1200
-    use_model_summary: bool = True
-    require_model_summary: bool = True
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "project": "contacts-app",
+        "source_path": "./data/inputs/SRS1.txt",
+        "chunk_chars": 1200,
+        "use_model_summary": True,
+        "require_model_summary": True,
+    }})
+
+    project: str = Field(..., min_length=1, description="Project identifier. Created automatically if it does not exist.")
+    source_path: str = Field(..., min_length=1, description="Local file path to the SRS document (.txt, .md, etc.). Path traversal ('..') is rejected. If `srs_text` is provided this field is used as a label only.")
+    srs_text: str | None = Field(default=None, description="Inline SRS text. If provided, the file at `source_path` is not read. Maximum 500,000 characters.")
+    chunk_chars: int = Field(default=1200, ge=200, le=5000, description="Target character size for each SRS chunk stored in the knowledge graph. Smaller chunks improve retrieval precision; larger chunks improve coherence.")
+    use_model_summary: bool = Field(default=True, description="Generate a planner-friendly SRS summary via the LLM before ingesting chunks. The summary is used in every test generation call for global context.")
+    require_model_summary: bool = Field(default=True, description="If true, the request returns 503 when model summarization fails. If false, falls back to a rule-based keyword summary.")
 
 
 def _summarize_srs_with_model(srs_text: str, max_new_tokens: int = 1000) -> str:
@@ -113,16 +191,28 @@ def _summarize_srs_with_model(srs_text: str, max_new_tokens: int = 1000) -> str:
 
 
 class IngestFigmaRequest(BaseModel):
-    project: str = Field(..., min_length=1)
-    source_path: str = Field(..., min_length=1)
-    figma_json: str | None = None
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "project": "contacts-app",
+        "source_path": "./data/inputs/GENERATED_JSON.json",
+    }})
+
+    project: str = Field(..., min_length=1, description="Project identifier. Created automatically if it does not exist.")
+    source_path: str = Field(..., min_length=1, description="Local path to the exported Figma JSON file. Path traversal ('..') is rejected. If `figma_json` is provided this field is used as a label only.")
+    figma_json: str | None = Field(default=None, description="Inline Figma export JSON string. Accepts raw JSON or a markdown code-fenced JSON block.")
 
 
 class ResetProjectRequest(BaseModel):
-    project: str = Field(..., min_length=1)
-    delete_tests: bool = True
-    delete_srs: bool = False
-    delete_figma: bool = False
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "project": "contacts-app",
+        "delete_tests": True,
+        "delete_srs": False,
+        "delete_figma": False,
+    }})
+
+    project: str = Field(..., min_length=1, description="Project to reset.")
+    delete_tests: bool = Field(default=True, description="Delete all logged test cases and test runs. The next test generation starts from scratch with no history.")
+    delete_srs: bool = Field(default=False, description="Delete ingested SRS chunks and summary. Re-ingest via `/srs/ingest` before the next test generation.")
+    delete_figma: bool = Field(default=False, description="Delete ingested Figma screens and UI elements. Re-ingest via `/figma/ingest` before the next test generation.")
 
 
 # ── Auth & helpers ────────────────────────────────────────────────────────────
@@ -891,7 +981,13 @@ def _parse_testcase(raw: str) -> dict:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-@app.get("/health")
+@app.get(
+    "/health",
+    summary="Gateway health check",
+    description="Returns the operational status of the gateway and identifies the active model backend (ngrok, OpenRouter, or Gemini) with its configuration.",
+    tags=["system"],
+    response_description="Status 'ok' with RAG API URL and active model backend details.",
+)
 def health():
     model_info = {
         "backend": MODEL_BACKEND,
@@ -907,7 +1003,27 @@ def health():
     return {"status": "ok", "rag_api": RAG_API_URL, "model_api": MODEL_API_URL, "model": model_info}
 
 
-@app.post("/srs/ingest")
+@app.post(
+    "/srs/ingest",
+    summary="Ingest SRS document",
+    description=(
+        "Loads a Software Requirements Specification into the Neo4j knowledge graph. "
+        "The document is chunked and optionally summarised by the LLM to produce a compact "
+        "planner-friendly summary used in every subsequent test generation call.\n\n"
+        "**Re-ingesting replaces** the existing SRS for this project. "
+        "Re-ingest whenever the requirements change.\n\n"
+        "**Tip:** Set `use_model_summary=true` (default) for best test quality. "
+        "The model summary is stored once here so it doesn't consume tokens on every generation call."
+    ),
+    tags=["ingest"],
+    response_description="Ingest result including chunk count, SRS ID, and summary metadata.",
+    responses={
+        400: {"description": "Path traversal detected in `source_path`."},
+        404: {"description": "SRS file not found at `source_path`."},
+        413: {"description": "SRS text or file exceeds the 500,000 character limit."},
+        503: {"description": "Model summarization failed (only raised when `require_model_summary=true`)."},
+    },
+)
 def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default=None)):
     _check_gateway_auth(authorization)
 
@@ -951,7 +1067,26 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default
     return out
 
 
-@app.post("/figma/ingest")
+@app.post(
+    "/figma/ingest",
+    summary="Ingest Figma design file",
+    description=(
+        "Parses a Figma export JSON and stores all screens, interactive UI elements (buttons, inputs, "
+        "navigation, toggles, dropdowns), and inferred screen-to-screen navigation transitions in the "
+        "Neo4j knowledge graph.\n\n"
+        "**Re-ingesting replaces** all existing Figma data for this project.\n\n"
+        "The planner uses this data to:\n"
+        "- Generate test steps referencing exact UI element labels.\n"
+        "- Identify which screens are unexplored and bias coverage toward them.\n"
+        "- Infer navigation flows (button → screen) for state-transition tests."
+    ),
+    tags=["ingest"],
+    response_description="Ingest result with screen count, element count, and Figma source name.",
+    responses={
+        400: {"description": "Path traversal in `source_path`, invalid JSON, or no screens found."},
+        404: {"description": "Figma JSON file not found at `source_path`."},
+    },
+)
 def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(default=None)):
     _check_gateway_auth(authorization)
     if any(part == ".." for part in Path(req.source_path).parts):
@@ -966,13 +1101,65 @@ def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(def
     return resp.json()
 
 
-@app.post("/project/reset")
+@app.post(
+    "/project/reset",
+    summary="Reset project data slices",
+    description=(
+        "Selectively deletes data from the project's knowledge graph. "
+        "Operates on three independent slices:\n\n"
+        "| Slice | Flag | Effect |\n"
+        "|-------|------|--------|\n"
+        "| Test history | `delete_tests=true` | Clears all verdicts and runs. Next generation starts fresh. |\n"
+        "| SRS | `delete_srs=true` | Removes all chunks and summary. Re-ingest required. |\n"
+        "| Figma | `delete_figma=true` | Removes all screens and elements. Re-ingest required. |\n\n"
+        "The most common use case is `delete_tests=true, delete_srs=false, delete_figma=false` "
+        "to start a new testing session without re-ingesting the knowledge base."
+    ),
+    tags=["project"],
+    response_description="Confirmation of which slices were deleted.",
+    responses={
+        401: {"description": "Invalid or missing Authorization header."},
+        503: {"description": "RAG API unavailable."},
+    },
+)
 def reset_project(req: ResetProjectRequest, authorization: str | None = Header(default=None)):
     _check_gateway_auth(authorization)
     return _rag_post("/project/reset", req.model_dump())
 
 
-@app.post("/agent/next-testcase")
+@app.post(
+    "/agent/next-testcase",
+    summary="Generate the next exploratory test case",
+    description=(
+        "Core endpoint. Runs the full multi-stage planner pipeline and returns the next test case.\n\n"
+        "**Pipeline stages:**\n\n"
+        "1. **Context bootstrap** — Loads SRS/Figma summaries, screen index, and the last 100 test "
+        "results from the knowledge graph.\n\n"
+        "2. **Coverage analysis** — Computes a live coverage map: which feature areas have repeated "
+        "failures (hot spots), which have zero tests (uncovered), and which are over-tested (exhausted).\n\n"
+        "3. **Iterative retrieval loop** — The planner LLM runs up to `max_retrieval_rounds` rounds. "
+        "Each round it issues targeted queries against the knowledge graph (SRS business rules, "
+        "Figma UI elements, screen-to-screen transitions) and decides whether to retrieve more "
+        "context or proceed to generation.\n\n"
+        "4. **Test generation** — The LLM generates a structured JSON test case, guided by the "
+        "coverage map, exploration directive, and testing heuristics (boundary, invalid input, "
+        "state transition, interruption, etc.).\n\n"
+        "5. **Deduplication** — If the result is semantically too close to an existing test, "
+        "a retry is triggered with a rotated screen focus.\n\n"
+        "**Response includes:** the test case JSON, coverage snapshot, retrieval statistics, "
+        "and (if `debug_trace=true`) full prompt/response transcripts for every planning round."
+    ),
+    tags=["agent"],
+    response_description=(
+        "Generated test case with coverage state, planner trace, and retrieval statistics. "
+        "Key fields: `next_testcase` (parsed JSON), `next_testcase_json` (raw string for logging), "
+        "`coverage`, `retrieval_plan`, `planner_trace`, `finalization_mode`."
+    ),
+    responses={
+        401: {"description": "Invalid or missing Authorization header."},
+        503: {"description": "LLM backend (model) or RAG API unavailable."},
+    },
+)
 def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(default=None)):
     _check_gateway_auth(authorization)
 
@@ -1241,7 +1428,32 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
     return out
 
 
-@app.post("/agent/log-verdict-and-next")
+@app.post(
+    "/agent/log-verdict-and-next",
+    summary="Log execution verdict and get next test case",
+    description=(
+        "The primary endpoint for the continuous exploration loop. Atomically:\n\n"
+        "1. **Logs the verdict** for the just-executed test case into the knowledge graph, "
+        "making it visible to future test generation calls.\n\n"
+        "2. **Generates the next test case**, adapting the objective based on the verdict:\n"
+        "   - `failed` → focuses on the same area to map adjacent edge cases around the failure.\n"
+        "   - `blocked` / `skipped` → seeks an alternative test that avoids the blocking condition.\n"
+        "   - `pass` → broadens coverage toward unexplored areas per the current coverage map.\n\n"
+        "Override the adaptive objective with `next_objective` for explicit session control.\n\n"
+        "**Note on verdicts:** `blocked` and `skipped` are stored as `failed` internally "
+        "(the RAG layer uses a binary pass/fail model). The original verdict is prepended to `notes` "
+        "so it remains visible in test history."
+    ),
+    tags=["agent"],
+    response_description=(
+        "Two-key response: `log` — verdict confirmation from the knowledge graph; "
+        "`next` — full next-testcase payload (same schema as `/agent/next-testcase`)."
+    ),
+    responses={
+        401: {"description": "Invalid or missing Authorization header."},
+        503: {"description": "LLM backend or RAG API unavailable."},
+    },
+)
 def log_verdict_and_next(req: LogVerdictRequest, authorization: str | None = Header(default=None)):
     _check_gateway_auth(authorization)
 
@@ -1291,14 +1503,31 @@ def log_verdict_and_next(req: LogVerdictRequest, authorization: str | None = Hea
     return {"log": log_data, "next": next_data}
 
 
-@app.get("/agent/coverage")
+@app.get(
+    "/agent/coverage",
+    summary="Get exploration coverage dashboard",
+    description=(
+        "Returns the live exploration state for a project without generating a test case. "
+        "Use this to monitor session progress, identify where to focus, or decide when to stop.\n\n"
+        "**Response fields:**\n\n"
+        "| Field | Description |\n"
+        "|-------|-------------|\n"
+        "| `summary` | Totals: test count, coverage %, areas tested vs available. |\n"
+        "| `area_breakdown` | Per-area pass/fail counts. |\n"
+        "| `uncovered_areas` | Feature areas derived from Figma with zero tests. |\n"
+        "| `hot_spots` | Areas with ≥2 failures — highest priority for deeper exploration. |\n"
+        "| `exhausted_areas` | Areas with ≥4 tests and 0 failures — diminishing returns. |\n"
+        "| `exploration_directive` | Prioritised plain-text next-action recommendation. |\n"
+        "| `recent_tests` | Last 20 executed tests with verdicts. |"
+    ),
+    tags=["agent"],
+    response_description="Coverage dashboard with exploration directive and recent test history.",
+    responses={
+        401: {"description": "Invalid or missing Authorization header."},
+        503: {"description": "RAG API unavailable."},
+    },
+)
 def agent_coverage(project: str, authorization: str | None = Header(default=None)):
-    """
-    Returns the live exploration coverage dashboard for a project.
-    Shows which areas have been tested, where failures are concentrated,
-    what is still unexplored, and the current exploration directive.
-    Useful for monitoring the session and deciding when to stop or pivot.
-    """
     _check_gateway_auth(authorization)
     brief = _get_brief_context(project)
     recent_tests = brief.get("recent_tests", []) if isinstance(brief, dict) else []
@@ -1326,7 +1555,24 @@ def agent_coverage(project: str, authorization: str | None = Header(default=None
     }
 
 
-@app.post("/chat")
+@app.post(
+    "/chat",
+    summary="RAG-backed free-form Q&A",
+    description=(
+        "Ask any question about the app under test. The prompt is automatically augmented with "
+        "the most semantically relevant SRS chunks retrieved from the knowledge graph, then sent "
+        "to the active LLM backend.\n\n"
+        "Useful for:\n"
+        "- Ad-hoc requirement lookups ('What does FR-12 say about email validation?').\n"
+        "- Test planning discussions ('What edge cases should I cover for the Save button?').\n"
+        "- Exploring the ingested SRS without running a full test generation pipeline."
+    ),
+    tags=["chat"],
+    response_description="LLM answer with the SRS context chunks that were retrieved and injected.",
+    responses={
+        503: {"description": "LLM backend or RAG API unavailable."},
+    },
+)
 def chat(req: ChatRequest, authorization: str | None = Header(default=None)):
     _check_gateway_auth(authorization)
 
