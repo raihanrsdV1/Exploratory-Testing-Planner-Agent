@@ -14,6 +14,9 @@ try:
 except ImportError:
     HAS_GEMINI = False
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Local services (on your device)
 RAG_API_URL = os.getenv("RAG_API_URL", "http://127.0.0.1:9010").rstrip("/")
 RAG_API_KEY = os.getenv("RAG_API_KEY", "")
@@ -32,6 +35,7 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "qwen/qwen3.6-plus:free")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "")
+APP_NAME = os.getenv("APP_NAME", "the app under test")
 
 app = FastAPI(title="Local Agent Gateway")
 
@@ -46,22 +50,24 @@ class ChatRequest(BaseModel):
 
 class NextTestCaseRequest(BaseModel):
     project: str = Field(..., min_length=1)
-    app_name: str = "contacts app"
-    objective: str = "generate the next best test case"
+    app_name: str = APP_NAME
+    objective: str = "generate the next best high-value non-duplicate test case"
     top_k: int = 5
     max_new_tokens: int = 2048
     enable_thinking: bool = False
     debug_trace: bool = False
+    max_retrieval_rounds: int = 3
 
 
 class LogVerdictRequest(BaseModel):
     project: str = Field(..., min_length=1)
-    app_name: str = "contacts app"
+    app_name: str = APP_NAME
     test_case_id: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1)
-    verdict: str = Field(..., pattern="^(pass|failed)$")
+    verdict: str = Field(..., pattern="^(pass|failed|blocked|skipped)$")
     notes: str = ""
     area: str = "general"
+    next_objective: str = ""
     top_k: int = 5
     max_new_tokens: int = 2048
     enable_thinking: bool = False
@@ -101,13 +107,7 @@ def _summarize_srs_with_model(srs_text: str, max_new_tokens: int = 1000) -> str:
         "SRS:\n"
         f"{(srs_text or '').strip()}"
     )
-    resp = requests.post(
-        f"{MODEL_API_URL}/generate",
-        json={"prompt": prompt, "max_new_tokens": max_new_tokens, "enable_thinking": False},
-        timeout=180,
-    )
-    resp.raise_for_status()
-    model_data = resp.json()
+    model_data = _call_model(prompt, max_new_tokens, False)
     summary = (model_data.get("answer", "") or "").strip()
     return _extract_json_text(summary) if summary.startswith("{") else summary
 
@@ -407,7 +407,6 @@ def _screen_index_compact(screen_index: list[dict], limit: int = 7) -> str:
     ordered = sorted(
         screen_index,
         key=lambda s: (
-            0 if str(s.get("purpose", "")).strip().lower() == "create_contact" else 1,
             -int(s.get("interactive_count", 0) or 0),
             str(s.get("screen_name", "")).lower(),
         ),
@@ -423,6 +422,119 @@ def _screen_index_compact(screen_index: list[dict], limit: int = 7) -> str:
 def _compact_note(text: str, limit: int = 260) -> str:
     t = re.sub(r"\s+", " ", (text or "").strip())
     return t[:limit] + (" ..." if len(t) > limit else "")
+
+
+# ── Coverage & exploration state ──────────────────────────────────────────────
+
+MAX_SRS_CHARS = 500_000  # ~500 KB hard cap on ingested SRS text
+
+
+def _compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict]) -> dict:
+    """
+    Derive a live exploration coverage map from test history and known screens.
+    Used to guide the planner toward untested areas and away from exhausted ones.
+    """
+    area_stats: dict[str, dict] = {}
+    for t in recent_tests:
+        area = re.sub(r"\s+", "_", str(t.get("area", "general")).lower().strip()) or "general"
+        if area not in area_stats:
+            area_stats[area] = {"total": 0, "passed": 0, "failed": 0}
+        area_stats[area]["total"] += 1
+        if str(t.get("verdict", "")).lower() == "pass":
+            area_stats[area]["passed"] += 1
+        else:
+            area_stats[area]["failed"] += 1
+
+    screen_purposes: set[str] = set()
+    for s in figma_screens:
+        p = str(s.get("purpose", "")).lower().strip()
+        if p and p != "other":
+            screen_purposes.add(p)
+
+    tested_areas = set(area_stats.keys()) - {"general"}
+    uncovered_purposes = sorted(screen_purposes - tested_areas)
+    hot_spots = sorted(a for a, s in area_stats.items() if s["failed"] >= 2)
+    exhausted = sorted(a for a, s in area_stats.items() if s["total"] >= 4 and s["failed"] == 0)
+    cov_pct = round(100 * len(tested_areas) / len(screen_purposes)) if screen_purposes else 0
+
+    return {
+        "area_stats": area_stats,
+        "uncovered_purposes": uncovered_purposes,
+        "hot_spots": hot_spots,
+        "exhausted_areas": exhausted,
+        "total_tests": len(recent_tests),
+        "total_areas_tested": len(tested_areas),
+        "total_areas_available": len(screen_purposes),
+        "coverage_pct": cov_pct,
+    }
+
+
+def _build_coverage_block(coverage_map: dict) -> str:
+    """Format the coverage map as a prompt-ready text block."""
+    stats = coverage_map.get("area_stats", {})
+    total = coverage_map.get("total_tests", 0)
+    if not stats:
+        return "No tests executed yet — start of exploration session. Begin with broad coverage."
+    lines = [f"Total tests executed: {total}"]
+    lines.append("Per-area breakdown:")
+    for area, s in sorted(stats.items(), key=lambda x: (-x[1]["failed"], -x[1]["total"])):
+        flag = " ⚠ REPEATED FAILURES" if s["failed"] >= 2 else (" ✓ stable" if s["failed"] == 0 and s["total"] >= 3 else "")
+        lines.append(f"  {area}: {s['total']} tests ({s['passed']} pass / {s['failed']} fail){flag}")
+    unc = coverage_map.get("uncovered_purposes", [])
+    if unc:
+        lines.append(f"Completely untested areas: {', '.join(unc)}")
+    cov = coverage_map.get("coverage_pct", 0)
+    avail = coverage_map.get("total_areas_available", 0)
+    tested = coverage_map.get("total_areas_tested", 0)
+    lines.append(f"Overall coverage: {tested}/{avail} known areas ({cov}%)")
+    return "\n".join(lines)
+
+
+def _build_exploration_directive(coverage_map: dict, recent_tests: list[dict]) -> str:
+    """
+    Build a prioritised exploration directive so the model knows exactly what
+    to test next based on live coverage state.
+    """
+    lines: list[str] = []
+    hot_spots = coverage_map.get("hot_spots", [])
+    uncovered = coverage_map.get("uncovered_purposes", [])
+    exhausted = coverage_map.get("exhausted_areas", [])
+
+    if hot_spots:
+        lines.append(
+            f"[PRIORITY 1 — INVESTIGATE] Areas with repeated failures need deeper edge-case coverage: "
+            f"{', '.join(hot_spots[:3])}"
+        )
+    if uncovered:
+        lines.append(
+            f"[PRIORITY 2 — EXPAND] Areas with ZERO test coverage yet: "
+            f"{', '.join(uncovered[:5])}"
+        )
+
+    last_areas = [str(t.get("area", "")).lower().strip() for t in recent_tests[:4] if t.get("area")]
+    if len(last_areas) >= 3 and len(set(last_areas)) == 1:
+        last_verdicts = [str(t.get("verdict", "")).lower() for t in recent_tests[:4]]
+        if all(v == "pass" for v in last_verdicts):
+            lines.append(
+                f"[PRIORITY 3 — PIVOT] Last {len(last_areas)} consecutive tests all PASSED in "
+                f"'{last_areas[0]}'. This area is likely stable — move to a different area now."
+            )
+        else:
+            lines.append(
+                f"[PRIORITY 3 — VARY ANGLE] Still in '{last_areas[0]}' with mixed results. "
+                "Try a different test type: boundary values, invalid input, or state transitions."
+            )
+
+    if exhausted:
+        lines.append(
+            f"[DEPRIORITIZE] Well-covered stable areas (4+ tests, 0 failures — avoid repeating): "
+            f"{', '.join(exhausted[:3])}"
+        )
+
+    if not lines:
+        lines.append("[OPEN EXPLORATION] No specific signal. Aim for breadth first, then depth.")
+
+    return "\n".join(lines)
 
 
 def _get_brief_context(project: str) -> dict:
@@ -460,6 +572,7 @@ def _planner_prompt_for_action(
     context_chars: int,
     figma_overview: list[dict],
     retrieved_notes: list[str],
+    coverage_map: dict | None = None,
 ) -> str:
     retrieved_notes_str = "\n".join(f"- {n}" for n in retrieved_notes[-6:]) if retrieved_notes else "- none yet"
     srs_summary = brief.get("srs_summary", "") if isinstance(brief, dict) else ""
@@ -472,6 +585,15 @@ def _planner_prompt_for_action(
     recent_tests = brief.get("recent_tests", []) if isinstance(brief, dict) else []
     recent_tests_exact = _recent_tests_exact(recent_tests)
 
+    cmap = coverage_map or {}
+    hot_spots = cmap.get("hot_spots", [])
+    uncovered = cmap.get("uncovered_purposes", [])
+    coverage_hint = (
+        f"Coverage hint — hot spots (repeated failures): {hot_spots[:3] or 'none'}; "
+        f"unexplored areas: {uncovered[:4] or 'none'}; "
+        f"overall coverage: {cmap.get('coverage_pct', '?')}%"
+    )
+
     if retrieval_round <= 1:
         global_context_block = (
             "Full global context (round 1):\n"
@@ -479,13 +601,15 @@ def _planner_prompt_for_action(
             f"Figma summary:\n{figma_full}\n\n"
             f"Screen index (compact): {_screen_index_compact(brief.get('screen_index', []) if isinstance(brief, dict) else [])}\n"
             f"Figma UI overview (generalized):\n{figma_overview_general}\n"
-            f"Recent tests (exact): {recent_tests_exact}\n\n"
+            f"Recent tests (exact): {recent_tests_exact}\n"
+            f"Exploration coverage: {coverage_hint}\n\n"
         )
     else:
         global_context_block = (
             "Global memo (do not re-ask same broad context):\n"
             f"Screen index (compact): {_screen_index_compact(brief.get('screen_index', []) if isinstance(brief, dict) else [])}\n"
             f"Recent tests (exact): {recent_tests_exact}\n"
+            f"Exploration coverage: {coverage_hint}\n"
             "Use Retrieved context so far to refine, not restart.\n\n"
         )
 
@@ -496,8 +620,10 @@ def _planner_prompt_for_action(
     )
 
     return (
-        f"You are retrieval planner for QA testcase generation in {app_name}.\n"
-        "You are interacting with a knowledge database (SRS + Figma KG + test history).\n"
+        f"You are a retrieval planner for exploratory QA test generation in {app_name}.\n"
+        "You interact with a knowledge database (SRS + Figma KG + test history) to gather context.\n"
+        "Your goal: retrieve context that will help generate a test case targeting real defects — "
+        "prioritise unexplored areas and hot spots with repeated failures.\n"
         "Decide your NEXT ACTION only.\n\n"
         f"Objective: {objective}\n"
         f"Retrieval round: {retrieval_round}/{max_rounds}\n"
@@ -518,12 +644,13 @@ def _planner_prompt_for_action(
         "}\n"
         "Rules:\n"
         "- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).\n"
-        "- Use source=srs for business rules/validation logic.\n"
+        "- Prefer retrieving context for HOT SPOTS and UNEXPLORED areas (see coverage hint above).\n"
+        "- Use source=srs for business rules, validation constraints, and error conditions.\n"
         "- Use source=figma_ui for screen elements and control availability.\n"
-        "- Use source=figma_flow for navigation/button-to-screen behavior.\n"
-        "- For source=srs, query must be keyword expression (not question), e.g. \"validation AND (email OR phone)\".\n"
-        "- You are replying to the prior retrieval results; avoid asking for the exact same request unless refinement is needed.\n"
-        "- If context is sufficient, set action=produce_testcase.\n"
+        "- Use source=figma_flow for navigation/button-to-screen behaviour.\n"
+        "- For source=srs, query must be a keyword expression, e.g. \"validation AND (email OR phone)\".\n"
+        "- Avoid re-requesting context you already have unless refining.\n"
+        "- If context is sufficient to write a targeted test, set action=produce_testcase.\n"
         "- Never output markdown or text outside JSON."
     )
 
@@ -618,52 +745,91 @@ def _build_prompt(
     figma_flow_context: str,
     done_titles: list[str],
     failed_titles: list[str],
+    coverage_map: dict | None = None,
+    recent_tests: list[dict] | None = None,
 ) -> str:
+    cmap = coverage_map or {}
+    rtests = recent_tests or []
+    coverage_block = _build_coverage_block(cmap)
+    directive = _build_exploration_directive(cmap, rtests)
+
     parts = [
-        f"You are a senior QA test designer for {app_name}.",
-        f"Task: {objective}.",
-        "Propose exactly ONE test case not already in the executed list.",
+        f"You are an expert exploratory software tester conducting an adaptive testing session on {app_name}.",
+        f"Session objective: {objective}",
+        "Your mission is to DISCOVER BUGS, not confirm expected behaviour.",
+        "Think adversarially: where would a user most likely hit a real defect?",
+        "Generate exactly ONE test case optimised to uncover a defect not yet found.",
+        "",
+        "## Live Coverage State",
+        coverage_block,
+        "",
+        "## Exploration Directive — follow this priority order",
+        directive,
         "",
     ]
 
     if srs_context:
-        parts += ["## SRS Requirements (relevant excerpt)", srs_context, ""]
+        parts += [
+            "## Business Rules & Requirements (from SRS)",
+            "(Violations of these rules are bugs — verify that these constraints are actually enforced by the app)",
+            srs_context,
+            "",
+        ]
 
     if figma_overview_context:
-        parts += ["## Figma UI overview (all screens, compact)", figma_overview_context, ""]
+        parts += [
+            "## App Screens & UI Structure",
+            figma_overview_context,
+            "",
+        ]
 
     if figma_context:
         parts += [
-            "## Figma UI — interactive elements on relevant screens",
-            "(Use exact button labels / input names in your steps)",
+            "## Interactive Elements on Relevant Screens",
+            "(Use EXACT element names from the list below in your test steps — do not invent labels)",
             figma_context,
             "",
         ]
 
     if figma_flow_context:
-        parts += ["## Figma flow hints (button/navigation transitions)", figma_flow_context, ""]
+        parts += [
+            "## Screen Navigation Transitions",
+            figma_flow_context,
+            "",
+        ]
 
-    history_block = "\n".join(f"- {t}" for t in done_titles[:30]) or "- none"
+    history_block = "\n".join(f"- {t}" for t in done_titles[:40]) or "- none"
     failed_block = "\n".join(f"- {t}" for t in failed_titles[:20]) or "- none"
 
     parts += [
-        "## Already executed tests (avoid semantic duplicates)",
+        "## Executed Tests — semantic duplicates are FORBIDDEN",
         history_block,
         "",
-        "## Failed tests (prioritise adjacent coverage)",
+        "## Known Failures — probe adjacent cases and variants around these",
         failed_block,
         "",
-        "## Decision policy",
-        "1. Do NOT propose a test semantically similar to executed titles.",
-        "2. Prefer tests adjacent to failed behaviours or that close a coverage gap.",
-        "3. Vary the area — avoid repeating the same feature in consecutive rounds.",
-        "4. Validate either business logic (SRS), UI behavior (Figma UI), or navigation flow (Figma flow).",
+        "## Exploratory Testing Heuristics — apply at least one",
+        "- BOUNDARY: Test at the edges of valid input ranges (max length, empty, zero, one-off, overflow).",
+        "- INVALID INPUT: Submit malformed, null, or unexpected-type data. Does the app fail gracefully?",
+        "- STATE TRANSITION: Perform an action and verify the app reaches the correct subsequent state.",
+        "- INTERRUPTION: Start an action, navigate away mid-flow, then return — is data/state preserved?",
+        "- COMBINATION: Test interactions between two features that may have unexpected side-effects.",
+        "- RECOVERY: After an error or warning, can the user correct and retry without restarting?",
+        "- PERMISSION / ACCESS: Test behaviours requiring specific preconditions or data to be present.",
         "",
-        "## Output",
-        "Return STRICT JSON only — no markdown, no commentary.",
-        "Keys: test_case_id, title, screen, preconditions (array), steps (array),",
-        "      expected_result, priority (high/medium/low), area, rationale",
-        "Steps must reference actual UI element names from the Figma context above.",
+        "## Strict Decision Policy",
+        "1. FORBIDDEN: Any test semantically similar to a title in the executed list above.",
+        "2. PRIORITY: Follow the Exploration Directive — hot spots > new areas > breadth > exhausted areas.",
+        "3. PREFER negative, boundary, and state-transition tests over happy-path positive tests.",
+        "4. Steps MUST reference actual UI element names from the Figma context — no invented labels.",
+        "5. The 'rationale' field MUST name the specific defect class or risk this test is designed to expose.",
+        "6. The 'area' field MUST align with the Exploration Directive — do not default to the easiest area.",
+        "",
+        "## Output — STRICT JSON only. No markdown fences, no text outside the JSON object.",
+        '{"test_case_id":"...","title":"...","screen":"...","preconditions":[...],"steps":[...],'
+        '"expected_result":"...","priority":"high|medium|low","area":"...",'
+        '"test_type":"positive|negative|boundary|state_transition|recovery|combination",'
+        '"rationale":"what specific bug or risk this test is designed to expose"}',
     ]
 
     return "\n".join(parts)
@@ -745,12 +911,20 @@ def health():
 def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default=None)):
     _check_gateway_auth(authorization)
 
+    if any(part == ".." for part in Path(req.source_path).parts):
+        raise HTTPException(status_code=400, detail="Path traversal not allowed in source_path")
+
     srs_text = req.srs_text
+    if srs_text and len(srs_text) > MAX_SRS_CHARS:
+        raise HTTPException(status_code=413, detail=f"srs_text exceeds {MAX_SRS_CHARS:,} character limit")
+
     if not srs_text:
         src = Path(req.source_path)
         if not src.exists():
             raise HTTPException(status_code=404, detail=f"SRS file not found: {req.source_path}")
         srs_text = src.read_text(encoding="utf-8", errors="ignore")
+        if len(srs_text) > MAX_SRS_CHARS:
+            raise HTTPException(status_code=413, detail=f"SRS file exceeds {MAX_SRS_CHARS:,} character limit")
 
     srs_summary = ""
     summary_source = "fallback"
@@ -780,6 +954,8 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default
 @app.post("/figma/ingest")
 def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(default=None)):
     _check_gateway_auth(authorization)
+    if any(part == ".." for part in Path(req.source_path).parts):
+        raise HTTPException(status_code=400, detail="Path traversal not allowed in source_path")
     resp = requests.post(
         f"{RAG_API_URL}/ingest/figma",
         json=req.model_dump(),
@@ -814,8 +990,11 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
     figma_overview = _get_figma_overview(req.project)
     fallback_screens = _pick_relevant_screens(figma_screens, done_areas, recent_tests)
 
+    # Compute live coverage map — drives exploration directives throughout generation
+    coverage_map = _compute_coverage_map(recent_tests, figma_screens)
+
     # Stage 2: iterative retrieval planning loop
-    max_retrieval_rounds = 3
+    max_retrieval_rounds = max(1, min(req.max_retrieval_rounds, 6))
     planner_trace: list[dict] = []
     collected_queries: list[str] = []
     selected_screens: list[str] = []
@@ -843,6 +1022,7 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
             context_chars=len("\n\n".join(srs_context_blocks)),
             figma_overview=figma_overview,
             retrieved_notes=last_round_retrieved_notes,
+            coverage_map=coverage_map,
         )
         action_model = _call_model(action_prompt, max(320, min(req.max_new_tokens, 700)), False)
         action = _parse_action(action_model.get("answer", ""), fallback_screens)
@@ -970,6 +1150,8 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
         figma_flow_context=figma_flow_context,
         done_titles=done_titles,
         failed_titles=failed_titles,
+        coverage_map=coverage_map,
+        recent_tests=recent_tests,
     )
 
     # 4. Call model
@@ -997,14 +1179,16 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
 
         retry_prompt = _build_prompt(
             app_name=req.app_name,
-            objective=req.objective + " (choose a DISTINCT testcase, not semantically similar to blocked titles)",
+            objective=req.objective + " (RETRY — choose a DISTINCT test case; the previous suggestion was too similar to an already-executed test)",
             srs_context=srs_context,
             figma_overview_context=figma_overview_context,
             figma_context=alt_figma_context,
             figma_flow_context=figma_flow_context,
             done_titles=done_titles,
             failed_titles=failed_titles,
-        ) + "\n\nBlocked titles (must avoid semantic overlap):\n" + blocked
+            coverage_map=coverage_map,
+            recent_tests=recent_tests,
+        ) + "\n\nBlocked titles (semantic overlap with any of these is FORBIDDEN):\n" + blocked
         model_data = _call_model(retry_prompt, req.max_new_tokens, req.enable_thinking)
         raw_answer = model_data.get("answer", "")
         parsed = _parse_testcase(raw_answer)
@@ -1041,6 +1225,14 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
         "recent_tests_count": len(recent_tests),
         "failed_tests_count": len(failed_titles),
         "thinking": model_data.get("thinking", ""),
+        "coverage": {
+            "total_tests": coverage_map.get("total_tests", 0),
+            "coverage_pct": coverage_map.get("coverage_pct", 0),
+            "uncovered_areas": coverage_map.get("uncovered_purposes", []),
+            "hot_spots": coverage_map.get("hot_spots", []),
+            "exhausted_areas": coverage_map.get("exhausted_areas", []),
+            "exploration_directive": _build_exploration_directive(coverage_map, recent_tests),
+        },
     }
 
     if req.debug_trace:
@@ -1053,19 +1245,42 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
 def log_verdict_and_next(req: LogVerdictRequest, authorization: str | None = Header(default=None)):
     _check_gateway_auth(authorization)
 
+    # Map extended verdicts to pass/failed before sending to RAG
+    rag_verdict = req.verdict if req.verdict in {"pass", "failed"} else "failed"
+    rag_notes = req.notes
+    if req.verdict in {"blocked", "skipped"} and req.notes:
+        rag_notes = f"[{req.verdict.upper()}] {req.notes}"
+    elif req.verdict in {"blocked", "skipped"}:
+        rag_notes = f"[{req.verdict.upper()}] Test was {req.verdict}."
+
     log_data = _rag_post("/tests/log", {
         "project": req.project,
         "test_case_id": req.test_case_id,
         "title": req.title,
-        "verdict": req.verdict,
-        "notes": req.notes,
+        "verdict": rag_verdict,
+        "notes": rag_notes,
         "area": req.area,
     })
+
+    if req.next_objective.strip():
+        next_objective = req.next_objective.strip()
+    elif req.verdict == "failed":
+        next_objective = (
+            f"generate the next best test case targeting the area '{req.area}' "
+            "where the last test failed — map out adjacent edge cases"
+        )
+    elif req.verdict in {"blocked", "skipped"}:
+        next_objective = (
+            f"generate an alternative test case for the area '{req.area}' "
+            "that avoids the blocking condition"
+        )
+    else:
+        next_objective = "generate the next best test case to broaden overall coverage"
 
     next_req = NextTestCaseRequest(
         project=req.project,
         app_name=req.app_name,
-        objective="generate the next best test case after latest verdict",
+        objective=next_objective,
         top_k=req.top_k,
         max_new_tokens=req.max_new_tokens,
         enable_thinking=req.enable_thinking,
@@ -1074,6 +1289,41 @@ def log_verdict_and_next(req: LogVerdictRequest, authorization: str | None = Hea
     next_data = next_testcase(next_req, authorization=authorization)
 
     return {"log": log_data, "next": next_data}
+
+
+@app.get("/agent/coverage")
+def agent_coverage(project: str, authorization: str | None = Header(default=None)):
+    """
+    Returns the live exploration coverage dashboard for a project.
+    Shows which areas have been tested, where failures are concentrated,
+    what is still unexplored, and the current exploration directive.
+    Useful for monitoring the session and deciding when to stop or pivot.
+    """
+    _check_gateway_auth(authorization)
+    brief = _get_brief_context(project)
+    recent_tests = brief.get("recent_tests", []) if isinstance(brief, dict) else []
+    figma_screens = brief.get("screen_index", []) if isinstance(brief, dict) else []
+    figma_overview = _get_figma_overview(project)
+
+    coverage_map = _compute_coverage_map(recent_tests, figma_screens)
+    directive = _build_exploration_directive(coverage_map, recent_tests)
+
+    return {
+        "project": project,
+        "summary": {
+            "total_tests": coverage_map["total_tests"],
+            "coverage_pct": coverage_map["coverage_pct"],
+            "areas_tested": coverage_map["total_areas_tested"],
+            "areas_available": coverage_map["total_areas_available"],
+        },
+        "area_breakdown": coverage_map["area_stats"],
+        "uncovered_areas": coverage_map["uncovered_purposes"],
+        "hot_spots": coverage_map["hot_spots"],
+        "exhausted_areas": coverage_map["exhausted_areas"],
+        "exploration_directive": directive,
+        "figma_screen_count": len(figma_overview),
+        "recent_tests": recent_tests[:20],
+    }
 
 
 @app.post("/chat")
