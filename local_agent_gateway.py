@@ -64,7 +64,7 @@ app = FastAPI(
 
 class ChatRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
-        "project": "contacts-app",
+        "project": "my-app",
         "prompt": "What validation rules apply to the phone number field?",
         "top_k": 3,
         "max_new_tokens": 512,
@@ -80,7 +80,7 @@ class ChatRequest(BaseModel):
 
 class NextTestCaseRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
-        "project": "contacts-app",
+        "project": "my-app",
         "app_name": "contacts app",
         "objective": "generate next high-value non-duplicate test case",
         "top_k": 8,
@@ -105,7 +105,7 @@ class NextTestCaseRequest(BaseModel):
 
 class LogVerdictRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
-        "project": "contacts-app",
+        "project": "my-app",
         "app_name": "contacts app",
         "test_case_id": "TC-003",
         "title": "Verify email field rejects invalid format on Create Contact screen",
@@ -146,7 +146,7 @@ class LogVerdictRequest(BaseModel):
 
 class IngestSRSRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
-        "project": "contacts-app",
+        "project": "my-app",
         "source_path": "./data/inputs/SRS1.txt",
         "chunk_chars": 1200,
         "use_model_summary": True,
@@ -192,7 +192,7 @@ def _summarize_srs_with_model(srs_text: str, max_new_tokens: int = 1000) -> str:
 
 class IngestFigmaRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
-        "project": "contacts-app",
+        "project": "my-app",
         "source_path": "./data/inputs/GENERATED_JSON.json",
     }})
 
@@ -203,7 +203,7 @@ class IngestFigmaRequest(BaseModel):
 
 class ResetProjectRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
-        "project": "contacts-app",
+        "project": "my-app",
         "delete_tests": True,
         "delete_srs": False,
         "delete_figma": False,
