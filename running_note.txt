@@ -1,12 +1,22 @@
+SETUP NOTEs:
+============
+
 py -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements-device.txt
 
 py planner.py
 
+[ START NEO4JS DATABASE ]
+
 uvicorn local_rag_api:app --host 0.0.0.0 --port 9010 --reload
 
 uvicorn local_agent_gateway:app --host 0.0.0.0 --port 9100 --reload
+
+
+
+API TESTs:
+==========
 
 curl -X POST http://127.0.0.1:9100/srs/ingest \
   -H 'Content-Type: application/json' \
