@@ -1391,6 +1391,25 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
         parsed["test_case_id"] = _next_testcase_id(recent_tests)
         raw_answer = json.dumps(parsed, ensure_ascii=False, indent=2)
 
+    # 7. Auto-log the generated test case so coverage and recent_tests grow on every call,
+    #    even when the caller only uses /agent/next-testcase (no executor in the loop).
+    #    Only log if this TC-ID hasn't already been recorded (avoids double-counting when
+    #    /agent/log-verdict-and-next later records the real verdict).
+    if isinstance(parsed, dict) and parsed.get("test_case_id"):
+        existing_ids = {str(t.get("id", "")) for t in recent_tests}
+        if parsed["test_case_id"] not in existing_ids:
+            try:
+                _rag_post("/tests/log", {
+                    "project": req.project,
+                    "test_case_id": parsed["test_case_id"],
+                    "title": parsed.get("title", ""),
+                    "verdict": "pass",
+                    "notes": "[GENERATED] Awaiting execution.",
+                    "area": parsed.get("area", "general"),
+                })
+            except Exception:
+                pass
+
     out = {
         "project": req.project,
         "retrieval_plan": retrieval_plan,
@@ -1429,6 +1448,43 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
 
 
 @app.post(
+    "/agent/log-verdict",
+    summary="Log execution verdict",
+    description=(
+        "Records the execution verdict for a test case in the knowledge graph.\n\n"
+        "Use this when you want to log a result without immediately generating the next test case. "
+        "To log a verdict **and** get the next test case in one call, use `/agent/log-verdict-and-next` instead.\n\n"
+        "**Note on verdicts:** `blocked` and `skipped` are stored as `failed` internally. "
+        "The original verdict is prepended to `notes` so it remains visible in test history."
+    ),
+    tags=["agent"],
+    response_description="Verdict confirmation from the knowledge graph.",
+    responses={
+        401: {"description": "Invalid or missing Authorization header."},
+        503: {"description": "RAG API unavailable."},
+    },
+)
+def log_verdict(req: LogVerdictRequest, authorization: str | None = Header(default=None)):
+    _check_gateway_auth(authorization)
+
+    rag_verdict = req.verdict if req.verdict in {"pass", "failed"} else "failed"
+    rag_notes = req.notes
+    if req.verdict in {"blocked", "skipped"} and req.notes:
+        rag_notes = f"[{req.verdict.upper()}] {req.notes}"
+    elif req.verdict in {"blocked", "skipped"}:
+        rag_notes = f"[{req.verdict.upper()}] Test was {req.verdict}."
+
+    return _rag_post("/tests/log", {
+        "project": req.project,
+        "test_case_id": req.test_case_id,
+        "title": req.title,
+        "verdict": rag_verdict,
+        "notes": rag_notes,
+        "area": req.area,
+    })
+
+
+@app.post(
     "/agent/log-verdict-and-next",
     summary="Log execution verdict and get next test case",
     description=(
@@ -1457,22 +1513,7 @@ def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(d
 def log_verdict_and_next(req: LogVerdictRequest, authorization: str | None = Header(default=None)):
     _check_gateway_auth(authorization)
 
-    # Map extended verdicts to pass/failed before sending to RAG
-    rag_verdict = req.verdict if req.verdict in {"pass", "failed"} else "failed"
-    rag_notes = req.notes
-    if req.verdict in {"blocked", "skipped"} and req.notes:
-        rag_notes = f"[{req.verdict.upper()}] {req.notes}"
-    elif req.verdict in {"blocked", "skipped"}:
-        rag_notes = f"[{req.verdict.upper()}] Test was {req.verdict}."
-
-    log_data = _rag_post("/tests/log", {
-        "project": req.project,
-        "test_case_id": req.test_case_id,
-        "title": req.title,
-        "verdict": rag_verdict,
-        "notes": rag_notes,
-        "area": req.area,
-    })
+    log_data = log_verdict(req, authorization=authorization)
 
     if req.next_objective.strip():
         next_objective = req.next_objective.strip()
