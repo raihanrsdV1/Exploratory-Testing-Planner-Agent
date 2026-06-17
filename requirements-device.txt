@@ -6,3 +6,16 @@ neo4j
 python-dotenv
 droidrun
 logtail-python
+
+# ── Smart ingestion ─────────────────────────────────────────────────────────
+# Format-agnostic document loading (PDF/DOCX/PPTX/HTML/MD/...).
+markitdown
+pypdf
+# Semantic (vector) retrieval embeddings — ONNX, no torch.
+fastembed
+numpy
+
+# Optional upgrades (not required; the loader/embedder auto-detect them):
+#   docling                 # SOTA layout-aware PDF/Office parsing
+#   unstructured            # robust fallback for messy scans
+#   sentence-transformers   # alternative (torch-based) embedding backend

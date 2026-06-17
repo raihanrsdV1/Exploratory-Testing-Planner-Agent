@@ -12,14 +12,49 @@ from neo4j import GraphDatabase
 from pydantic import BaseModel, Field
 
 from dotenv import load_dotenv
+
+import embeddings
+from ingestion import ui_normalizer
+
 load_dotenv()
 
-NEO4J_URI = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
-NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "hihi")
+# `or default` (not just getenv default) so an empty value in .env doesn't crash startup.
+NEO4J_URI = os.getenv("NEO4J_URI") or "neo4j://127.0.0.1:7687"
+NEO4J_USER = os.getenv("NEO4J_USER") or "neo4j"
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD") or "hihi"
 RAG_API_KEY = os.getenv("RAG_API_KEY", "")
 
+CHUNK_VECTOR_INDEX = "chunk_embedding"
+REQUIREMENT_VECTOR_INDEX = "requirement_embedding"
+
 driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+
+
+def _ensure_vector_indexes(session) -> None:
+    """
+    Create native Neo4j vector indexes for semantic retrieval (Neo4j 5.13+).
+    Skipped silently when embeddings are disabled or the server is too old.
+    """
+    if not embeddings.is_enabled():
+        return
+    dim = embeddings.embedding_dim()
+    if not dim:
+        return
+    for index_name, label in ((CHUNK_VECTOR_INDEX, "Chunk"), (REQUIREMENT_VECTOR_INDEX, "Requirement")):
+        try:
+            session.run(
+                f"""
+                CREATE VECTOR INDEX {index_name} IF NOT EXISTS
+                FOR (n:{label}) ON (n.embedding)
+                OPTIONS {{indexConfig: {{
+                    `vector.dimensions`: $dim,
+                    `vector.similarity_function`: 'cosine'
+                }}}}
+                """,
+                dim=dim,
+            )
+        except Exception as e:  # noqa: BLE001 - older Neo4j or unsupported edition
+            print(f"[rag] vector index '{index_name}' not created: {e}")
 
 
 @asynccontextmanager
@@ -34,6 +69,11 @@ async def lifespan(_: FastAPI):
         session.run("CREATE CONSTRAINT figma_element_id IF NOT EXISTS FOR (fe:UIElement) REQUIRE fe.id IS UNIQUE")
         session.run("CREATE CONSTRAINT feature_key IF NOT EXISTS FOR (f:FeatureArea) REQUIRE f.key IS UNIQUE")
         session.run("CREATE CONSTRAINT summary_id IF NOT EXISTS FOR (s:Summary) REQUIRE s.id IS UNIQUE")
+        # Entity-graph node types (GraphRAG schema).
+        session.run("CREATE CONSTRAINT requirement_id IF NOT EXISTS FOR (r:Requirement) REQUIRE r.id IS UNIQUE")
+        session.run("CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE")
+        session.run("CREATE CONSTRAINT vrule_id IF NOT EXISTS FOR (v:ValidationRule) REQUIRE v.id IS UNIQUE")
+        _ensure_vector_indexes(session)
     yield
 
 
@@ -49,9 +89,14 @@ def _split_text(text: str, chunk_chars: int = 1200, overlap: int = 120) -> list[
     if not text:
         return []
 
-    # Semantic-ish SRS chunking: group FR lines first (better retrieval granularity)
+    # Semantic-ish SRS chunking: group tagged requirement lines first (better
+    # retrieval granularity). Convention-agnostic: FR/NFR/REQ/US/R + number,
+    # or "1.2.3"-style numbered clauses.
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    req_lines = [ln for ln in lines if re.match(r"^FR-\d+", ln, flags=re.IGNORECASE)]
+    req_lines = [
+        ln for ln in lines
+        if re.match(r"^(FR|NFR|REQ|US|R)[-_ ]?\d+|^\d+(\.\d+)*[.)]\s", ln, flags=re.IGNORECASE)
+    ]
     if req_lines:
         grouped: list[str] = []
         group_size = 8
@@ -162,162 +207,22 @@ def _slug(text: str) -> str:
 
 
 # ── Figma parser ──────────────────────────────────────────────────────────────
-
-def _all_text_in_subtree(node: dict, max_depth: int = 5, _depth: int = 0) -> list[str]:
-    """Collect all visible TEXT characters from a node's subtree."""
-    if _depth > max_depth:
-        return []
-    texts = []
-    if node.get("type") == "TEXT" and node.get("characters", "").strip():
-        texts.append(node["characters"].strip())
-    for child in node.get("children", []):
-        texts.extend(_all_text_in_subtree(child, max_depth, _depth + 1))
-    return texts
+# Parsing now lives in `ingestion/ui_normalizer.py` (design-tool-agnostic, no
+# hardcoded per-app purpose map). This module consumes the canonical UI IR it
+# produces, or an IR supplied directly by the gateway (e.g. with LLM-classified
+# purposes).
 
 
-def _element_label(node: dict) -> str:
-    """Best human-readable label for a Figma node."""
-    texts = _all_text_in_subtree(node, max_depth=4)
-    # Deduplicate while preserving order
-    seen: dict[str, None] = {}
-    for t in texts:
-        seen[t] = None
-    label = " / ".join(seen.keys())
-    return label[:120] if label else node.get("name", "")
-
-
-def _parse_figma_screens(figma_data: dict) -> list[dict]:
-    """
-    Parse a Figma file export into a list of screen dicts.
-
-    Each screen dict:
-      screen_name, figma_node_id, purpose, elements[]
-        element: {kind, label, name, figma_node_id, interactive}
-    """
-    screens: list[dict] = []
-    doc = figma_data.get("document", {})
-    pages = doc.get("children", []) if isinstance(doc, dict) else []
-
-    # Some exports can be already page-level or frame-level. Normalize candidates.
-    frame_candidates = []
-    if pages:
-        for page in pages:
-            if page.get("type") == "FRAME":
-                frame_candidates.append(page)
-            frame_candidates.extend([c for c in page.get("children", []) if c.get("type") == "FRAME"])
-    elif figma_data.get("children"):
-        frame_candidates = [c for c in figma_data.get("children", []) if c.get("type") == "FRAME"]
-
-    if not frame_candidates and doc.get("type") == "FRAME":
-        frame_candidates = [doc]
-
-    for frame in frame_candidates:
-        screen: dict = {
-            "screen_name": frame.get("name", "Unknown"),
-            "figma_node_id": frame.get("id", ""),
-            "purpose": _infer_purpose(frame.get("name", "")),
-            "elements": [],
-        }
-        _walk_for_elements(frame, screen["elements"], depth=0, max_depth=9)
-        # Deduplicate elements by (kind, label)
-        seen: set[tuple] = set()
-        deduped: list[dict] = []
-        for el in screen["elements"]:
-            key = (el["kind"], el["label"])
-            if key not in seen and el["label"]:
-                seen.add(key)
-                deduped.append(el)
-        screen["elements"] = deduped
-        screens.append(screen)
-
-    return screens
-
-
-def _infer_purpose(name: str) -> str:
-    """Map screen name to a short slug for querying."""
-    name_lower = name.lower()
-    mapping = {
-        "create contact": "create_contact",
-        "contact details": "contact_details",
-        "contacts list": "contact_list",
-        "search": "search",
-        "settings": "settings",
-        "organise": "organise",
-        "highlights": "highlights",
-    }
-    for key, val in mapping.items():
-        if key in name_lower:
-            return val
-    return "other"
-
-
-# Keywords that identify interactive UI elements by Figma layer name
-_BUTTON_KW = ("button", "btn", "fab", "link -", "cta")
-_INPUT_KW = ("input", "field", "textarea", "textfield", "text field", "phone input", "search bar")
-_NAV_KW = ("bottom navigation", "bottomnavbar", "bottom nav", "tab bar", "tabbar")
-_TOGGLE_KW = ("toggle", "switch", "checkbox", "radio")
-_DROPDOWN_KW = ("dropdown", "select", "picker", "spinner")
-
-
-def _walk_for_elements(node: dict, out: list, depth: int, max_depth: int):
-    if depth > max_depth or node.get("visible") is False:
-        return
-
-    ntype = node.get("type", "")
-    name = node.get("name", "")
-    name_lower = name.lower()
-
-    element: dict | None = None
-
-    if ntype == "FRAME":
-        if any(kw in name_lower for kw in _BUTTON_KW):
-            label = _element_label(node)
-            element = {"kind": "button", "label": label, "name": name, "interactive": True}
-
-        elif any(kw in name_lower for kw in _INPUT_KW):
-            label = _element_label(node)
-            element = {"kind": "input", "label": label or name, "name": name, "interactive": True}
-
-        elif any(kw in name_lower for kw in _NAV_KW):
-            # For nav bars extract the individual tabs as separate elements
-            tabs = [
-                c.get("characters", "").strip()
-                for c in _iter_text_nodes(node)
-                if c.get("characters", "").strip()
-            ]
-            tab_label = " | ".join(dict.fromkeys(tabs)) if tabs else name
-            element = {"kind": "navigation", "label": tab_label, "name": name, "interactive": True}
-
-        elif any(kw in name_lower for kw in _TOGGLE_KW):
-            label = _element_label(node)
-            element = {"kind": "control", "label": label or name, "name": name, "interactive": True}
-
-        elif any(kw in name_lower for kw in _DROPDOWN_KW):
-            label = _element_label(node)
-            element = {"kind": "dropdown", "label": label or name, "name": name, "interactive": True}
-
-        elif "section" in name_lower or "header" in name_lower or "heading" in name_lower:
-            texts = _all_text_in_subtree(node, max_depth=2)
-            if texts:
-                element = {"kind": "section", "label": texts[0], "name": name, "interactive": False}
-
-    # Recurse into children regardless of whether we captured this node
-    for child in node.get("children", []):
-        _walk_for_elements(child, out, depth + 1, max_depth)
-
-    if element:
-        element["figma_node_id"] = node.get("id", "")
-        out.append(element)
-
-
-def _iter_text_nodes(node: dict, _depth: int = 0):
-    """Yield all TEXT nodes in subtree."""
-    if _depth > 6:
-        return
-    if node.get("type") == "TEXT":
-        yield node
-    for child in node.get("children", []):
-        yield from _iter_text_nodes(child, _depth + 1)
+def _embed_texts(texts: list[str]) -> list[list[float] | None]:
+    """Embed a list of texts, returning a same-length list (None entries on failure)."""
+    if not texts or not embeddings.is_enabled():
+        return [None] * len(texts)
+    try:
+        vecs = embeddings.embed_texts(texts)
+        return vecs if vecs else [None] * len(texts)
+    except Exception as e:  # noqa: BLE001 - never let embedding failure break ingestion
+        print(f"[rag] embedding failed: {e}")
+        return [None] * len(texts)
 
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -326,6 +231,10 @@ class IngestFigmaRequest(BaseModel):
     project: str = Field(..., min_length=1)
     source_path: str = Field(..., min_length=1)
     figma_json: str | None = None
+    # Optional pre-normalized canonical UI IR (e.g. produced by the gateway).
+    ui_ir: dict | None = None
+    # Optional {screen_name: purpose} hints (e.g. LLM-classified feature areas).
+    purpose_hints: dict[str, str] | None = None
 
 
 class RetrieveRequest(BaseModel):
@@ -346,6 +255,8 @@ class IngestSRSRequest(BaseModel):
     srs_text: str | None = None
     chunk_chars: int = 700
     srs_summary: str | None = None
+    # Structured entity-graph payload from ingestion.extractor (requirements/entities/rules).
+    extraction: dict | None = None
 
 
 class LogTestRequest(BaseModel):
@@ -355,6 +266,8 @@ class LogTestRequest(BaseModel):
     verdict: Literal["pass", "failed"]
     notes: str = ""
     area: str = "general"
+    # Original requirement refs (e.g. ["FR-5","FR-7"]) this test covers -> COVERS edges.
+    requirement_ids: list[str] = Field(default_factory=list)
 
 
 class ResetProjectRequest(BaseModel):
@@ -665,6 +578,19 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
                 """,
                 project=req.project,
             )
+            # Entity-graph slice (requirements / rules / entities) is derived from the SRS.
+            session.run(
+                """
+                MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(req:Requirement)
+                OPTIONAL MATCH (req)-[:HAS_RULE]->(v:ValidationRule)
+                DETACH DELETE req, v
+                """,
+                project=req.project,
+            )
+            session.run(
+                "MATCH (e:Entity {project:$project}) DETACH DELETE e",
+                project=req.project,
+            )
 
         if req.delete_figma:
             session.run(
@@ -760,20 +686,165 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default
             source_path=req.source_path, text=text, now=now, srs_summary=srs_summary,
             summary_id=srs_summary_id,
         )
+        # Embed all chunks in one batch for semantic (vector) retrieval.
+        chunk_vecs = _embed_texts(chunks)
         for idx, ch in enumerate(chunks):
             session.run(
                 """
                 MATCH (s:SRS {id:$srs_id})
                 MERGE (c:Chunk {id:$chunk_id})
                 SET c.project = $project, c.source = 'srs', c.order = $idx,
-                    c.text = $text, c.updated_at = $now
+                    c.text = $text, c.updated_at = $now,
+                    c.embedding = $embedding
                 MERGE (s)-[:HAS_CHUNK]->(c)
                 """,
                 srs_id=srs_id, chunk_id=f"{srs_id}::chunk::{idx}",
                 project=req.project, idx=idx, text=ch, now=now,
+                embedding=chunk_vecs[idx],
             )
 
-    return {"status": "ok", "project": req.project, "srs_id": srs_id, "chunks_written": len(chunks)}
+        # Build / refresh the requirement entity graph (GraphRAG layer).
+        entity_stats = _write_entity_graph(session, req.project, req.extraction, now)
+
+    return {
+        "status": "ok",
+        "project": req.project,
+        "srs_id": srs_id,
+        "chunks_written": len(chunks),
+        "chunks_embedded": sum(1 for v in chunk_vecs if v is not None),
+        "embedding_backend": embeddings.backend_name(),
+        **entity_stats,
+    }
+
+
+def _write_entity_graph(session, project: str, extraction: dict | None, now: str) -> dict:
+    """
+    Persist the requirement entity graph extracted from the SRS:
+
+        (Requirement)-[:INVOLVES]->(Entity)
+        (Requirement)-[:HAS_RULE]->(ValidationRule)
+        (Requirement)-[:IN_FEATURE]->(FeatureArea)
+        (Project)-[:HAS_REQUIREMENT]->(Requirement)
+
+    Requirements/entities/rules are project-scoped and fully replaced on re-ingest.
+    """
+    if not extraction or not isinstance(extraction, dict):
+        return {"requirements_written": 0, "entities_written": 0, "validation_rules_written": 0}
+
+    # Wipe previous entity-graph slice for this project (keep feature areas — shared with figma/tests).
+    session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(req:Requirement)
+        OPTIONAL MATCH (req)-[:HAS_RULE]->(v:ValidationRule)
+        DETACH DELETE req, v
+        """,
+        project=project,
+    )
+    session.run(
+        "MATCH (e:Entity {project:$project}) DETACH DELETE e",
+        project=project,
+    )
+
+    requirements = extraction.get("requirements", []) or []
+    entities = extraction.get("entities", []) or []
+    rules = extraction.get("validation_rules", []) or []
+
+    # Embed requirement texts in one batch.
+    req_texts = [str(r.get("text", "")) for r in requirements]
+    req_vecs = _embed_texts(req_texts)
+
+    for i, r in enumerate(requirements):
+        ref_id = str(r.get("id", "") or f"R{i+1}")
+        req_uid = f"{project}::req::{ref_id}"
+        feature = ui_normalizer.slug(r.get("feature") or "general")
+        session.run(
+            """
+            MATCH (p:Project {name:$project})
+            MERGE (req:Requirement {id:$req_uid})
+            SET req.project = $project, req.ref_id = $ref_id, req.type = $rtype,
+                req.text = $text, req.actor = $actor, req.action = $action,
+                req.priority = $priority, req.feature = $feature,
+                req.objects = $objects, req.constraints = $constraints,
+                req.acceptance = $acceptance, req.embedding = $embedding,
+                req.updated_at = $now
+            MERGE (p)-[:HAS_REQUIREMENT]->(req)
+            MERGE (fa:FeatureArea {key:$feature_key})
+            SET fa.project = $project, fa.label = $feature_label, fa.updated_at = $now
+            MERGE (p)-[:HAS_FEATURE]->(fa)
+            MERGE (req)-[:IN_FEATURE]->(fa)
+            """,
+            project=project, req_uid=req_uid, ref_id=ref_id,
+            rtype=str(r.get("type", "functional")), text=str(r.get("text", "")),
+            actor=str(r.get("actor", "")), action=str(r.get("action", "")),
+            priority=str(r.get("priority", "medium")), feature=feature,
+            objects=r.get("objects", []) or [], constraints=r.get("constraints", []) or [],
+            acceptance=r.get("acceptance", []) or [], embedding=req_vecs[i],
+            feature_key=f"{project}::{feature}", feature_label=feature.replace("_", " "),
+            now=now,
+        )
+
+        # Link requirement to its domain objects as Entity nodes.
+        for obj in (r.get("objects", []) or []):
+            ent_name = str(obj).strip()
+            if not ent_name:
+                continue
+            session.run(
+                """
+                MATCH (req:Requirement {id:$req_uid})
+                MERGE (e:Entity {id:$ent_id})
+                SET e.project = $project, e.name = $name, e.updated_at = $now
+                MERGE (req)-[:INVOLVES]->(e)
+                """,
+                req_uid=req_uid, ent_id=f"{project}::entity::{ui_normalizer.slug(ent_name)}",
+                project=project, name=ent_name, now=now,
+            )
+
+    # Standalone entities (with descriptions) from the extractor.
+    for e in entities:
+        name = str(e.get("name", "")).strip() if isinstance(e, dict) else str(e).strip()
+        if not name:
+            continue
+        desc = str(e.get("description", "")).strip() if isinstance(e, dict) else ""
+        session.run(
+            """
+            MATCH (p:Project {name:$project})
+            MERGE (e:Entity {id:$ent_id})
+            SET e.project = $project, e.name = $name, e.description = $desc, e.updated_at = $now
+            """,
+            project=project, ent_id=f"{project}::entity::{ui_normalizer.slug(name)}",
+            name=name, desc=desc, now=now,
+        )
+
+    # Validation rules attached to their owning requirement.
+    rules_written = 0
+    for j, v in enumerate(rules):
+        rule_text = str(v.get("rule", "")).strip()
+        if not rule_text:
+            continue
+        owner_ref = str(v.get("requirement_id", "")).strip()
+        owner_uid = f"{project}::req::{owner_ref}" if owner_ref else None
+        session.run(
+            """
+            MATCH (p:Project {name:$project})
+            MERGE (vr:ValidationRule {id:$vr_id})
+            SET vr.project = $project, vr.field = $field, vr.rule = $rule, vr.updated_at = $now
+            WITH vr
+            OPTIONAL MATCH (owner:Requirement {id:$owner_uid})
+            FOREACH (_ IN CASE WHEN owner IS NULL THEN [] ELSE [1] END |
+                MERGE (owner)-[:HAS_RULE]->(vr)
+            )
+            """,
+            project=project, vr_id=f"{project}::vrule::{j}",
+            field=str(v.get("field", "")), rule=rule_text, owner_uid=owner_uid, now=now,
+        )
+        rules_written += 1
+
+    return {
+        "requirements_written": len(requirements),
+        "entities_written": len({ui_normalizer.slug(str(e.get('name', '') if isinstance(e, dict) else e)) for e in entities} | {ui_normalizer.slug(str(o)) for r in requirements for o in (r.get('objects', []) or [])}),
+        "validation_rules_written": rules_written,
+        "requirements_embedded": sum(1 for v in req_vecs if v is not None),
+    }
 
 
 @app.post("/ingest/figma")
@@ -794,12 +865,18 @@ def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(def
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
 
-    screens = _parse_figma_screens(figma_data)
+    # Accept a pre-normalized canonical UI IR (from the gateway, possibly with
+    # LLM-classified purposes) or normalize the raw Figma export here.
+    if req.ui_ir and isinstance(req.ui_ir, dict) and req.ui_ir.get("screens"):
+        ui_ir = req.ui_ir
+    else:
+        ui_ir = ui_normalizer.normalize_figma(figma_data, req.purpose_hints)
+    screens = ui_ir.get("screens", [])
     if not screens:
         raise HTTPException(status_code=400, detail="No screens found in Figma JSON")
 
     now = _utc_now()
-    figma_name = figma_data.get("name", Path(req.source_path).stem)
+    figma_name = ui_ir.get("source_name") or figma_data.get("name", Path(req.source_path).stem)
     figma_summary = _build_figma_summary(screens)
     total_elements = 0
     figma_summary_id = f"{req.project}::summary::figma"
@@ -837,7 +914,7 @@ def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(def
         )
 
         for screen in screens:
-            screen_id = f"{req.project}::figma::{screen['figma_node_id']}"
+            screen_id = f"{req.project}::figma::{screen['node_id']}"
 
             # Count interactive vs static
             interactive_count = sum(1 for e in screen["elements"] if e.get("interactive"))
@@ -870,7 +947,7 @@ def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(def
                 purpose=screen["purpose"],
                 feature_key=f"{req.project}::{screen['purpose']}",
                 feature_label=screen["purpose"].replace("_", " "),
-                figma_node_id=screen["figma_node_id"],
+                figma_node_id=screen["node_id"],
                 element_count=len(screen["elements"]),
                 interactive_count=interactive_count,
                 now=now,
@@ -902,7 +979,7 @@ def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(def
                     name=el["name"],
                     order=idx,
                     interactive=el.get("interactive", False),
-                    figma_node_id=el.get("figma_node_id", ""),
+                    figma_node_id=el.get("node_id", ""),
                     now=now,
                 )
                 total_elements += 1
@@ -981,12 +1058,34 @@ def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(def
             now=now,
         )
 
+        # Real prototype transitions from the UI IR (Figma reactions/transitionNodeID).
+        # These are ground-truth links and override any label-inferred guess.
+        real_transitions = 0
+        for screen in screens:
+            for tr in screen.get("transitions", []) or []:
+                via = tr.get("via_node_id")
+                to_node = tr.get("to_node_id")
+                if not via or not to_node:
+                    continue
+                res = session.run(
+                    """
+                    MATCH (p:Project {name:$project})-[:HAS_FIGMA]->(dst:FigmaScreen {figma_node_id:$to_node})
+                    MATCH (p)-[:HAS_FIGMA]->(:FigmaScreen)-[:HAS_ELEMENT]->(btn:UIElement {figma_node_id:$via})
+                    MERGE (btn)-[r:NAVIGATES_TO]->(dst)
+                    SET r.inferred = false, r.updated_at = $now
+                    RETURN count(r) AS c
+                    """,
+                    project=req.project, to_node=to_node, via=via, now=now,
+                ).single()
+                real_transitions += (res["c"] if res else 0)
+
     return {
         "status": "ok",
         "project": req.project,
         "figma_name": figma_name,
         "screens_written": len(screens),
         "elements_written": total_elements,
+        "real_transitions_written": real_transitions,
     }
 
 
@@ -1211,7 +1310,97 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             feature_key=f"{req.project}::{area_slug}",
         )
 
-    return {"status": "ok", "project": req.project, "test_case_id": req.test_case_id, "run_id": run_id}
+        # Graph-native coverage: link this test to the requirements it exercises.
+        covered = 0
+        for ref in (req.requirement_ids or []):
+            ref = str(ref).strip()
+            if not ref:
+                continue
+            res = session.run(
+                """
+                MATCH (t:TestCase {id:$internal_test_id})
+                MATCH (req:Requirement {id:$req_uid})
+                MERGE (t)-[:COVERS]->(req)
+                RETURN count(req) AS c
+                """,
+                internal_test_id=internal_test_id,
+                req_uid=f"{req.project}::req::{ref}",
+            ).single()
+            covered += (res["c"] if res else 0)
+
+    return {
+        "status": "ok",
+        "project": req.project,
+        "test_case_id": req.test_case_id,
+        "run_id": run_id,
+        "requirements_linked": covered,
+    }
+
+
+@app.get("/coverage/requirements")
+def coverage_requirements(project: str, authorization: str | None = Header(default=None)):
+    """
+    Graph-native requirement coverage: which requirements have tests linked via
+    COVERS edges, computed from the entity graph rather than free-text area strings.
+    """
+    _check_auth(authorization)
+    with driver.session() as session:
+        totals = session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(req:Requirement)
+            OPTIONAL MATCH (req)<-[:COVERS]-(t:TestCase)
+            WITH req, count(DISTINCT t) AS test_count,
+                 sum(CASE WHEN t.last_verdict = 'failed' THEN 1 ELSE 0 END) AS fail_count
+            RETURN count(req) AS total,
+                   sum(CASE WHEN test_count > 0 THEN 1 ELSE 0 END) AS covered,
+                   sum(CASE WHEN fail_count > 0 THEN 1 ELSE 0 END) AS failing
+            """,
+            project=project,
+        ).single()
+
+        per_feature = [
+            dict(r)
+            for r in session.run(
+                """
+                MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(req:Requirement)
+                OPTIONAL MATCH (req)<-[:COVERS]-(t:TestCase)
+                WITH req.feature AS feature, req,
+                     CASE WHEN count(t) > 0 THEN 1 ELSE 0 END AS is_covered
+                RETURN feature,
+                       count(req) AS total,
+                       sum(is_covered) AS covered
+                ORDER BY total DESC, feature ASC
+                """,
+                project=project,
+            )
+        ]
+
+        uncovered = [
+            dict(r)
+            for r in session.run(
+                """
+                MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(req:Requirement)
+                WHERE NOT (req)<-[:COVERS]-(:TestCase)
+                RETURN req.ref_id AS ref_id, req.feature AS feature, req.text AS text
+                ORDER BY req.ref_id ASC
+                LIMIT 100
+                """,
+                project=project,
+            )
+        ]
+
+    total = (totals["total"] if totals else 0) or 0
+    covered = (totals["covered"] if totals else 0) or 0
+    failing = (totals["failing"] if totals else 0) or 0
+    return {
+        "project": project,
+        "total_requirements": total,
+        "covered_requirements": covered,
+        "failing_requirements": failing,
+        "coverage_pct": round(100 * covered / total) if total else 0,
+        "per_feature": per_feature,
+        "uncovered_requirements": uncovered,
+    }
 
 
 @app.get("/tests/recent")
@@ -1317,37 +1506,115 @@ def seed_demo_tests(req: SeedDemoTestsRequest, authorization: str | None = Heade
     }
 
 
+def _keyword_chunks(session, project: str, tokens: list[str], limit: int) -> list[dict]:
+    if not tokens:
+        return []
+    rows = session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk)
+        WHERE c.text IS NOT NULL
+        WITH c,
+             reduce(sc = 0, t IN $tokens |
+                sc + CASE WHEN toLower(c.text) CONTAINS t THEN 1 ELSE 0 END
+             ) AS score
+        WHERE score > 0
+        RETURN c.id AS id, c.text AS text, score
+        ORDER BY score DESC, c.order ASC
+        LIMIT $limit
+        """,
+        project=project, tokens=tokens, limit=limit,
+    )
+    return [{"id": r["id"], "text": r["text"]} for r in rows if r.get("text")]
+
+
+def _vector_chunks(session, project: str, qvec: list[float], limit: int) -> list[dict]:
+    """Semantic chunk search via the native Neo4j vector index."""
+    try:
+        rows = session.run(
+            """
+            CALL db.index.vector.queryNodes($index, $k, $qvec) YIELD node, score
+            WHERE node.project = $project AND node.text IS NOT NULL
+            RETURN node.id AS id, node.text AS text, score
+            ORDER BY score DESC
+            LIMIT $limit
+            """,
+            index=CHUNK_VECTOR_INDEX, k=limit * 5, qvec=qvec, project=project, limit=limit,
+        )
+        return [{"id": r["id"], "text": r["text"]} for r in rows if r.get("text")]
+    except Exception as e:  # noqa: BLE001 - index missing / old server: degrade to keyword
+        print(f"[rag] vector chunk search unavailable: {e}")
+        return []
+
+
+def _vector_requirements(session, project: str, qvec: list[float], limit: int) -> list[dict]:
+    """Semantic requirement search + their validation rules (graph hop)."""
+    try:
+        rows = session.run(
+            """
+            CALL db.index.vector.queryNodes($index, $k, $qvec) YIELD node, score
+            WHERE node.project = $project
+            OPTIONAL MATCH (node)-[:HAS_RULE]->(v:ValidationRule)
+            WITH node, score, collect(v.rule) AS rules
+            RETURN node.ref_id AS ref_id, node.text AS text, node.feature AS feature,
+                   node.priority AS priority, rules
+            ORDER BY score DESC
+            LIMIT $limit
+            """,
+            index=REQUIREMENT_VECTOR_INDEX, k=limit * 5, qvec=qvec, project=project, limit=limit,
+        )
+        return [dict(r) for r in rows]
+    except Exception as e:  # noqa: BLE001
+        print(f"[rag] vector requirement search unavailable: {e}")
+        return []
+
+
+def _rrf_merge(keyword: list[dict], vector: list[dict], limit: int, k: int = 60) -> list[str]:
+    """Reciprocal-rank fusion of keyword + vector chunk lists, returning unique texts."""
+    scores: dict[str, float] = {}
+    text_by_id: dict[str, str] = {}
+    for ranked in (keyword, vector):
+        for rank, item in enumerate(ranked):
+            cid = item.get("id") or item.get("text", "")[:64]
+            text_by_id.setdefault(cid, item.get("text", ""))
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
+    ordered = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    out: list[str] = []
+    seen_norm: set[str] = set()
+    for cid, _ in ordered:
+        text = text_by_id.get(cid, "")
+        norm = re.sub(r"\s+", " ", text.lower()).strip()
+        if norm and norm not in seen_norm:
+            seen_norm.add(norm)
+            out.append(text)
+        if len(out) >= limit:
+            break
+    return out
+
+
 @app.post("/retrieve")
 def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=None)):
     """
-    Retrieve SRS context + recent test history.
+    Hybrid retrieval over the knowledge graph:
+      - semantic vector search over SRS chunks (Neo4j vector index)
+      - keyword token-overlap search over SRS chunks
+      - fused via reciprocal-rank fusion
+      - graph hop: semantically matched Requirements + their ValidationRules
+
     Figma is NOT included here — query /figma/elements per screen separately.
     """
     _check_auth(authorization)
     tokens = _query_tokens(req.query)
+    qvec = embeddings.embed_query(req.query) if embeddings.is_enabled() else None
 
     with driver.session() as session:
-        # token-overlap scoring for semantically better chunk selection
-        srs_rows = session.run(
-            """
-            MATCH (p:Project {name:$project})-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk)
-            WHERE c.text IS NOT NULL
-            WITH c,
-                 reduce(sc = 0, t IN $tokens |
-                    sc + CASE WHEN toLower(c.text) CONTAINS t THEN 1 ELSE 0 END
-                 ) AS score
-            WHERE score > 0
-            RETURN c.id AS id, c.text AS text, score
-            ORDER BY score DESC, c.order ASC
-            LIMIT $top_k
-            """,
-            project=req.project,
-            tokens=tokens,
-            top_k=req.top_k,
-        )
-        srs_chunks = [r["text"] for r in srs_rows if r.get("text")]
+        keyword_hits = _keyword_chunks(session, req.project, tokens, req.top_k)
+        vector_hits = _vector_chunks(session, req.project, qvec, req.top_k) if qvec else []
+        req_hits = _vector_requirements(session, req.project, qvec, req.top_k) if qvec else []
 
-        if not srs_chunks:
+        if vector_hits or keyword_hits:
+            srs_chunks = _rrf_merge(keyword_hits, vector_hits, req.top_k)
+            retrieval_mode = "hybrid" if (vector_hits and keyword_hits) else ("vector" if vector_hits else "keyword")
+        else:
             fallback = session.run(
                 """
                 MATCH (p:Project {name:$project})-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk)
@@ -1356,16 +1623,7 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
                 project=req.project, top_k=req.top_k,
             )
             srs_chunks = [r["text"] for r in fallback if r.get("text")]
-
-        # de-duplicate near-identical chunks
-        deduped: list[str] = []
-        seen = set()
-        for c in srs_chunks:
-            key = re.sub(r"\s+", " ", (c or "").lower()).strip()
-            if key and key not in seen:
-                seen.add(key)
-                deduped.append(c)
-        srs_chunks = deduped[: max(1, req.top_k)]
+            retrieval_mode = "fallback_ordered"
 
         recent_tests = []
         if req.include_history:
@@ -1387,9 +1645,18 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
         for t in recent_tests
     ]
 
+    requirement_lines = []
+    for r in req_hits:
+        line = f"- [{r.get('ref_id','?')}] {r.get('text','')}"
+        if r.get("rules"):
+            line += " (rules: " + "; ".join([x for x in r["rules"] if x][:3]) + ")"
+        requirement_lines.append(line)
+
     context_parts = []
     if srs_chunks:
         context_parts.append("SRS requirements:\n" + "\n\n".join(srs_chunks))
+    if requirement_lines:
+        context_parts.append("Related requirements & validation rules:\n" + "\n".join(requirement_lines))
     if req.include_history and history_lines:
         context_parts.append("Recent test history:\n" + "\n".join(history_lines))
 
@@ -1397,7 +1664,9 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
         "project": req.project,
         "context": "\n\n".join(context_parts).strip(),
         "chunks": srs_chunks,
+        "requirements": req_hits,
         "recent_tests": recent_tests,
+        "retrieval_mode": retrieval_mode,
     }
 
 
@@ -1405,36 +1674,33 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
 def graph_stats(project: str, authorization: str | None = Header(default=None)):
     """Quick relationship diagnostics for knowledge-graph integrity checks."""
     _check_auth(authorization)
+    # COUNT {} subqueries are evaluated independently — no cartesian-product blow-up
+    # (the old stacked OPTIONAL MATCH form multiplied chunks × elements × requirements × ...).
     with driver.session() as session:
         row = session.run(
             """
             MATCH (p:Project {name:$project})
-            OPTIONAL MATCH (p)-[:HAS_SRS]->(s:SRS)
-            OPTIONAL MATCH (s)-[:HAS_CHUNK]->(c:Chunk)
-            OPTIONAL MATCH (p)-[:HAS_SUMMARY]->(sum:Summary)
-            OPTIONAL MATCH (p)-[:HAS_FIGMA]->(fs:FigmaScreen)
-            OPTIONAL MATCH (fs)-[:HAS_ELEMENT]->(el:UIElement)
-            OPTIONAL MATCH (fs)-[:RELATED_SCREEN]-(:FigmaScreen)
-                 OPTIONAL MATCH (el)-[:SAME_AS_UI]-(:UIElement)
-                 OPTIONAL MATCH (el)-[:NEXT_UI]->(:UIElement)
-             OPTIONAL MATCH (p)-[:HAS_FEATURE]->(f_all:FeatureArea)
-            OPTIONAL MATCH (p)-[:HAS_TEST]->(t:TestCase)
-            OPTIONAL MATCH (t)-[:HAS_RUN]->(r:TestRun)
-             OPTIONAL MATCH (t)-[:COVERS_FEATURE]->(f_cov:FeatureArea)
-            RETURN count(DISTINCT s) AS srs_count,
-                   count(DISTINCT c) AS chunk_count,
-                     count(DISTINCT sum) AS summary_count,
-                   count(DISTINCT fs) AS figma_screen_count,
-                   count(DISTINCT el) AS figma_element_count,
-                 count(DISTINCT f_all) AS feature_count,
-                   count(DISTINCT t) AS test_case_count,
-                   count(DISTINCT r) AS test_run_count,
-                 count(DISTINCT f_cov) AS covered_feature_count,
-                   count(DISTINCT fs) + count(DISTINCT el) AS figma_nodes_estimate
+            RETURN
+              COUNT { (p)-[:HAS_SRS]->(:SRS) } AS srs_count,
+              COUNT { (p)-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(:Chunk) } AS chunk_count,
+              COUNT { MATCH (p)-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk) WHERE c.embedding IS NOT NULL } AS embedded_chunk_count,
+              COUNT { (p)-[:HAS_SUMMARY]->(:Summary) } AS summary_count,
+              COUNT { (p)-[:HAS_FIGMA]->(:FigmaScreen) } AS figma_screen_count,
+              COUNT { (p)-[:HAS_FIGMA]->(:FigmaScreen)-[:HAS_ELEMENT]->(:UIElement) } AS figma_element_count,
+              COUNT { (p)-[:HAS_FEATURE]->(:FeatureArea) } AS feature_count,
+              COUNT { (p)-[:HAS_TEST]->(:TestCase) } AS test_case_count,
+              COUNT { (p)-[:HAS_TEST]->(:TestCase)-[:HAS_RUN]->(:TestRun) } AS test_run_count,
+              COUNT { (p)-[:HAS_TEST]->(:TestCase)-[:COVERS_FEATURE]->(:FeatureArea) } AS covered_feature_count,
+              COUNT { (p)-[:HAS_REQUIREMENT]->(:Requirement) } AS requirement_count,
+              COUNT { (p)-[:HAS_REQUIREMENT]->(:Requirement)-[:HAS_RULE]->(:ValidationRule) } AS validation_rule_count,
+              COUNT { MATCH (e:Entity) WHERE e.project = $project } AS entity_count,
+              COUNT { (p)-[:HAS_REQUIREMENT]->(:Requirement)<-[:COVERS]-(:TestCase) } AS covered_requirement_count
             """,
             project=project,
         ).single()
-    return {"project": project, **dict(row or {})}
+    stats = dict(row or {})
+    stats["figma_nodes_estimate"] = stats.get("figma_screen_count", 0) + stats.get("figma_element_count", 0)
+    return {"project": project, "embedding_backend": embeddings.backend_name(), **stats}
 
 
 @app.get("/graph/summary")
@@ -1533,14 +1799,14 @@ def demo_endpoints():
         "groups": {
             "health": [
                 {"method": "GET", "path": "/health"},
-                {"method": "GET", "path": "/graph/stats?project=contacts-app"},
+                {"method": "GET", "path": "/graph/stats?project=my-app"},
             ],
             "ingest": [
                 {
                     "method": "POST",
                     "path": "/ingest/srs",
                     "body": {
-                        "project": "contacts-app",
+                        "project": "my-app",
                         "source_path": "./data/inputs/SRS1.txt",
                     },
                 },
@@ -1548,8 +1814,8 @@ def demo_endpoints():
                     "method": "POST",
                     "path": "/ingest/figma",
                     "body": {
-                        "project": "contacts-app",
-                        "source_path": "./GENERATED_JSON.json",
+                        "project": "my-app",
+                        "source_path": "./data/inputs/GENERATED_JSON.json",
                     },
                 },
             ],
@@ -1558,21 +1824,21 @@ def demo_endpoints():
                     "method": "POST",
                     "path": "/demo/tests/seed",
                     "body": {
-                        "project": "contacts-app",
-                        "area": "create_contact",
+                        "project": "my-app",
+                        "area": "data_entry",
                         "count": 6,
                         "verdict_pattern": "alternating",
                     },
                 },
-                {"method": "GET", "path": "/tests/recent?project=contacts-app&limit=10"},
+                {"method": "GET", "path": "/tests/recent?project=my-app&limit=10"},
             ],
             "retrieval": [
                 {
                     "method": "POST",
                     "path": "/retrieve",
                     "body": {
-                        "project": "contacts-app",
-                        "query": "create contact validation",
+                        "project": "my-app",
+                        "query": "input validation rules before saving",
                         "top_k": 5,
                     },
                 },
@@ -1580,7 +1846,7 @@ def demo_endpoints():
                     "method": "POST",
                     "path": "/context/brief",
                     "body": {
-                        "project": "contacts-app",
+                        "project": "my-app",
                         "recent_limit": 12,
                     },
                 },
@@ -1590,15 +1856,15 @@ def demo_endpoints():
                     "method": "POST",
                     "path": "/graph/subgraph",
                     "body": {
-                        "project": "contacts-app",
+                        "project": "my-app",
                         "max_nodes": 250,
                         "max_rels": 700,
                     },
                 },
-                {"method": "GET", "path": "/graph/summary?project=contacts-app&top=12"},
-                {"method": "GET", "path": "/graph/terminal?project=contacts-app&top=12"},
-                {"method": "GET", "path": "/graph/visualize?project=contacts-app"},
-                {"method": "GET", "path": "/graph/cypher?project=contacts-app"},
+                {"method": "GET", "path": "/graph/summary?project=my-app&top=12"},
+                {"method": "GET", "path": "/graph/terminal?project=my-app&top=12"},
+                {"method": "GET", "path": "/graph/visualize?project=my-app"},
+                {"method": "GET", "path": "/graph/cypher?project=my-app"},
             ],
         },
     }
