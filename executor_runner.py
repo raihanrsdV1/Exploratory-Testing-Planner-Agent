@@ -36,10 +36,12 @@ DEBUG_TRACE = os.getenv("DEBUG_TRACE", "1").strip().lower() not in {"0", "false"
 
 # ── Executor-specific config ─────────────────────────────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 EXECUTOR_LLM_PROVIDER = os.getenv("EXECUTOR_LLM_PROVIDER", "GoogleGenAI")
 EXECUTOR_LLM_MODEL = os.getenv("EXECUTOR_LLM_MODEL", "gemini-2.5-pro")
 EXECUTOR_TIMEOUT = int(os.getenv("EXECUTOR_TIMEOUT", "120"))
 EXECUTOR_ROUNDS = int(os.getenv("EXECUTOR_ROUNDS", "2"))
+EXECUTOR_MAX_STEPS = int(os.getenv("EXECUTOR_MAX_STEPS", "30"))
 TARGET_APP_PACKAGE = os.getenv("TARGET_APP_PACKAGE", "com.android.contacts")
 
 # ── Logtail / Better Stack live logging ──────────────────────────────────────
@@ -160,10 +162,11 @@ def get_next_testcase(max_new_tokens: int = 4096) -> dict:
             "objective": "generate next high-value non-duplicate test case",
             "top_k": TOP_K,
             "max_new_tokens": max_new_tokens,
+            "max_retrieval_rounds": 2,   # 2 rounds keeps latency under ~60s
             "enable_thinking": False,
             "debug_trace": DEBUG_TRACE,
         },
-        timeout=240,
+        timeout=300,
     )
     resp.raise_for_status()
     return resp.json()
@@ -172,25 +175,19 @@ def get_next_testcase(max_new_tokens: int = 4096) -> dict:
 def log_verdict_and_get_next(
     tc: dict, verdict: str, notes: str, max_new_tokens: int = 600
 ) -> dict:
-    """Log the execution verdict for a test case and get the next one."""
-    payload = {
-        "project": PROJECT,
-        "app_name": APP_NAME,
-        "test_case_id": tc.get("test_case_id", "TC-EXECUTOR-FALLBACK"),
-        "title": tc.get("title", "Executor fallback test"),
-        "verdict": verdict,
-        "notes": notes,
-        "area": tc.get("area", "general"),
-        "top_k": TOP_K,
-        "max_new_tokens": max_new_tokens,
-        "enable_thinking": False,
-        "debug_trace": DEBUG_TRACE,
-    }
-    resp = requests.post(
-        f"{GATEWAY_URL}/agent/log-verdict-and-next", json=payload, timeout=240
-    )
-    resp.raise_for_status()
-    return resp.json()
+    """Log the execution verdict then separately fetch the next test case.
+
+    Splitting into two calls gives each its own timeout budget and prevents
+    the combined gateway call from timing out mid-generation when the LLM
+    is slow (each LLM round can take 30-60s on OpenRouter free tier).
+    """
+    # Step 1: Log verdict only (fast — just a Neo4j write, no LLM call)
+    log_info = log_verdict_only(tc, verdict, notes)
+
+    # Step 2: Fetch next test case as a fully independent request with its own timeout
+    next_data = get_next_testcase(max_new_tokens=max_new_tokens)
+
+    return {"log": log_info, "next": next_data}
 
 
 def log_verdict_only(tc: dict, verdict: str, notes: str) -> dict:
@@ -316,11 +313,17 @@ async def execute_test_on_device(test_case: dict) -> dict:
         # Set up device driver (connects to default adb device)
         driver = AndroidDriver()
 
+        # Determine which API key to use based on the provider
+        if EXECUTOR_LLM_PROVIDER.lower() == "openrouter":
+            api_key = OPENROUTER_API_KEY
+        else:
+            api_key = GEMINI_API_KEY
+
         # Set up LLM for Droidrun
         llm = load_llm(
             EXECUTOR_LLM_PROVIDER,
             model=EXECUTOR_LLM_MODEL,
-            api_key=GEMINI_API_KEY,
+            api_key=api_key,
         )
 
         # Create and run the agent
@@ -329,6 +332,7 @@ async def execute_test_on_device(test_case: dict) -> dict:
             llms=llm,
             driver=driver,
             timeout=EXECUTOR_TIMEOUT,
+            max_steps=EXECUTOR_MAX_STEPS,
         )
 
         # agent.run() returns a WorkflowHandler; await it to get ResultEvent
@@ -566,8 +570,26 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
                 print("\n  Next test case generated:")
                 _show_testcase(tc)
             else:
-                print("  ⚠️  Planner returned empty next test case. Ending loop.")
-                break
+                # Retry fetching the next test case — sometimes the LLM response
+                # doesn't parse cleanly on the first attempt.
+                print("  ⚠️  Planner returned empty next test case. Retrying...")
+                retried = False
+                for _retry in range(2):
+                    try:
+                        retry_data = get_next_testcase()
+                        tc = retry_data.get("next_testcase", {})
+                        if tc and tc.get("steps"):
+                            print(f"  ✅ Retry {_retry+1} succeeded — next test case generated:")
+                            _show_testcase(tc)
+                            retried = True
+                            break
+                        else:
+                            print(f"  ⚠️  Retry {_retry+1} also returned empty. Trying again...")
+                    except Exception as retry_err:
+                        print(f"  ⚠️  Retry {_retry+1} failed: {retry_err}")
+                if not retried:
+                    print("  ❌ All retries exhausted. Ending loop.")
+                    break
         else:
             # Last round — just log the verdict, no need for next test case
             _print_header("LOGGING FINAL VERDICT")

@@ -127,20 +127,25 @@ def ingest_figma(req: IngestFigmaRequest, authorization: str | None) -> dict:
     if not ui_ir.get("screens"):
         raise HTTPException(status_code=400, detail="No screens found in Figma JSON")
 
-    # Dynamic, app-agnostic purpose classification (LLM) -> re-derive screen purposes.
+    # Dynamic, app-agnostic purpose classification (LLM) — skipped at ingest time
+    # because it calls the model for each screen and causes timeouts on large JSON files.
+    # The name-slug fallback from ui_normalizer is fast and sufficient.
     classification_source = "name_slug"
     if req.use_model_classification:
-        hints = prompts.classify_screen_purposes(ui_ir, req.project)
-        if hints:
-            classification_source = "model"
-            for s in ui_ir["screens"]:
-                s["purpose"] = ui_normalizer.derive_purpose(s["screen_name"], hints)
+        try:
+            hints = prompts.classify_screen_purposes(ui_ir, req.project)
+            if hints:
+                classification_source = "model"
+                for s in ui_ir["screens"]:
+                    s["purpose"] = ui_normalizer.derive_purpose(s["screen_name"], hints)
+        except Exception:
+            classification_source = "name_slug"  # fall back silently on any LLM error
 
     resp = requests.post(
         f"{config.RAG_API_URL}/ingest/figma",
         json={"project": req.project, "source_path": req.source_path, "ui_ir": ui_ir},
         headers=rag_client.rag_headers(),
-        timeout=120,
+        timeout=600,
     )
     resp.raise_for_status()
     out = resp.json()

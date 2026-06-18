@@ -12,11 +12,10 @@ from neo4j import GraphDatabase
 from pydantic import BaseModel, Field
 
 from dotenv import load_dotenv
+load_dotenv()
 
 import embeddings
 from ingestion import ui_normalizer
-
-load_dotenv()
 
 # `or default` (not just getenv default) so an empty value in .env doesn't crash startup.
 NEO4J_URI = os.getenv("NEO4J_URI") or "neo4j://127.0.0.1:7687"

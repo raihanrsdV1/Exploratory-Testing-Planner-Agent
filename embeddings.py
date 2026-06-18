@@ -21,9 +21,18 @@ from __future__ import annotations
 import importlib.util
 import os
 
+# Load .env before reading any env vars so this module works correctly
+# regardless of import order (e.g. when uvicorn imports it before the app
+# calls load_dotenv()).
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv()
+except ImportError:
+    pass
+
 _BACKEND = os.getenv("EMBEDDING_BACKEND", "auto").strip().lower()
 _MODEL_NAME = os.getenv("EMBEDDING_MODEL", "").strip()
-_GEMINI_EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "models/text-embedding-004").strip()
+_GEMINI_EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-2").strip()
 
 _DEFAULTS = {
     "fastembed": "BAAI/bge-small-en-v1.5",          # 384 dims

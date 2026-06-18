@@ -125,7 +125,7 @@ ERRORS=0
 # ── 1. RAG API ────────────────────────────────────────────────────────────────
 echo -e "${CYAN}[1/3] RAG API (Neo4j + SRS/Figma store)${NC}"
 if check_port $RAG_PORT "RAG API"; then
-  uvicorn local_rag_api:app --host 0.0.0.0 --port $RAG_PORT \
+  "$PYTHON_BIN" -m uvicorn local_rag_api:app --host 0.0.0.0 --port $RAG_PORT \
     > "$RAG_LOG" 2>&1 &
   RAG_PID=$!
   echo "$RAG_PID" >> "$PID_FILE"
@@ -145,7 +145,7 @@ fi
 if check_port $GATEWAY_PORT "Gateway"; then
   RAG_API_URL="http://127.0.0.1:$RAG_PORT" \
   MODEL_API_URL="$MODEL_API_URL" \
-  uvicorn local_agent_gateway:app --host 0.0.0.0 --port $GATEWAY_PORT \
+  "$PYTHON_BIN" -m uvicorn local_agent_gateway:app --host 0.0.0.0 --port $GATEWAY_PORT \
     > "$GATEWAY_LOG" 2>&1 &
   GATEWAY_PID=$!
   echo "$GATEWAY_PID" >> "$PID_FILE"
