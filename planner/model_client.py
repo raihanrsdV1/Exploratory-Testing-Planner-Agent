@@ -5,7 +5,10 @@ from __future__ import annotations
 import requests
 from fastapi import HTTPException
 
+from observability import get_logger, inc
 from . import config
+
+log = get_logger("model_client")
 
 try:
     from google import genai
@@ -25,12 +28,27 @@ QA_SYSTEM_INSTRUCTION = (
 
 
 def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict:
-    """Dispatch to the configured backend. Returns {"answer": str, "thinking": str}."""
+    import time
+    start = time.perf_counter()
+    inc("llm_calls_total")
+
     if config.MODEL_BACKEND == "gemini":
-        return _call_gemini(prompt, max_new_tokens, enable_thinking)
-    if config.MODEL_BACKEND == "openrouter":
-        return _call_openrouter(prompt, max_new_tokens, enable_thinking)
-    return _call_ngrok(prompt, max_new_tokens, enable_thinking)
+        result = _call_gemini(prompt, max_new_tokens, enable_thinking)
+    elif config.MODEL_BACKEND == "openrouter":
+        result = _call_openrouter(prompt, max_new_tokens, enable_thinking)
+    else:
+        result = _call_ngrok(prompt, max_new_tokens, enable_thinking)
+
+    duration_ms = round((time.perf_counter() - start) * 1000, 1)
+    estimated_tokens = len(prompt) // 4 + len(result.get("answer") or "") // 4
+    
+    log.info(
+        "llm_call",
+        backend=config.MODEL_BACKEND,
+        latency_ms=duration_ms,
+        estimated_tokens=estimated_tokens,
+    )
+    return result
 
 
 def _call_gemini(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict:
@@ -98,8 +116,8 @@ def _call_openrouter(prompt: str, max_new_tokens: int, enable_thinking: bool) ->
         thinking = ""
         if data.get("choices"):
             message = data["choices"][0].get("message", {})
-            answer = message.get("content", "")
-            thinking = message.get("reasoning", "") or message.get("thinking", "")
+            answer = message.get("content") or ""
+            thinking = message.get("reasoning") or message.get("thinking") or ""
         return {"answer": answer, "thinking": thinking}
     except requests.RequestException as e:
         raise HTTPException(status_code=503, detail=f"Model backend (OpenRouter) unavailable: {e}")

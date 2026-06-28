@@ -5,29 +5,54 @@ from __future__ import annotations
 import requests
 from fastapi import HTTPException
 
+from observability import get_logger, inc
 from . import config
+
+log = get_logger("rag_client")
 
 
 def rag_headers() -> dict:
     return {"Authorization": f"Bearer {config.RAG_API_KEY}"} if config.RAG_API_KEY else {}
 
 
-def rag_get(path: str, params: dict | None = None) -> dict:
+def rag_get(endpoint: str, params: dict | None = None, timeout: int = 60) -> dict:
+    import time
+    start = time.perf_counter()
+    inc("rag_calls_total")
     try:
-        resp = requests.get(f"{config.RAG_API_URL}{path}", params=params, headers=rag_headers(), timeout=30)
+        resp = requests.get(
+            f"{config.RAG_API_URL.rstrip('/')}{endpoint}",
+            params=params, headers=rag_headers(), timeout=timeout,
+        )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+        log.info("rag_call", method="GET", endpoint=endpoint, latency_ms=duration_ms)
+        return data
     except requests.RequestException as e:
-        raise HTTPException(status_code=503, detail=f"RAG backend unavailable: {e}")
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+        log.error("rag_error", method="GET", endpoint=endpoint, error=str(e), latency_ms=duration_ms)
+        raise HTTPException(status_code=503, detail=f"RAG API unavailable ({endpoint}): {e}")
 
 
-def rag_post(path: str, body: dict) -> dict:
+def rag_post(endpoint: str, payload: dict, timeout: int = 120) -> dict:
+    import time
+    start = time.perf_counter()
+    inc("rag_calls_total")
     try:
-        resp = requests.post(f"{config.RAG_API_URL}{path}", json=body, headers=rag_headers(), timeout=60)
+        resp = requests.post(
+            f"{config.RAG_API_URL.rstrip('/')}{endpoint}",
+            json=payload, headers=rag_headers(), timeout=timeout,
+        )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+        log.info("rag_call", method="POST", endpoint=endpoint, latency_ms=duration_ms)
+        return data
     except requests.RequestException as e:
-        raise HTTPException(status_code=503, detail=f"RAG backend unavailable: {e}")
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+        log.error("rag_error", method="POST", endpoint=endpoint, error=str(e), latency_ms=duration_ms)
+        raise HTTPException(status_code=503, detail=f"RAG API unavailable ({endpoint}): {e}")
 
 
 # ── Typed knowledge-graph queries ───────────────────────────────────────────────

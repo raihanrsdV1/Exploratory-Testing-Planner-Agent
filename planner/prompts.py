@@ -16,7 +16,7 @@ from ingestion import ui_normalizer
 from . import coverage, context_builders, model_client, textutil
 
 
-def summarize_srs_with_model(srs_text: str, max_new_tokens: int = 1000) -> str:
+def summarize_srs_with_model(srs_text: str, max_new_tokens: int = 4096) -> str:
     """Planner-friendly SRS summary from full source text via the model backend."""
     prompt = (
         "You are an expert software requirements analyst.\n"
@@ -35,7 +35,7 @@ def summarize_srs_with_model(srs_text: str, max_new_tokens: int = 1000) -> str:
         f"{(srs_text or '').strip()}"
     )
     data = model_client.call_model(prompt, max_new_tokens, False)
-    summary = (data.get("answer", "") or "").strip()
+    summary = (data.get("answer") or "").strip()
     return textutil.extract_json_text(summary) if summary.startswith("{") else summary
 
 

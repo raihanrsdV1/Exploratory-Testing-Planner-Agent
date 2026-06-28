@@ -149,7 +149,7 @@ def next_case(max_new_tokens: int = 700):
     return resp.json()
 
 
-def log_and_next(tc: dict, verdict: str, notes: str, max_new_tokens: int = 600):
+def log_and_next(tc: dict, verdict: str, notes: str, max_new_tokens: int = 4096):
     payload = {
         "project": PROJECT,
         "app_name": APP_NAME,

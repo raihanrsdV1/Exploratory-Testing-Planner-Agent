@@ -55,9 +55,9 @@ There are **3 services** and **1 executor**:
 
 When you run `./start.sh`, it does four things in order:
 
-**1. Start RAG API** — boots a FastAPI server (`local_rag_api.py`) that connects to Neo4j.
+**1. Start RAG API** — boots a FastAPI server (`rag_api/main.py`) that connects to Neo4j.
 
-**2. Start Agent Gateway** — boots a second FastAPI server (`local_agent_gateway.py`) with the planner logic.
+**2. Start Agent Gateway** — boots a second FastAPI server (`gateway/main.py`) with the planner logic.
 
 **3. Ingest Knowledge** (`ingest_all.py`) — this is the critical data loading step:
 
@@ -249,8 +249,8 @@ GENERATED_JSON.json ──┘   (ingest)           │
 | File | Role |
 |---|---|
 | `start.sh` | Master startup script |
-| `local_rag_api.py` | RAG API server (Neo4j CRUD + embeddings) |
-| `local_agent_gateway.py` | Gateway HTTP routes |
+| `rag_api/main.py` | RAG API server (Neo4j CRUD + embeddings) |
+| `gateway/main.py` | Gateway HTTP routes |
 | `planner/pipeline.py` | Core planner orchestration logic |
 | `planner/model_client.py` | LLM backend (OpenRouter/Gemini/ngrok) |
 | `planner/rag_client.py` | HTTP client for RAG API |

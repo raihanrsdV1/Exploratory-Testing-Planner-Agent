@@ -13,7 +13,7 @@ The monolithic gateway is decomposed into focused, app-agnostic modules:
     schemas           FastAPI request models
     pipeline          orchestration (ingest, retrieve, generate, log, coverage)
 
-`local_agent_gateway.py` is now a thin FastAPI router that delegates to
+`gateway/main.py` is now a thin FastAPI router that delegates to
 `planner.pipeline`. Nothing here is specific to any single app — all domain
 knowledge comes from the ingested SRS/UI graph at runtime.
 """

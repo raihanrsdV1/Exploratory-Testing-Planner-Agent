@@ -20,6 +20,10 @@ ingested SRS/UI knowledge graph at request time.
 
 from fastapi import FastAPI, Header
 
+from observability import setup_logging
+from observability.middleware import RequestLoggingMiddleware
+from observability.metrics import get_metrics
+
 from planner import config, model_client, pipeline
 from planner.schemas import (
     ChatRequest,
@@ -29,6 +33,8 @@ from planner.schemas import (
     NextTestCaseRequest,
     ResetProjectRequest,
 )
+
+setup_logging()
 
 app = FastAPI(
     title="Exploratory Testing Planner — Agent Gateway",
@@ -54,6 +60,12 @@ app = FastAPI(
         {"name": "chat",    "description": "RAG-backed free-form Q&A against the project knowledge graph."},
     ],
 )
+
+app.add_middleware(RequestLoggingMiddleware)
+
+@app.get("/metrics", tags=["system"], summary="Get system metrics")
+def metrics():
+    return get_metrics()
 
 
 @app.get(

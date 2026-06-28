@@ -50,6 +50,6 @@ Relationships:
 ## Minimal startup sequence
 
 1. Start Neo4j.
-2. Start `local_rag_api.py`.
+2. Start `rag_api/main.py`.
 3. Ingest `SRS1.txt` via gateway `/srs/ingest`.
 4. Start gateway and run test loop.

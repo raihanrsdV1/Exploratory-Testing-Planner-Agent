@@ -168,7 +168,7 @@ def _normalize_extraction(data: dict) -> dict:
 def extract_with_model(
     text: str,
     model_call: ModelCall,
-    max_new_tokens: int = 4000,
+    max_new_tokens: int = 8092,
 ) -> dict:
     """
     Run the LLM extraction. Raises on model error so the caller can decide whether

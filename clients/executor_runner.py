@@ -152,7 +152,7 @@ def _log_planner_trace(planner_data: dict, label: str = ""):
 # 1. PLANNER GATEWAY COMMUNICATION
 # ──────────────────────────────────────────────────────────────────────────────
 
-def get_next_testcase(max_new_tokens: int = 4096) -> dict:
+def get_next_testcase(max_new_tokens: int = 8000) -> dict:
     """Ask the planner gateway for the next test case."""
     resp = requests.post(
         f"{GATEWAY_URL}/agent/next-testcase",
@@ -173,7 +173,7 @@ def get_next_testcase(max_new_tokens: int = 4096) -> dict:
 
 
 def log_verdict_and_get_next(
-    tc: dict, verdict: str, notes: str, max_new_tokens: int = 600
+    tc: dict, verdict: str, notes: str, max_new_tokens: int = 8000
 ) -> dict:
     """Log the execution verdict then separately fetch the next test case.
 
@@ -284,7 +284,7 @@ async def execute_test_on_device(test_case: dict) -> dict:
         }
     """
     # Lazy import so the script doesn't crash during --help / preflight
-    from droidrun import DroidAgent, AndroidDriver, load_llm
+    from droidrun import DroidAgent, AdbTools, load_llm
 
     goal = build_droidrun_goal(test_case)
     tc_id = test_case.get("test_case_id", "?")
@@ -311,7 +311,7 @@ async def execute_test_on_device(test_case: dict) -> dict:
 
     try:
         # Set up device driver (connects to default adb device)
-        driver = AndroidDriver()
+        driver = AdbTools()
 
         # Determine which API key to use based on the provider
         if EXECUTOR_LLM_PROVIDER.lower() == "openrouter":
@@ -329,8 +329,8 @@ async def execute_test_on_device(test_case: dict) -> dict:
         # Create and run the agent
         agent = DroidAgent(
             goal=goal,
-            llms=llm,
-            driver=driver,
+            llm=llm,
+            tools=driver,
             timeout=EXECUTOR_TIMEOUT,
             max_steps=EXECUTOR_MAX_STEPS,
         )
@@ -511,6 +511,7 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
     _log_planner_trace(planner_data, "first")
 
     if not tc or not tc.get("steps"):
+        print(f"DEBUG: tc = {tc}")
         print("❌ Planner returned empty test case. Aborting.")
         return
 

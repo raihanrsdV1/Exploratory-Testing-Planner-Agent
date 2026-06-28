@@ -43,7 +43,7 @@ See `System_Architecture.md` for the multi-stage retrieval design.
                                 │ canonical IR + extraction
                                 ▼
   ┌────────────────┐    RAG   ┌──────────────────────────┐
-  │ planner/       │◀────────▶│ local_rag_api.py          │
+  │ planner/       │◀────────▶│ rag_api/main.py           │
   │ (gateway logic)│          │  Neo4j graph + vectors    │
   └───────┬────────┘          │  (embeddings.py)          │
           │ LLM                └──────────────────────────┘
@@ -58,8 +58,8 @@ See `System_Architecture.md` for the multi-stage retrieval design.
   └────────────────┘
 ```
 
-- **`local_rag_api.py`** (port 9010) — Neo4j-backed knowledge graph: ingest, hybrid retrieval, coverage, graph endpoints. Auto-creates vector indexes on startup.
-- **`local_agent_gateway.py`** (port 9100) — thin FastAPI router over the **`planner/`** package: orchestrates the iterative retrieval + test-generation loop and calls the model backend.
+- **`rag_api/main.py`** (port 9010) — Neo4j-backed knowledge graph: ingest, hybrid retrieval, coverage, graph endpoints. Auto-creates vector indexes on startup.
+- **`gateway/main.py`** (port 9100) — thin FastAPI router over the **`planner/`** package: orchestrates the iterative retrieval + test-generation loop and calls the model backend.
 - **Model backend** — pluggable (see [Model backend setup](#model-backend-setup)).
 
 ---
@@ -67,8 +67,8 @@ See `System_Architecture.md` for the multi-stage retrieval design.
 ## Repository layout
 
 ```
-local_rag_api.py          Neo4j knowledge-graph API (ingest, retrieve, coverage, graph)
-local_agent_gateway.py    Thin FastAPI router → planner.pipeline
+rag_api/main.py           Neo4j knowledge-graph API (ingest, retrieve, coverage, graph)
+gateway/main.py           Thin FastAPI router → planner.pipeline
 embeddings.py             Pluggable embeddings (fastembed / gemini / sentence-transformers)
 ingest_all.py             One-shot ingest helper (reset → SRS → Figma → stats)
 
@@ -191,7 +191,7 @@ any model id from <https://openrouter.ai/models> and paste its **exact slug**
 the change:
 
 ```bash
-uvicorn local_agent_gateway:app --host 0.0.0.0 --port 9100 --reload
+uvicorn gateway.main:app --host 0.0.0.0 --port 9100 --reload
 curl http://127.0.0.1:9100/health     # "model" should show backend=openrouter + your model
 ```
 
@@ -239,10 +239,10 @@ Two terminals (or use `./start.sh`):
 
 ```bash
 # Terminal 1 — knowledge graph
-uvicorn local_rag_api:app --host 0.0.0.0 --port 9010 --reload
-
-# Terminal 2 — planner gateway
-uvicorn local_agent_gateway:app --host 0.0.0.0 --port 9100 --reload
+uvicorn rag_api.main:app --host 0.0.0.0 --port 9010 --reload
+# Terminal 2
+MODEL_API_URL=https://xxxx.ngrok-free.app \
+uvicorn gateway.main:app --host 0.0.0.0 --port 9100 --reload
 ```
 
 Health checks:
@@ -415,8 +415,8 @@ Override the model with `EMBEDDING_MODEL`.
 pip install -r requirements-device.txt
 # .env: NEO4J_* + MODEL_BACKEND=openrouter + OPENROUTER_API_KEY + OPENROUTER_MODEL
 
-uvicorn local_rag_api:app       --port 9010 --reload     # terminal 1
-uvicorn local_agent_gateway:app --port 9100 --reload     # terminal 2
+uvicorn rag_api.main:app       --port 9010 --reload     # terminal 1
+uvicorn gateway.main:app --port 9100 --reload     # terminal 2
 
 PROJECT=my-app python ingest_all.py                       # terminal 3
 curl -X POST http://127.0.0.1:9100/agent/next-testcase \

@@ -125,7 +125,7 @@ ERRORS=0
 # ── 1. RAG API ────────────────────────────────────────────────────────────────
 echo -e "${CYAN}[1/3] RAG API (Neo4j + SRS/Figma store)${NC}"
 if check_port $RAG_PORT "RAG API"; then
-  "$PYTHON_BIN" -m uvicorn local_rag_api:app --host 0.0.0.0 --port $RAG_PORT \
+  "$PYTHON_BIN" -m uvicorn rag_api.main:app --host 0.0.0.0 --port $RAG_PORT \
     > "$RAG_LOG" 2>&1 &
   RAG_PID=$!
   echo "$RAG_PID" >> "$PID_FILE"
@@ -145,7 +145,7 @@ fi
 if check_port $GATEWAY_PORT "Gateway"; then
   RAG_API_URL="http://127.0.0.1:$RAG_PORT" \
   MODEL_API_URL="$MODEL_API_URL" \
-  "$PYTHON_BIN" -m uvicorn local_agent_gateway:app --host 0.0.0.0 --port $GATEWAY_PORT \
+  "$PYTHON_BIN" -m uvicorn gateway.main:app --host 0.0.0.0 --port $GATEWAY_PORT \
     > "$GATEWAY_LOG" 2>&1 &
   GATEWAY_PID=$!
   echo "$GATEWAY_PID" >> "$PID_FILE"
@@ -173,7 +173,7 @@ if [[ "$NO_INGEST" == false ]]; then
       PROJECT="$PROJECT" \
       SRS_PATH="$SRS_PATH" \
       FIGMA_PATH="$FIGMA_PATH" \
-      "$PYTHON_BIN" ingest_all.py 2>&1) || {
+      "$PYTHON_BIN" scripts/ingest_all.py 2>&1) || {
       err "ingest_all.py failed"
       echo "$INGEST_OUTPUT"
       ERRORS=$((ERRORS+1))
@@ -202,7 +202,7 @@ if [[ "$NO_EXECUTOR" == false ]]; then
       warn "  Start your Android emulator then re-run, or use: ./start.sh --no-executor"
     else
       info "ADB device found (${ADB_DEVICES} device(s)). Launching executor..."
-      "$PYTHON_BIN" executor_runner.py \
+      "$PYTHON_BIN" clients/executor_runner.py \
         > "$EXECUTOR_LOG" 2>&1 &
       EXECUTOR_PID=$!
       echo "$EXECUTOR_PID" >> "$PID_FILE"
@@ -227,8 +227,8 @@ echo "  Gateway    → http://127.0.0.1:$GATEWAY_PORT"
 echo ""
 echo "  Next steps:"
 echo "    tail -f simulation_result.txt      # watch live executor output"
-echo "    $PYTHON_BIN test_loop_client.py    # interactive QA loop"
-echo "    $PYTHON_BIN executor_runner.py     # run executor manually"
+echo "    $PYTHON_BIN clients/test_loop_client.py    # interactive QA loop"
+echo "    $PYTHON_BIN clients/executor_runner.py     # run executor manually"
 echo "    ./start.sh --no-executor       # start services without executor"
 echo "    ./start.sh --stop              # stop all services"
 echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
