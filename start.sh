@@ -92,7 +92,7 @@ echo ""
 
 # ── Helper: wait for HTTP health endpoint ─────────────────────────────────────
 wait_for_health() {
-  local name="$1" url="$2" retries=20 delay=1
+  local name="$1" url="$2" retries=60 delay=1
   info "Waiting for $name at $url ..."
   for i in $(seq 1 $retries); do
     if curl -sf "$url" > /dev/null 2>&1; then

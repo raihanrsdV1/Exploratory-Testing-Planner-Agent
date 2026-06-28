@@ -29,7 +29,7 @@ class NextTestCaseRequest(BaseModel):
         "app_name": "the app under test",
         "objective": "generate next high-value non-duplicate exploratory test case",
         "top_k": 8,
-        "max_new_tokens": 700,
+        "max_new_tokens": 4096,
         "enable_thinking": False,
         "debug_trace": False,
         "max_retrieval_rounds": 3,
@@ -60,7 +60,7 @@ class LogVerdictRequest(BaseModel):
         "requirement_ids": ["FR-7"],
         "next_objective": "",
         "top_k": 8,
-        "max_new_tokens": 700,
+        "max_new_tokens": 4096,
         "enable_thinking": False,
         "debug_trace": False,
     }})

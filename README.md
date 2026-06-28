@@ -104,7 +104,7 @@ data/inputs/              Sample SRS + Figma export
 
 ## Prerequisites
 
-- Python 3.10+
+- **Python 3.13 specifically** (Python 3.14 will fail to install downstream dependencies like `arize-phoenix`)
 - Neo4j 5.13+ (vector index support; 2025/2026 builds fine) — Desktop or Docker
 - A model backend (OpenRouter key, Gemini key, or a running Qwen/local server)
 - **Appium** installed and running (`appium` server)

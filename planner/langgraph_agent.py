@@ -111,7 +111,7 @@ def planner_step(state: AgentState) -> AgentState:
         coverage_map=state["coverage_map"],
     )
     
-    action_model = model_client.call_model(action_prompt, max(320, min(state["max_new_tokens"], 700)), False)
+    action_model = model_client.call_model(action_prompt, max(320, min(state["max_new_tokens"], 4096)), False)
     action = textutil.parse_action(action_model.get("answer", ""), state["fallback_screens"])
     
     if state["debug_trace"]:
@@ -365,7 +365,7 @@ def run_agent(req_args: dict) -> dict:
         app_name=req_args.get("app_name", ""),
         objective=req_args.get("objective", ""),
         top_k=req_args.get("top_k", 5),
-        max_new_tokens=req_args.get("max_new_tokens", 8000),
+        max_new_tokens=req_args.get("max_new_tokens", 4096),
         enable_thinking=req_args.get("enable_thinking", False),
         debug_trace=req_args.get("debug_trace", False),
         
@@ -404,8 +404,8 @@ def run_agent(req_args: dict) -> dict:
             try:
                 rag_client.rag_post("/tests/log", {
                     "project": final_state["project"],
-                    "test_case_id": parsed["test_case_id"],
-                    "title": parsed.get("title", ""),
+                    "test_case_id": parsed.get("test_case_id") or f"TC-{int(time.time())}",
+                    "title": parsed.get("title") or "Generated Test Case",
                     "verdict": "pass",
                     "notes": "[GENERATED] Awaiting execution.",
                     "area": parsed.get("area", "general"),

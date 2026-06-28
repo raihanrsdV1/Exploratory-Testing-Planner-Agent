@@ -131,7 +131,7 @@ def _show_reasoning_flow(data: dict):
             print("-" * 72)
 
 
-def next_case(max_new_tokens: int = 700):
+def next_case(max_new_tokens: int = 4096):
     resp = requests.post(
         f"{BASE}/agent/next-testcase",
         json={

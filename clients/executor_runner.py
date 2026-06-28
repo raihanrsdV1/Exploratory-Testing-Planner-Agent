@@ -152,7 +152,7 @@ def _log_planner_trace(planner_data: dict, label: str = ""):
 # 1. PLANNER GATEWAY COMMUNICATION
 # ──────────────────────────────────────────────────────────────────────────────
 
-def get_next_testcase(max_new_tokens: int = 8000) -> dict:
+def get_next_testcase(max_new_tokens: int = 4096) -> dict:
     """Ask the planner gateway for the next test case."""
     resp = requests.post(
         f"{GATEWAY_URL}/agent/next-testcase",
@@ -166,14 +166,14 @@ def get_next_testcase(max_new_tokens: int = 8000) -> dict:
             "enable_thinking": False,
             "debug_trace": DEBUG_TRACE,
         },
-        timeout=300,
+        timeout=900,
     )
     resp.raise_for_status()
     return resp.json()
 
 
 def log_verdict_and_get_next(
-    tc: dict, verdict: str, notes: str, max_new_tokens: int = 8000
+    tc: dict, verdict: str, notes: str, max_new_tokens: int = 4096
 ) -> dict:
     """Log the execution verdict then separately fetch the next test case.
 
@@ -284,7 +284,7 @@ async def execute_test_on_device(test_case: dict) -> dict:
         }
     """
     # Lazy import so the script doesn't crash during --help / preflight
-    from droidrun import DroidAgent, AdbTools, load_llm
+    from mobilerun import MobileAgent, AndroidDriver, load_llm, MobileConfig, AgentConfig
 
     goal = build_droidrun_goal(test_case)
     tc_id = test_case.get("test_case_id", "?")
@@ -311,7 +311,7 @@ async def execute_test_on_device(test_case: dict) -> dict:
 
     try:
         # Set up device driver (connects to default adb device)
-        driver = AdbTools()
+        driver = AndroidDriver()
 
         # Determine which API key to use based on the provider
         if EXECUTOR_LLM_PROVIDER.lower() == "openrouter":
@@ -320,19 +320,21 @@ async def execute_test_on_device(test_case: dict) -> dict:
             api_key = GEMINI_API_KEY
 
         # Set up LLM for Droidrun
+        provider = "OpenRouter" if EXECUTOR_LLM_PROVIDER.lower() == "openrouter" else EXECUTOR_LLM_PROVIDER
         llm = load_llm(
-            EXECUTOR_LLM_PROVIDER,
+            provider,
             model=EXECUTOR_LLM_MODEL,
             api_key=api_key,
         )
 
         # Create and run the agent
-        agent = DroidAgent(
+        config = MobileConfig(agent=AgentConfig(max_steps=EXECUTOR_MAX_STEPS))
+        agent = MobileAgent(
             goal=goal,
-            llm=llm,
-            tools=driver,
+            llms={"default": llm},
+            driver=driver,
             timeout=EXECUTOR_TIMEOUT,
-            max_steps=EXECUTOR_MAX_STEPS,
+            config=config,
         )
 
         # agent.run() returns a WorkflowHandler; await it to get ResultEvent

@@ -28,10 +28,10 @@ def get_next_testcase():
         "app_name": APP_NAME,
         "objective": "give the next high-value non-duplicate test case",
         "top_k": 8,
-        "max_new_tokens": 700,
+        "max_new_tokens": 4096,
         "enable_thinking": False,
     }
-    r = requests.post(f"{GATEWAY_URL}/agent/next-testcase", json=payload, headers=_headers(), timeout=180)
+    r = requests.post(f"{GATEWAY_URL}/agent/next-testcase", json=payload, headers=_headers(), timeout=900)
     r.raise_for_status()
     data = r.json()
     print("\n=== NEXT TEST CASE (JSON string from model) ===")
@@ -67,7 +67,7 @@ def log_verdict_and_get_next(current_test_json: str):
         "notes": notes,
         "area": str(tc.get("area", "general")),
         "top_k": 8,
-        "max_new_tokens": 700,
+        "max_new_tokens": 4096,
         "enable_thinking": False,
     }
 
@@ -75,7 +75,7 @@ def log_verdict_and_get_next(current_test_json: str):
         f"{GATEWAY_URL}/agent/log-verdict-and-next",
         json=payload,
         headers=_headers(),
-        timeout=240,
+        timeout=900,
     )
     r.raise_for_status()
     data = r.json()
