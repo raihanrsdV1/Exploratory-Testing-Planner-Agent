@@ -44,22 +44,22 @@ See `System_Architecture.md` for the multi-stage retrieval design.
                                 ▼
   ┌────────────────┐    RAG   ┌──────────────────────────┐
   │ planner/       │◀────────▶│ rag_api/main.py           │
-  │ (gateway logic)│          │  Neo4j graph + vectors    │
+  │ (LangGraph)    │          │  Neo4j graph + vectors    │
   └───────┬────────┘          │  (embeddings.py)          │
           │ LLM                └──────────────────────────┘
           ▼
   ┌────────────────┐
-  │ model backend  │  OpenRouter · Gemini · ngrok/Qwen · local litellm (planner.py)
+  │ model backend  │  OpenRouter · Gemini · ngrok/Qwen · local litellm
   └────────────────┘
           ▲
           │ test cases / verdicts
   ┌───────┴────────┐
-  │ executor       │  executor_runner.py (Droidrun) · simulator_runner.py (demo)
+  │ executor       │  clients/executor_runner.py (Droidrun) · clients/simulator_runner.py (demo)
   └────────────────┘
 ```
 
 - **`rag_api/main.py`** (port 9010) — Neo4j-backed knowledge graph: ingest, hybrid retrieval, coverage, graph endpoints. Auto-creates vector indexes on startup.
-- **`gateway/main.py`** (port 9100) — thin FastAPI router over the **`planner/`** package: orchestrates the iterative retrieval + test-generation loop and calls the model backend.
+- **`gateway/main.py`** (port 9100) — thin FastAPI router over the **`planner/`** package. Uses **LangGraph** to orchestrate the iterative retrieval + test-generation loop.
 - **Model backend** — pluggable (see [Model backend setup](#model-backend-setup)).
 
 ---
@@ -67,28 +67,36 @@ See `System_Architecture.md` for the multi-stage retrieval design.
 ## Repository layout
 
 ```
-rag_api/main.py           Neo4j knowledge-graph API (ingest, retrieve, coverage, graph)
-gateway/main.py           Thin FastAPI router → planner.pipeline
-embeddings.py             Pluggable embeddings (fastembed / gemini / sentence-transformers)
-ingest_all.py             One-shot ingest helper (reset → SRS → Figma → stats)
+rag_api/                  Neo4j knowledge-graph API (ingest, retrieve, coverage, graph)
+gateway/                  Thin FastAPI router → planner.langgraph_agent
+observability/            Logging, metrics, and tracing middleware (outputs to logs/)
 
-planner/                  Gateway logic (modular)
-  config.py  model_client.py  rag_client.py  textutil.py
-  coverage.py  context_builders.py  prompts.py  schemas.py  pipeline.py
+planner/                  Core AI Logic
+  langgraph_agent.py      LangGraph state machine for exploration & planning
+  config.py               Configuration constants
+  model_client.py         LLM integration (OpenRouter/Gemini/etc)
+  rag_client.py           RAG API client
+  textutil.py             JSON parsing utilities
+  coverage.py             Coverage tracking logic
+  prompts.py              Agent prompts
+  schemas.py              Data models
 
 ingestion/                Format-agnostic ingestion pipeline
   document_loader.py      any document → text
   extractor.py            text → Requirement/Entity/ValidationRule (LLM + rule fallback)
   ui_normalizer.py        Figma export → canonical UI IR (no hardcoded purposes)
 
-planner.py                OPTIONAL generic LLM server (litellm) exposing /generate
-planner.ipynb             Qwen model server notebook (Kaggle/Colab, ngrok)
-executor_runner.py        Real device executor (Droidrun)
-simulator_runner.py       Simulated loop (no device) for demos/testing
-test_loop_client.py       Minimal interactive loop client
+clients/                  Execution scripts
+  executor_runner.py      Real Android device executor (via Droidrun)
+  simulator_runner.py     Simulated loop (no device) for demos/testing
+  test_loop_client.py     Minimal interactive loop client
+
+scripts/
+  ingest_all.py           One-shot ingest helper (reset → SRS → Figma → stats)
+
 start.sh                  One-command local startup / stop
-requirements-device.txt   Local Python dependencies
-neo4j_setup.md            Neo4j setup reference
+requirements.txt          Local Python dependencies
+docs/                     Architecture diagrams and documentation
 data/inputs/              Sample SRS + Figma export
 ```
 
@@ -99,20 +107,35 @@ data/inputs/              Sample SRS + Figma export
 - Python 3.10+
 - Neo4j 5.13+ (vector index support; 2025/2026 builds fine) — Desktop or Docker
 - A model backend (OpenRouter key, Gemini key, or a running Qwen/local server)
+- **Appium** installed and running (`appium` server)
+- **Android Studio** with a running emulator (e.g., Pixel 9a) or a physical device connected via ADB
 
 ---
 
-## 1) Install
+## Steps to Run
+
+### 1) Install
 
 ```bash
-pip install -r requirements-device.txt
+pip install -r requirements.txt
 ```
 
 This includes `markitdown`/`pypdf` (multi-format docs) and `fastembed` (ONNX embeddings — no torch). Optional upgrades (`docling`, `unstructured`, `sentence-transformers`) are auto-detected if installed.
 
 ---
 
-## 2) Start Neo4j
+### 2) Start Device Environment (Appium & Emulator)
+
+Before running the agent, you must have your device environment ready:
+1. Open **Android Studio** and launch your Android emulator (e.g., Pixel 9a).
+2. Start the **Appium** server in a separate terminal:
+   ```bash
+   appium
+   ```
+
+---
+
+### 3) Start Neo4j
 
 See `neo4j_setup.md`. Quick Docker:
 
@@ -123,7 +146,7 @@ docker run --name neo4j-qa -p 7474:7474 -p 7687:7687 \
 
 ---
 
-## 3) Configure `.env`
+### 4) Configure `.env`
 
 Create `.env` in the project root:
 
@@ -151,12 +174,12 @@ Then add the keys for your chosen backend (next section).
 
 ---
 
-## Model backend setup
+### Model backend setup
 
 The gateway selects a backend via `MODEL_BACKEND`. All three speak the same
 internal contract, so the rest of the pipeline is identical.
 
-### Option A — OpenRouter (recommended for hosted LLMs)
+#### Option A — OpenRouter (recommended for hosted LLMs)
 
 **Step 1 — Get an API key.** Sign in at <https://openrouter.ai>, open
 <https://openrouter.ai/keys>, click **Create Key**, and copy it (it starts with `sk-or-...`).
@@ -197,7 +220,7 @@ curl http://127.0.0.1:9100/health     # "model" should show backend=openrouter +
 
 To switch models later, just edit `OPENROUTER_MODEL` in `.env` and restart the gateway.
 
-### Option B — Google Gemini
+#### Option B — Google Gemini
 
 ```ini
 MODEL_BACKEND=gemini
@@ -205,7 +228,7 @@ GEMINI_API_KEY=...
 PLANNER_GEMINI_MODEL=gemini-2.5-pro
 ```
 
-### Option C — Self-hosted / notebook (Qwen via `planner.ipynb`, or local `planner.py`)
+#### Option C — Self-hosted / notebook (Qwen via `planner.ipynb`, or local `planner.py`)
 
 The gateway's `ngrok` backend just POSTs to a `/generate` endpoint, so it works with **any** server implementing that contract:
 
@@ -233,7 +256,7 @@ MODEL_API_URL=https://xxxx.ngrok-free.app   # or http://127.0.0.1:8000
 
 ---
 
-## 4) Start the services
+### 5) Start the services
 
 Two terminals (or use `./start.sh`):
 
@@ -257,7 +280,9 @@ curl http://127.0.0.1:9100/health     # shows the active model backend
 
 ---
 
-## 5) Ingest knowledge
+### 6) Ingest knowledge
+
+*(If you have already ingested the knowledge graph for your project, you can skip this step).*
 
 Pick any `project` name — it scopes everything in the graph.
 
@@ -290,7 +315,7 @@ curl -X POST http://127.0.0.1:9100/figma/ingest -H 'Content-Type: application/js
 One-shot helper (reset → SRS → Figma → stats):
 
 ```bash
-PROJECT=my-app python ingest_all.py
+PROJECT=my-app python scripts/ingest_all.py
 ```
 
 Verify:
@@ -302,7 +327,7 @@ curl "http://127.0.0.1:9010/graph/stats?project=my-app"
 
 ---
 
-## 6) Generate, execute, adapt
+### 7) Generate, execute, adapt
 
 ```bash
 # Next exploratory test case
@@ -324,8 +349,8 @@ curl -X POST http://127.0.0.1:9100/agent/log-verdict-and-next \
 Run the loop automatically:
 
 ```bash
-python executor_runner.py     # real Android device via Droidrun
-python simulator_runner.py    # simulated verdicts (no device) — good for demos
+python clients/executor_runner.py     # real Android device via Droidrun
+python clients/simulator_runner.py    # simulated verdicts (no device) — good for demos
 ```
 
 ---
@@ -352,6 +377,17 @@ Free-form Q&A against the graph (RAG):
 curl -X POST http://127.0.0.1:9100/chat -H 'Content-Type: application/json' \
   -d '{"project":"my-app","prompt":"What validation rules apply before saving?"}'
 ```
+
+---
+
+## Observability & Tracing
+
+The system includes a dedicated `observability/` package that wraps critical components. 
+All requests to the RAG API, interactions with LLMs, and generation latencies are automatically tracked.
+
+Logs are aggregated in JSON Lines format in the `logs/` directory for easy parsing:
+- `logs/app.jsonl`: Contains `node_enter`, `node_exit`, `llm_call`, and `rag_call` events, complete with latency timings and token estimations.
+- `logs/gateway.log` & `logs/rag_api.log`: Standard application logs.
 
 ---
 
@@ -412,13 +448,13 @@ Override the model with `EMBEDDING_MODEL`.
 ## Quick start (minimal)
 
 ```bash
-pip install -r requirements-device.txt
+pip install -r requirements.txt
 # .env: NEO4J_* + MODEL_BACKEND=openrouter + OPENROUTER_API_KEY + OPENROUTER_MODEL
 
 uvicorn rag_api.main:app       --port 9010 --reload     # terminal 1
 uvicorn gateway.main:app --port 9100 --reload     # terminal 2
 
-PROJECT=my-app python ingest_all.py                       # terminal 3
+PROJECT=my-app python scripts/ingest_all.py             # terminal 3
 curl -X POST http://127.0.0.1:9100/agent/next-testcase \
   -H 'Content-Type: application/json' -d '{"project":"my-app"}'
 ```
