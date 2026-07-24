@@ -329,9 +329,13 @@ async def execute_test_on_device(test_case: dict) -> dict:
 
         # Create and run the agent
         config = MobileConfig(agent=AgentConfig(max_steps=EXECUTOR_MAX_STEPS))
+        # Pass a single LLM instance so it is used for ALL agent roles
+        # (manager/executor/fast_agent/...). Passing a dict makes mobilerun
+        # fill missing roles from config defaults (GoogleGenAI) and crash
+        # when GOOGLE_API_KEY is not set.
         agent = MobileAgent(
             goal=goal,
-            llms={"default": llm},
+            llms=llm,
             driver=driver,
             timeout=EXECUTOR_TIMEOUT,
             config=config,

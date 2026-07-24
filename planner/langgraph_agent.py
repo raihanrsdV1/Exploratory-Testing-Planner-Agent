@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from observability import get_logger
 from observability.tracing import set_trace, timed_node
 from . import config, context_builders, coverage, model_client, prompts, rag_client, schemas, textutil
+from .sources import registry as sources_registry
+from .sources.base import RetrievalRequest
 
 log = get_logger("langgraph_agent")
 
@@ -35,6 +37,7 @@ class AgentState(TypedDict):
     figma_overview: list
     fallback_screens: list
     coverage_map: dict
+    available_sources: list  # [{"name","purpose"}] — sources with data for this project
     
     # Iteration state
     round_no: int
@@ -77,7 +80,13 @@ def bootstrap_context(state: AgentState) -> AgentState:
     figma_overview = rag_client.get_figma_overview(project)
     fallback_screens = context_builders.pick_relevant_screens(figma_screens, done_areas, recent_tests)
     coverage_map = coverage.compute_coverage_map(recent_tests, figma_screens)
-    
+
+    # Graceful degradation: advertise only sources that actually have data for this project.
+    available_sources = [
+        {"name": s.name, "purpose": s.purpose}
+        for s in sources_registry.available_sources(brief if isinstance(brief, dict) else {})
+    ]
+
     return {
         **state,
         "brief": brief,
@@ -89,6 +98,7 @@ def bootstrap_context(state: AgentState) -> AgentState:
         "figma_overview": figma_overview,
         "fallback_screens": fallback_screens,
         "coverage_map": coverage_map,
+        "available_sources": available_sources,
         "round_no": 1,
     }
 
@@ -97,6 +107,20 @@ def bootstrap_context(state: AgentState) -> AgentState:
 def planner_step(state: AgentState) -> AgentState:
     """Stage 2: Ask the LLM what to do next (retrieve or produce)."""
     round_no = state["round_no"]
+
+    # No ingested knowledge sources (zero-doc app): skip retrieval planning entirely and
+    # go straight to generation from exploratory heuristics — saves an LLM round.
+    if not state.get("available_sources"):
+        state["planner_trace"].append({
+            "round": round_no,
+            "action": "produce_testcase",
+            "retrieval_requests": [],
+            "focus_queries": [],
+            "target_screens": [],
+            "reason": "no knowledge sources available — generate from heuristics",
+        })
+        return {**state, "agent_signaled_ready": True, "finalization_mode": "no_sources_available"}
+
     action_prompt = prompts.planner_prompt_for_action(
         brief=state["brief"],
         app_name=state["app_name"],
@@ -109,6 +133,7 @@ def planner_step(state: AgentState) -> AgentState:
         figma_overview=state["figma_overview"],
         retrieved_notes=state["last_round_retrieved_notes"],
         coverage_map=state["coverage_map"],
+        available_sources=state["available_sources"],
     )
     
     action_model = model_client.call_model(action_prompt, max(320, min(state["max_new_tokens"], 4096)), False)
@@ -140,66 +165,83 @@ def planner_step(state: AgentState) -> AgentState:
     return {**state, "agent_signaled_ready": False}
 
 
+def _default_requests(state: AgentState, trace: dict, available_names: set) -> list[dict]:
+    """Availability-gated default retrieval plan when the planner returns none."""
+    reqs: list[dict] = []
+    if "srs" in available_names:
+        for q in (trace.get("focus_queries", []) or [state["objective"]])[:2]:
+            reqs.append({"source": "srs", "query": q})
+    if "figma_ui" in available_names:
+        for s in (trace.get("target_screens", []) or state["fallback_screens"][:2])[:2]:
+            reqs.append({"source": "figma_ui", "screen": s})
+    return reqs
+
+
 @timed_node("execute_retrieval")
 def execute_retrieval(state: AgentState) -> AgentState:
-    """Stage 3: Execute the retrieval requests from the planner."""
+    """Stage 3: Execute the planner's retrieval requests via the source registry."""
     trace = state["planner_trace"][-1]
-    requests_spec = trace.get("retrieval_requests", [])
+    available_names = {s["name"] for s in state.get("available_sources", [])}
+
+    requests_spec = [
+        rr for rr in trace.get("retrieval_requests", [])
+        if str(rr.get("source", "")).strip().lower() in available_names
+    ]
     if not requests_spec:
-        requests_spec = [{"source": "srs", "query": q} for q in (trace.get("focus_queries", []) or [state["objective"]])[:2]]
-        for s in (trace.get("target_screens", []) or state["fallback_screens"][:2])[:2]:
-            requests_spec.append({"source": "figma_ui", "screen": s})
-            
+        requests_spec = _default_requests(state, trace, available_names)
+
+    # Channel -> the state bucket its retrieved text accumulates into.
+    buckets = {
+        "srs": state["srs_context_blocks"],
+        "figma_ui": state["figma_ui_blocks"],
+        "figma_flow": state["flow_context_blocks"],
+    }
+
     round_retrieved_notes = []
-    
+
     for rr in requests_spec[:3]:
-        source = str(rr.get("source", "srs")).strip().lower()
-        query = str(rr.get("query", "")).strip()
-        screen = str(rr.get("screen", "")).strip()
-        
-        if source == "srs":
-            q = query or state["objective"]
-            if q not in state["collected_queries"]:
-                state["collected_queries"].append(q)
-            data = rag_client.get_srs_and_history(state["project"], q, top_k=min(state["top_k"], 2))
-            block = data.get("context", "")
-            if block:
-                state["srs_context_blocks"].append(block)
-                round_retrieved_notes.append(f"srs | query={q} | {textutil.compact_note(block)}")
-                
-        elif source == "figma_ui":
-            s = screen or (trace.get("target_screens", []) or state["fallback_screens"][:1])[0] if (trace.get("target_screens", []) or state["fallback_screens"]) else ""
-            if s and s not in state["selected_screens"]:
-                state["selected_screens"].append(s)
-            if s:
-                elements = rag_client.get_screen_elements(state["project"], s)
-                ui_lines = [f"[Screen: {s}]"]
-                for kind, labels in elements.items():
-                    ui_lines.append(f"  {kind}s: {', '.join(labels[:10])}")
-                ui_block = "\n".join(ui_lines)
-                if ui_block.strip() != f"[Screen: {s}]":
-                    state["figma_ui_blocks"].append(ui_block)
-                    round_retrieved_notes.append(f"figma_ui | screen={s} | {textutil.compact_note(ui_block)}")
-                    
-        elif source == "figma_flow":
-            trans = rag_client.get_figma_transitions(state["project"], screen_name=screen if screen else None)
-            if trans:
-                flow_block = context_builders.build_figma_flow_context(trans, top_n=10)
-                if flow_block:
-                    state["flow_context_blocks"].append(flow_block)
-                    round_retrieved_notes.append(f"figma_flow | screen={screen or '*'} | {textutil.compact_note(flow_block)}")
-                    
+        source_name = str(rr.get("source", "")).strip().lower()
+        source = sources_registry.get(source_name)
+        if source is None or source_name not in available_names:
+            continue
+
+        req = RetrievalRequest(
+            source=source_name,
+            query=str(rr.get("query", "")).strip(),
+            screen=str(rr.get("screen", "")).strip(),
+        )
+
+        # Agent-level defaulting + bookkeeping (sources stay pure / objective-agnostic).
+        if source_name == "srs":
+            req.query = req.query or state["objective"]
+            if req.query not in state["collected_queries"]:
+                state["collected_queries"].append(req.query)
+        elif source_name == "figma_ui":
+            if not req.screen:
+                fallback = trace.get("target_screens", []) or state["fallback_screens"]
+                req.screen = fallback[0] if fallback else ""
+            if req.screen and req.screen not in state["selected_screens"]:
+                state["selected_screens"].append(req.screen)
+
+        block = source.retrieve(state["project"], req, top_k=state["top_k"])
+        if block is None:
+            continue
+        bucket = buckets.get(block.channel)
+        if bucket is not None:
+            bucket.append(block.text)
+        round_retrieved_notes.append(block.note)
+
     state["planner_trace"][-1]["retrieved_context_chars"] = len("\n\n".join(state["srs_context_blocks"]))
-    
+
     # Check early finalize conditions
     finalization_mode = state["finalization_mode"]
     if state["round_no"] > 1 and not round_retrieved_notes:
         finalization_mode = "no_new_context_early_finalize"
     elif len("\n\n".join(state["srs_context_blocks"])) > 9000:
         finalization_mode = "context_limit_reached"
-        
+
     return {
-        **state, 
+        **state,
         "last_round_retrieved_notes": round_retrieved_notes,
         "round_no": state["round_no"] + 1,
         "finalization_mode": finalization_mode
@@ -220,14 +262,17 @@ def should_continue(state: AgentState):
 @timed_node("generate_testcase")
 def generate_testcase(state: AgentState) -> AgentState:
     """Stage 4: Generate the final JSON test case."""
-    # Ensure fallback retrieval if none happened
-    if not state["srs_context_blocks"]:
+    # Ensure best-effort grounding if the retrieval loop gathered nothing — but only from
+    # sources that actually exist (no SRS hard-dependency: a UI-only or zero-doc project
+    # must still generate).
+    available_names = {s["name"] for s in state.get("available_sources", [])}
+    if not state["srs_context_blocks"] and "srs" in available_names:
         data = rag_client.get_srs_and_history(state["project"], state["objective"], top_k=min(state["top_k"], 3))
         block = data.get("context", "")
         if block:
             state["srs_context_blocks"].append(block)
-        if state["fallback_screens"]:
-            state["selected_screens"] = state["fallback_screens"][:2]
+    if not state["figma_ui_blocks"] and "figma_ui" in available_names and state["fallback_screens"]:
+        state["selected_screens"] = state["fallback_screens"][:2]
             
     srs_context = "\n\n".join(dict.fromkeys(state["srs_context_blocks"]))[:8000]
     figma_overview_context = context_builders.build_figma_overview_context(state["figma_overview"])
@@ -371,7 +416,8 @@ def run_agent(req_args: dict) -> dict:
         
         brief={}, recent_tests=[], done_titles=[], failed_titles=[], done_areas=[],
         figma_screens=[], figma_overview=[], fallback_screens=[], coverage_map={},
-        
+        available_sources=[],
+
         round_no=1,
         max_retrieval_rounds=max(1, min(req_args.get("max_retrieval_rounds", 6), 6)),
         collected_queries=[],
@@ -430,6 +476,7 @@ def run_agent(req_args: dict) -> dict:
             "figma_flow_chars": len("\n\n".join(final_state["flow_context_blocks"])),
         },
         "target_screens": final_state["selected_screens"][:3],
+        "available_sources": [s["name"] for s in final_state.get("available_sources", [])],
         "next_testcase_json": final_state["next_testcase_json"],
         "next_testcase": parsed,
         "recent_tests_count": len(recent_tests),

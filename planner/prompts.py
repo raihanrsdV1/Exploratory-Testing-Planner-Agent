@@ -99,7 +99,27 @@ def planner_prompt_for_action(
     figma_overview: list[dict],
     retrieved_notes: list[str],
     coverage_map: dict | None = None,
+    available_sources: list[dict] | None = None,
 ) -> str:
+    # Advertise ONLY the sources that have data for this project (graceful degradation:
+    # no source is a hard dependency). Fall back to all three for backward compatibility
+    # when the caller does not pass an explicit availability list.
+    avail = available_sources if available_sources is not None else [
+        {"name": "srs", "purpose": "business rules, validation constraints, and error conditions"},
+        {"name": "figma_ui", "purpose": "screen elements and control availability"},
+        {"name": "figma_flow", "purpose": "navigation / screen-to-screen behaviour"},
+    ]
+    source_ids = "|".join(s["name"] for s in avail) or "none"
+    source_guidance = "\n".join(f"- Use source={s['name']} for {s['purpose']}." for s in avail) or (
+        "- No external knowledge sources are available; set action=produce_testcase and rely on "
+        "general exploratory heuristics."
+    )
+    srs_available = any(s["name"] == "srs" for s in avail)
+    srs_query_note = (
+        "- For source=srs, 'query' MUST be a natural-language description of the behaviour or rule you need "
+        '(it is matched semantically), e.g. "email format validation before saving".\n'
+        if srs_available else ""
+    )
     retrieved_notes_str = "\n".join(f"- {n}" for n in retrieved_notes[-6:]) if retrieved_notes else "- none yet"
     srs_summary = brief.get("srs_summary", "") if isinstance(brief, dict) else ""
     srs_full = str(srs_summary).strip() if srs_summary else "(none)"
@@ -149,6 +169,7 @@ def planner_prompt_for_action(
         "Decide your NEXT ACTION only.\n\n"
         f"Objective: {objective}\n"
         f"Retrieval round: {retrieval_round}/{max_rounds}\n"
+        f"Available knowledge sources for this project: {source_ids} (request ONLY these).\n"
         f"Collected queries so far: {collected_queries}\n"
         f"Collected screens so far: {collected_screens}\n"
         f"Collected context size (chars): {context_chars}\n\n"
@@ -159,7 +180,7 @@ def planner_prompt_for_action(
         "Return STRICT JSON only with this schema:\n"
         "{\n"
         '  "action": "retrieve" | "produce_testcase",\n'
-        '  "retrieval_requests": [{"source":"srs|figma_ui|figma_flow", "query":"...", "screen":"optional"}],\n'
+        f'  "retrieval_requests": [{{"source":"{source_ids}", "query":"...", "screen":"optional"}}],\n'
         '  "focus_queries": ["...", "..."],\n'
         '  "target_screens": ["...", "..."],\n'
         '  "reason": "short reason"\n'
@@ -167,11 +188,8 @@ def planner_prompt_for_action(
         "Rules:\n"
         "- If more context is needed, set action=retrieve and provide explicit retrieval_requests (max 3).\n"
         "- Prefer retrieving context for HOT SPOTS and UNEXPLORED areas (see coverage hint above).\n"
-        "- Use source=srs for business rules, validation constraints, and error conditions.\n"
-        "- Use source=figma_ui for screen elements and control availability.\n"
-        "- Use source=figma_flow for navigation/screen-to-screen behaviour.\n"
-        "- For source=srs, 'query' MUST be a natural-language description of the behaviour or rule you need "
-        '(it is matched semantically), e.g. "email format validation before saving".\n'
+        f"{source_guidance}\n"
+        f"{srs_query_note}"
         "- Avoid re-requesting context you already have unless refining.\n"
         "- If context is sufficient to write a targeted test, set action=produce_testcase.\n"
         "- Never output markdown or text outside JSON."
@@ -223,6 +241,18 @@ def build_testcase_prompt(
             "## Business Rules & Requirements (from SRS)",
             "(Violations of these rules are bugs — verify these constraints are actually enforced by the app)",
             srs_context,
+            "",
+        ]
+    else:
+        # Bug-oracle bottom tier: no SRS/requirements available (e.g. a zero-doc app).
+        # Derive correctness from UI affordances + universal robustness expectations so the
+        # agent still has a notion of "what would be a bug" without a requirements source.
+        parts += [
+            "## Deriving Expected Behavior (no SRS/requirements available)",
+            "No formal requirements were provided. Derive expected behavior from the UI affordances below and "
+            "universal UX/robustness expectations: inputs are validated, every action gives feedback, navigation "
+            "is reversible, state survives interruption, and the app never crashes or loses data. A violation of "
+            "these is a bug. Leave 'requirement_ids' empty ([]).",
             "",
         ]
     if figma_overview_context:

@@ -1,0 +1,474 @@
+
+# Technical Requirements Document: Exploratory Testing Agent — Next-Generation Enhancement
+
+**Document ID:** ETA-TR-2026-001  
+**Version:** 1.0  
+**Date:** 29 June 2026  
+**Status:** Draft for Development Team Review  
+
+---
+
+## 1. Executive Summary
+
+The Exploratory Testing Planner Agent currently generates test cases by retrieving context from a Neo4j-backed Knowledge Graph (KG) built from two sources: the Software Requirements Specification (SRS) and the Figma UI Guide. The agent employs a multi-stage iterative retrieval-planning loop to produce context-aware, non-duplicate test cases.
+
+This document specifies the enhancements required to evolve the agent from a **static-knowledge test generator** into an **autonomously learning, self-optimizing exploratory test engineer** — one that accumulates experiential knowledge, prioritizes defect-prone areas, accelerates re-execution via learned navigation paths, and adapts its strategy across diverse device profiles, platforms, and applications.
+
+The guiding principle is: **Every execution cycle must make the agent smarter than the last.**
+
+---
+
+## 2. Current System Baseline
+
+| Component | Current Capability |
+|---|---|
+| **Knowledge Sources** | SRS (text chunks), Figma UI Guide (screens, elements, transitions) |
+| **Graph Model** | `Project → SRS → Chunk`, `Project → FigmaScreen → UIElement`, `Project → TestCase → TestRun`, `TestCase → COVERS_FEATURE → FeatureArea` |
+| **Retrieval** | Token-overlap scoring on SRS chunks; Figma screen/element lookup; inferred `NAVIGATES_TO` transitions |
+| **Agent Loop** | Multi-stage: brief context → iterative retrieval planning (max 3 rounds) → test case generation → duplicate check → output |
+| **Execution Memory** | Only verdict + notes per `TestRun`; no path memory, no defect correlation, no cross-session learning |
+| **Model** | Qwen3-32B via Kaggle/ngrok |
+
+---
+
+## 3. Enhancement Requirements
+
+### 3.1 Defect History as Knowledge Graph Source
+
+**Requirement ID:** ETA-REQ-301
+
+**Priority:** High
+
+**Description:**  
+The Knowledge Graph shall ingest historical defect reports (bug databases, problem reports, issue tracker exports) as a first-class knowledge source, alongside SRS and Figma UI data. This enables the agent to reason about defect-prone areas and generate test cases that mirror the risk-focused thinking of an experienced exploratory test engineer.
+
+**Functional Requirements:**
+
+- **ETA-REQ-301.1 — Defect Ingestion Pipeline:** A new ingestion endpoint (`/ingest/defects`) shall accept defect data in structured format (JSON/CSV) containing at minimum: defect ID, title, description, severity, affected area/component, resolution status, and root-cause category.
+
+- **ETA-REQ-301.2 — Defect Graph Model:** The following nodes and relationships shall be added to the Neo4j schema:
+  - `Defect` node with properties: `id`, `title`, `description`, `severity`, `status`, `area`, `root_cause_category`, `frequency`, `first_seen`, `last_seen`, `resolution`
+  - `(:Project)-[:HAS_DEFECT]->(:Defect)`
+  - `(:Defect)-[:AFFECTS_AREA]->(:FeatureArea)` — links defect to the feature area it impacts
+  - `(:Defect)-[:AFFECTS_SCREEN]->(:FigmaScreen)` — links defect to the UI screen where it manifests
+  - `(:Defect)-[:SIMILAR_TO]->(:Defect)` — clusters semantically similar defects
+  - `(:Defect)-[:DERIVED_FROM]->(:Chunk)` — links defect to the SRS requirement it violates (where inferrable)
+
+- **ETA-REQ-301.3 — Defect-Weighted Retrieval:** The retrieval planner shall incorporate a **defect density score** per feature area. Areas with higher historical defect density shall receive a proportional boost in retrieval priority, ensuring the agent generates test cases targeting historically fragile functionality.
+
+- **ETA-REQ-301.4 — Defect Pattern Summarization:** A project-level defect summary (analogous to the existing SRS/Figma summaries) shall be generated and stored as a `Summary` node (`kind='defects'`). This summary shall include: top defect-prone areas, recurring root-cause categories, severity distribution, and unresolved defect count.
+
+- **ETA-REQ-301.5 — Defect-Aware Prompt Injection:** The agent gateway's prompt builder shall inject a `## Defect History Context` block into the test case generation prompt, containing: top-N defect-prone areas, recent unresolved defects relevant to the current retrieval focus, and suggested test angles derived from defect patterns.
+
+- **ETA-REQ-301.6 — Defect-Test Traceability:** When a generated test case targets a known defect-prone area, the `TestCase` node shall carry a `targets_defect_area` property linking back to the relevant `Defect` nodes, enabling traceability from test to defect.
+
+**Acceptance Criteria:**
+- Defect data can be ingested via API and is queryable in the graph.
+- The retrieval planner produces test cases biased toward defect-prone areas when defect data is present.
+- The `/context/brief` endpoint includes a defect summary.
+- The generated test case prompt includes defect context when relevant.
+
+---
+
+### 3.2 Execution Path Memory as a Navigation Tree
+
+**Requirement ID:** ETA-REQ-302
+
+**Priority:** High
+
+**Description:**  
+The agent shall persist the shortest successful execution path for each test case in a tree-structured data model. This tree mirrors the application's navigation hierarchy and extends its branches as new menus/screens are encountered. On subsequent executions, the RAG retriever shall fetch the relevant branch of this tree to accelerate test execution, eliminating redundant trial-and-error navigation.
+
+**Functional Requirements:**
+
+- **ETA-REQ-302.1 — Navigation Tree Data Model:** A new `NavTreeNode` node type shall be introduced in Neo4j with the following structure:
+  - Properties: `id`, `path_hash`, `screen_name`, `action` (e.g., "tap Save button"), `element_label`, `element_kind`, `depth`, `visit_count`, `success_count`, `last_visited_at`
+  - Relationships:
+    - `(:NavTreeNode)-[:CHILD]->(:NavTreeNode)` — tree parent-child
+    - `(:NavTreeNode)-[:LEADS_TO_SCREEN]->(:FigmaScreen)` — maps navigation step to a known screen
+    - `(:NavTreeNode)-[:RESOLVES_TEST]->(:TestCase)` — marks the terminal node that completes a test case's navigation
+    - `(:Project)-[:HAS_NAV_TREE]->(:NavTreeNode)` — root node linkage
+
+- **ETA-REQ-302.2 — Path Recording on Successful Execution:** When a test case executes successfully, the agent shall record the sequence of navigation actions as a path through the `NavTreeNode` tree. If a branch already exists for a given `(screen, action)` pair, the existing node's `visit_count` and `success_count` shall be incremented rather than creating a duplicate.
+
+- **ETA-REQ-302.3 — Shortest Path Optimization:** When multiple paths exist for reaching the same target screen or completing the same test case, the agent shall retain only the path with the fewest steps (shortest path). If a new execution discovers a shorter path, it shall replace the stored path. The `visit_count` and `success_count` from the superseded path shall be merged into the new shortest path.
+
+- **ETA-REQ-302.4 — Branch Retrieval for Re-execution:** A new retrieval endpoint (`/navtree/retrieve-path`) shall accept a target screen or test case ID and return the relevant branch of the navigation tree. The agent gateway shall inject this as a `## Learned Navigation Path` block in the prompt, enabling the model to generate steps following the proven shortest path rather than exploring.
+
+- **ETA-REQ-302.5 — Incremental Branch Extension:** When the agent encounters a screen or menu not yet present in the navigation tree, it shall create a new branch node. The tree grows organically as the agent explores new areas — mirroring how a human tester builds mental models of application structure.
+
+- **ETA-REQ-302.6 — Failed Path Avoidance:** The navigation tree shall also track failed navigation attempts. A `NavTreeNode` with a low `success_count / visit_count` ratio (below a configurable threshold, default 0.3) shall be annotated with an `avoid: true` flag. The prompt builder shall include a `## Known Failed Navigation Paths` block listing actions to avoid, preventing the agent from repeating known dead ends.
+
+- **ETA-REQ-302.7 — Cross-Test Path Reuse:** If Test Case B requires navigating through a screen that Test Case A has already successfully traversed, the agent shall reuse the stored sub-path from Test Case A's navigation tree branch rather than re-exploring.
+
+**Acceptance Criteria:**
+- Navigation tree nodes are created and updated upon test execution.
+- Re-execution of a previously successful test case uses the stored shortest path (retrievable via API).
+- The agent avoids previously failed navigation paths.
+- The navigation tree grows incrementally without duplication.
+- Path retrieval completes in < 200ms for typical queries.
+
+---
+
+### 3.3 Incremental Experiential Learning
+
+**Requirement ID:** ETA-REQ-303
+
+**Priority:** High
+
+**Description:**  
+The agent shall continuously enrich its knowledge from every execution cycle, accumulating experiential intelligence analogous to human professional growth. Beyond defect history and navigation paths, the agent shall capture, store, and leverage multiple categories of operational intelligence.
+
+**Functional Requirements:**
+
+- **ETA-REQ-303.1 — Execution Log Storage:** Every test execution cycle shall produce a structured `ExecutionLog` node in the graph:
+  - Properties: `id`, `test_case_id`, `timestamp`, `duration_ms`, `steps_attempted`, `steps_completed`, `verdict`, `error_type` (if failed), `error_message`, `recovery_action`, `environment_snapshot` (device, OS version, app version)
+  - `(:Project)-[:HAS_EXECUTION_LOG]->(:ExecutionLog)`
+  - `(:ExecutionLog)-[:FOR_TEST]->(:TestCase)`
+
+- **ETA-REQ-303.2 — Error Pattern Mining:** The system shall periodically analyze `ExecutionLog` nodes to identify recurring error patterns (e.g., "timeout on screen X after action Y", "element not found on platform Z"). Detected patterns shall be stored as `ErrorPattern` nodes:
+  - Properties: `id`, `pattern_signature`, `description`, `frequency`, `affected_screens`, `affected_platforms`, `suggested_mitigation`
+  - `(:ErrorPattern)-[:MANIFESTS_ON]->(:FigmaScreen)`
+  - `(:ErrorPattern)-[:AFFECTS_PLATFORM]->(:Platform)` (see REQ-304)
+  - The retrieval planner shall use error patterns to proactively suggest test steps that verify known fragile behaviors.
+
+- **ETA-REQ-303.3 — Test Strategy Memory:** The agent shall maintain a `StrategyMemory` node that captures high-level testing heuristics learned over time:
+  - Properties: `id`, `strategy_type` (e.g., "boundary_value", "state_transition", "error_guessing", "interruption"), `context_trigger`, `strategy_description`, `effectiveness_score`, `times_applied`, `times_effective`
+  - When the agent generates a test case that discovers a defect, the strategy used shall be recorded and its `effectiveness_score` incremented.
+  - The retrieval planner shall bias toward strategies with higher effectiveness scores for similar contexts.
+
+- **ETA-REQ-303.4 — Coverage Heatmap:** The system shall maintain a real-time coverage heatmap per project, tracking which SRS requirements, Figma screens, and UI elements have been tested. This shall be stored as a `CoverageHeatmap` node:
+  - Properties: `id`, `project`, `total_requirements`, `covered_requirements`, `total_screens`, `covered_screens`, `total_elements`, `covered_elements`, `uncovered_areas` (list), `last_updated`
+  - The retrieval planner shall use the heatmap to prioritize uncovered or under-covered areas, ensuring systematic exploration rather than random coverage.
+
+- **ETA-REQ-303.5 — Session Context Continuity:** The agent shall support session-based testing where context from the current session (last N test cases, current exploration focus, open investigation threads) is maintained across API calls. A `Session` node shall track:
+  - Properties: `id`, `project`, `started_at`, `focus_area`, `tests_generated`, `defects_found`, `exploration_thread`
+  - This enables the agent to resume an exploratory session with full context, as a human tester would return to a partially explored area.
+
+- **ETA-REQ-303.6 — Knowledge Decay and Freshness:** Older execution logs and navigation paths shall carry a decaying weight in retrieval scoring. A configurable `knowledge_half_life` parameter (default: 90 days) shall reduce the influence of stale knowledge, ensuring the agent adapts to application changes rather than being anchored to outdated patterns.
+
+**Acceptance Criteria:**
+- Execution logs are stored and queryable for every test run.
+- Error patterns are detected and surfaced in the retrieval planner.
+- Strategy memory influences test case generation toward effective strategies.
+- Coverage heatmap is accessible via API and used in retrieval planning.
+- Session continuity works across sequential API calls.
+- Knowledge decay is applied in retrieval scoring.
+
+---
+
+### 3.4 Multi-Dimensional Knowledge Graph Partitioning
+
+**Requirement ID:** ETA-REQ-304
+
+**Priority:** High
+
+**Description:**  
+The Knowledge Graph shall support partitioning along multiple dimensions — device profile, platform, and application — to improve retrieval accuracy and enable the agent to generate context-appropriate test cases for each combination. A test case relevant to a Galaxy Watch on Tizen is fundamentally different from one for a Galaxy Phone on Android, and the KG must reflect this.
+
+**Functional Requirements:**
+
+- **ETA-REQ-304.1 — Dimensional Taxonomy:** The following partitioning dimensions shall be supported:
+  - **Profile:** `mobile`, `tv`, `fhub` (Fitness Hub), `watch`
+  - **Platform:** `android`, `windows`, `tizen`
+  - **Application:** `contacts`, `settings`, `health_monitor`, `sleep_apnea`, etc. (extensible)
+
+- **ETA-REQ-304.2 — Dimensional Node Model:** Each dimension shall be represented as explicit nodes in the graph:
+  - `Profile` node: `name`, `display_name`, `characteristics` (e.g., screen size range, input modality)
+  - `Platform` node: `name`, `version`, `constraints` (e.g., "no physical back button on Tizen TV")
+  - `Application` node: `name`, `version`, `domain`
+  - Relationships:
+    - `(:Project)-[:TARGETS_PROFILE]->(:Profile)`
+    - `(:Project)-[:TARGETS_PLATFORM]->(:Platform)`
+    - `(:Project)-[:TARGETS_APPLICATION]->(:Application)`
+    - `(:TestCase)-[:VALID_FOR_PROFILE]->(:Profile)`
+    - `(:TestCase)-[:VALID_FOR_PLATFORM]->(:Platform)`
+    - `(:TestCase)-[:TESTS_APPLICATION]->(:Application)`
+    - `(:Defect)-[:OCCURS_ON_PROFILE]->(:Profile)`
+    - `(:Defect)-[:OCCURS_ON_PLATFORM]->(:Platform)`
+    - `(:NavTreeNode)-[:APPLIES_TO_PROFILE]->(:Profile)`
+    - `(:NavTreeNode)-[:APPLIES_TO_PLATFORM]->(:Platform)`
+
+- **ETA-REQ-304.3 — Dimensional Retrieval Filtering:** The retrieval planner shall accept optional `profile`, `platform`, and `application` parameters. When provided, all retrieval queries (SRS chunks, Figma screens, defect data, navigation paths, execution logs) shall be filtered to return only dimension-matching results. This dramatically improves retrieval precision by eliminating irrelevant context.
+
+- **ETA-REQ-304.4 — Cross-Dimensional Knowledge Transfer:** When a test case or defect pattern is discovered for one `(profile, platform)` combination, the system shall attempt to infer its applicability to other combinations via a `MAY_APPLY_TO` relationship with a `transfer_confidence` score. For example, a boundary-value defect in the contacts app on Android may transfer to the same app on Windows with high confidence. The agent shall use cross-dimensional transfers to proactively suggest test cases for untested combinations.
+
+- **ETA-REQ-304.5 — Dimension-Aware Prompt Construction:** The test case generation prompt shall include a `## Target Environment` block specifying the profile, platform, and application. This ensures the LLM generates steps appropriate to the target (e.g., touch gestures for mobile, D-pad navigation for TV, rotary input for watch).
+
+- **ETA-REQ-304.6 — Dimension-Specific SRS and Figma:** The ingestion pipeline shall support tagging SRS documents and Figma exports with their applicable dimensions. A single project may have multiple SRS documents (one per platform) and multiple Figma exports (one per profile). The graph shall store these as separate `SRS` and `FigmaScreen` nodes linked to their respective dimension nodes.
+
+**Acceptance Criteria:**
+- Test cases can be generated with dimensional filtering (profile/platform/application).
+- Retrieval returns only dimension-relevant context when dimensions are specified.
+- Cross-dimensional knowledge transfer suggests test cases for untested combinations.
+- Dimension-specific SRS and Figma data can be ingested and queried independently.
+- The generated test case steps reflect the target environment's interaction model.
+
+---
+
+### 3.5 Self-Healing and Adaptive Execution
+
+**Requirement ID:** ETA-REQ-305
+
+**Priority:** Medium
+
+**Description:**  
+When a test case fails during execution, the agent shall attempt adaptive recovery strategies rather than simply reporting failure. This mirrors how an experienced test engineer adjusts their approach when encountering unexpected application behavior.
+
+**Functional Requirements:**
+
+- **ETA-REQ-305.1 — Failure Classification:** The agent shall classify execution failures into categories:
+  - `NAVIGATION_FAILURE` — could not reach the target screen
+  - `ELEMENT_NOT_FOUND` — expected UI element was not present
+  - `ASSERTION_FAILURE` — step executed but result did not match expectation
+  - `TIMEOUT` — application became unresponsive
+  - `CRASH` — application terminated unexpectedly
+  - `PERMISSION_DENIED` — required permission was not granted
+
+- **ETA-REQ-305.2 — Adaptive Retry Strategies:** For each failure category, the agent shall attempt a recovery strategy:
+  - `NAVIGATION_FAILURE` → try alternate navigation path from NavTree
+  - `ELEMENT_NOT_FOUND` → wait and retry, or search for similar element
+  - `ASSERTION_FAILURE` → capture actual state and log as potential defect
+  - `TIMEOUT` → retry with extended timeout
+  - `CRASH` → restart application and retry from last checkpoint
+  - Recovery attempts and outcomes shall be logged in `ExecutionLog`.
+
+- **ETA-REQ-305.3 — Self-Healing Prompt Injection:** When a test case fails and a retry is attempted, the prompt shall include a `## Previous Failure Context` block describing what went wrong and what alternative approach to try, enabling the LLM to generate corrected steps.
+
+**Acceptance Criteria:**
+- Failures are classified and logged with category.
+- Adaptive retry is attempted for recoverable failure types.
+- Recovery outcomes are recorded in execution logs.
+
+---
+
+### 3.6 Regression Risk Scoring
+
+**Requirement ID:** ETA-REQ-306
+
+**Priority:** Medium
+
+**Description:**  
+The agent shall compute a regression risk score for each feature area based on historical defect data, recent code changes (if available), and execution stability trends. This score shall influence test case prioritization.
+
+**Functional Requirements:**
+
+- **ETA-REQ-306.1 — Risk Score Computation:** Each `FeatureArea` node shall carry a `regression_risk_score` (0.0–1.0) computed from:
+  - Historical defect density in the area
+  - Ratio of failed to total test runs in the area
+  - Recency of defects (newer defects weigh more)
+  - Navigation instability (frequent path changes in NavTree for this area)
+
+- **ETA-REQ-306.2 — Risk-Weighted Test Prioritization:** The retrieval planner shall use `regression_risk_score` to bias test case generation toward high-risk areas. The prompt shall include a `## Regression Risk Assessment` block listing areas by risk score.
+
+- **ETA-REQ-306.3 — Risk Score API:** An endpoint (`/risk/scores`) shall expose current risk scores per feature area for dashboard integration and reporting.
+
+**Acceptance Criteria:**
+- Risk scores are computed and stored on `FeatureArea` nodes.
+- High-risk areas receive proportionally more test case generation attention.
+- Risk scores are accessible via API.
+
+---
+
+### 3.7 Test Case Quality Metrics and Feedback Loop
+
+**Requirement ID:** ETA-REQ-307
+
+**Priority:** Medium
+
+**Description:**  
+The agent shall track the quality and effectiveness of its generated test cases over time, using this feedback to improve future generation.
+
+**Functional Requirements:**
+
+- **ETA-REQ-307.1 — Test Effectiveness Metrics:** The system shall track per-test-case:
+  - `defect_discovery_rate` — did this test case or a similar one discover a defect?
+  - `execution_stability` — does this test pass consistently or flake?
+  - `coverage_contribution` — did this test cover previously uncovered requirements/elements?
+
+- **ETA-REQ-307.2 — Generation Quality Feedback:** When a generated test case is logged with a "failed" verdict that corresponds to an actual defect (confirmed by a human or subsequent investigation), the `StrategyMemory` entry that produced it shall have its `effectiveness_score` increased. Conversely, test cases that never find defects in defect-prone areas shall decrease the strategy's score.
+
+- **ETA-REQ-307.3 — Duplicate Detection Enhancement:** The current Jaccard-based duplicate detection shall be augmented with embedding-based semantic similarity (using the same model or a lightweight embedding model) to catch semantically identical test cases phrased differently.
+
+**Acceptance Criteria:**
+- Test effectiveness metrics are computed and stored.
+- Strategy memory scores are updated based on defect discovery.
+- Duplicate detection uses semantic similarity beyond token overlap.
+
+---
+
+### 3.8 Anomaly Detection from Execution Patterns
+
+**Requirement ID:** ETA-REQ-308
+
+**Priority:** Low
+
+**Description:**  
+The system shall detect anomalous patterns in execution logs that may indicate emerging issues not yet captured as formal defects.
+
+**Functional Requirements:**
+
+- **ETA-REQ-308.1 — Anomaly Detection Engine:** The system shall analyze `ExecutionLog` data to detect:
+  - Sudden increase in failure rate for a specific area
+  - Execution time regression (steps taking longer than historical average)
+  - New error types not previously seen for a given screen
+  - Navigation path instability (frequent changes in successful paths)
+
+- **ETA-REQ-308.2 — Anomaly Alerting:** Detected anomalies shall be stored as `AnomalyAlert` nodes and surfaced in the retrieval context, prompting the agent to generate targeted investigation test cases.
+
+**Acceptance Criteria:**
+- Anomalies are detected from execution log patterns.
+- Anomalies influence test case generation toward investigation.
+
+---
+
+## 4. Updated Neo4j Data Model (Complete)
+
+### Nodes
+
+| Node Type | Key Properties | New? |
+|---|---|---|
+| `Project` | `name`, `created_at`, `updated_at` | Existing |
+| `SRS` | `id`, `source_path`, `text` | Existing |
+| `Chunk` | `id`, `text`, `order`, `source` | Existing |
+| `FigmaScreen` | `id`, `screen_name`, `purpose`, `element_count`, `interactive_count` | Existing |
+| `UIElement` | `id`, `kind`, `label`, `name`, `order`, `interactive` | Existing |
+| `FeatureArea` | `key`, `label`, `regression_risk_score` | Existing (enhanced) |
+| `TestCase` | `id`, `title`, `area`, `last_verdict`, `targets_defect_area` | Existing (enhanced) |
+| `TestRun` | `id`, `verdict`, `notes`, `created_at` | Existing |
+| `Summary` | `id`, `kind`, `text` | Existing |
+| **`Defect`** | `id`, `title`, `description`, `severity`, `status`, `area`, `root_cause_category`, `frequency` | **New** |
+| **`NavTreeNode`** | `id`, `path_hash`, `screen_name`, `action`, `element_label`, `depth`, `visit_count`, `success_count`, `avoid` | **New** |
+| **`ExecutionLog`** | `id`, `duration_ms`, `steps_attempted`, `steps_completed`, `verdict`, `error_type`, `error_message`, `environment_snapshot` | **New** |
+| **`ErrorPattern`** | `id`, `pattern_signature`, `description`, `frequency`, `suggested_mitigation` | **New** |
+| **`StrategyMemory`** | `id`, `strategy_type`, `context_trigger`, `strategy_description`, `effectiveness_score` | **New** |
+| **`CoverageHeatmap`** | `id`, `project`, `total_requirements`, `covered_requirements`, `uncovered_areas` | **New** |
+| **`Session`** | `id`, `project`, `focus_area`, `tests_generated`, `defects_found` | **New** |
+| **`Profile`** | `name`, `display_name`, `characteristics` | **New** |
+| **`Platform`** | `name`, `version`, `constraints` | **New** |
+| **`Application`** | `name`, `version`, `domain` | **New** |
+| **`AnomalyAlert`** | `id`, `anomaly_type`, `description`, `severity`, `detected_at` | **New** |
+
+### Key New Relationships
+
+```
+(:Project)-[:HAS_DEFECT]->(:Defect)
+(:Defect)-[:AFFECTS_AREA]->(:FeatureArea)
+(:Defect)-[:AFFECTS_SCREEN]->(:FigmaScreen)
+(:Defect)-[:SIMILAR_TO]->(:Defect)
+(:Defect)-[:DERIVED_FROM]->(:Chunk)
+(:Project)-[:HAS_NAV_TREE]->(:NavTreeNode)
+(:NavTreeNode)-[:CHILD]->(:NavTreeNode)
+(:NavTreeNode)-[:LEADS_TO_SCREEN]->(:FigmaScreen)
+(:NavTreeNode)-[:RESOLVES_TEST]->(:TestCase)
+(:NavTreeNode)-[:APPLIES_TO_PROFILE]->(:Profile)
+(:NavTreeNode)-[:APPLIES_TO_PLATFORM]->(:Platform)
+(:Project)-[:HAS_EXECUTION_LOG]->(:ExecutionLog)
+(:ExecutionLog)-[:FOR_TEST]->(:TestCase)
+(:ErrorPattern)-[:MANIFESTS_ON]->(:FigmaScreen)
+(:ErrorPattern)-[:AFFECTS_PLATFORM]->(:Platform)
+(:Project)-[:TARGETS_PROFILE]->(:Profile)
+(:Project)-[:TARGETS_PLATFORM]->(:Platform)
+(:Project)-[:TARGETS_APPLICATION]->(:Application)
+(:TestCase)-[:VALID_FOR_PROFILE]->(:Profile)
+(:TestCase)-[:VALID_FOR_PLATFORM]->(:Platform)
+(:TestCase)-[:TESTS_APPLICATION]->(:Application)
+(:Defect)-[:OCCURS_ON_PROFILE]->(:Profile)
+(:Defect)-[:OCCURS_ON_PLATFORM]->(:Platform)
+(:TestCase)-[:MAY_APPLY_TO]->(:TestCase)  {transfer_confidence}
+```
+
+---
+
+## 5. Updated API Endpoints (New)
+
+| Method | Path | Description | REQ |
+|---|---|---|---|
+| `POST` | `/ingest/defects` | Ingest defect history into KG | 301 |
+| `GET` | `/defects/summary` | Project-level defect summary | 301 |
+| `GET` | `/defects/prone-areas` | Top defect-prone feature areas | 301 |
+| `POST` | `/navtree/record-path` | Record successful navigation path | 302 |
+| `GET` | `/navtree/retrieve-path` | Retrieve shortest path for target screen/TC | 302 |
+| `GET` | `/navtree/failed-paths` | Retrieve paths to avoid | 302 |
+| `POST` | `/execution/log` | Log execution details | 303 |
+| `GET` | `/execution/error-patterns` | Retrieve detected error patterns | 303 |
+| `GET` | `/coverage/heatmap` | Current coverage heatmap | 303 |
+| `POST` | `/session/start` | Start a new exploratory session | 303 |
+| `GET` | `/session/context` | Retrieve current session context | 303 |
+| `POST` | `/session/end` | End session and summarize | 303 |
+| `POST` | `/ingest/srs` | Enhanced with dimension tagging | 304 |
+| `POST` | `/ingest/figma` | Enhanced with dimension tagging | 304 |
+| `POST` | `/agent/next-testcase` | Enhanced with `profile`, `platform`, `application` params | 304 |
+| `GET` | `/risk/scores` | Regression risk scores per area | 306 |
+| `GET` | `/anomalies` | Current anomaly alerts | 308 |
+
+---
+
+## 6. Updated Agent Gateway Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ENHANCED AGENT LOOP                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. RECEIVE REQUEST (with profile, platform, application)       │
+│     │                                                           │
+│  2. LOAD BRIEF CONTEXT                                          │
+│     ├── SRS Summary (dimension-filtered)                        │
+│     ├── Figma Summary (dimension-filtered)                      │
+│     ├── Defect Summary (dimension-filtered)          [NEW]      │
+│     ├── Coverage Heatmap                             [NEW]      │
+│     ├── Regression Risk Scores                       [NEW]      │
+│     ├── Session Context                              [NEW]      │
+│     └── Recent Tests (dimension-filtered)                       │
+│     │                                                           │
+│  3. ITERATIVE RETRIEVAL PLANNING (max 3 rounds)                 │
+│     ├── SRS Chunks (dimension-filtered)                         │
+│     ├── Figma UI Elements (dimension-filtered)                  │
+│     ├── Figma Flow Transitions (dimension-filtered)             │
+│     ├── Defect Context (dimension-filtered)           [NEW]     │
+│     ├── Learned Navigation Path                       [NEW]     │
+│     ├── Failed Paths to Avoid                         [NEW]     │
+│     ├── Error Patterns                                [NEW]     │
+│     └── Strategy Memory                               [NEW]     │
+│     │                                                           │
+│  4. GENERATE TEST CASE                                          │
+│     ├── SRS Requirements Context                                │
+│     ├── Figma UI Context                                        │
+│     ├── Figma Flow Context                                      │
+│     ├── Defect History Context                        [NEW]     │
+│     ├── Learned Navigation Path                       [NEW]     │
+│     ├── Failed Paths to Avoid                         [NEW]     │
+│     ├── Target Environment Block                      [NEW]     │
+│     ├── Regression Risk Assessment                    [NEW]     │
+│     └── Strategy Suggestions                          [NEW]     │
+│     │                                                           │
+│  5. DUPLICATE CHECK (enhanced with semantic similarity)[NEW]    │
+│     │                                                           │
+│  6. OUTPUT TEST CASE                                            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 7. Implementation Phasing
+
+| Phase | Requirements | Estimated Effort | Dependencies |
+|---|---|---|---|
+| **Phase 1** — Defect Intelligence | ETA-REQ-301 (Defect History) | 3–4 weeks | None |
+| **Phase 2** — Navigation Memory | ETA-REQ-302 (NavTree) | 3–4 weeks | None |
+| **Phase 3** — Experiential Learning | ETA-REQ-303 (Execution Logs, Error Patterns, Strategy Memory, Coverage, Sessions) | 4–5 weeks | Phase 1, Phase 2 |
+| **Phase 4** — Multi-Dimensional KG | ETA-REQ-304 (Profile/Platform/Application) | 3–4 weeks | Phase 1 |
+| **Phase 5** — Self-Healing & Risk | ETA-REQ-305, ETA-REQ-306 | 2–3 weeks | Phase 2, Phase 3 |
+| **Phase 6** — Quality & Anomalies | ETA-REQ-307, ETA-REQ-308 | 2–3 weeks | Phase 3 |
+
+**Total Estimated Effort:** 17–23 weeks
+
+---
+
+## 8. Non-Functional Requirements
+
+- **ETA-NFR-001 — Retrieval Latency:** All retrieval endpoints shall respond within 500ms for typical queries (p95) on a Neo4j instance with up to 100K nodes.
+- **ETA-NFR-002 — Graph Scalability:** The system shall support projects with up to 10,000 test cases, 5,000 defects, and 50,000 NavTree nodes without performance degradation.
+- **ETA-NFR-003 — Backward Compatibility:** All existing API
