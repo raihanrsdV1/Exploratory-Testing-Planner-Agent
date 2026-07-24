@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QA Agent — Live Dashboard</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --panel-2: #fbfcfd; --border: #e3e6ea;
+    --text: #1c2024; --muted: #6b7280; --accent: #4f46e5; --accent-soft: #eef2ff;
+    --pass: #16a34a; --pass-soft: #e7f6ec; --fail: #dc2626; --fail-soft: #fdecec;
+    --warn: #d97706; --warn-soft: #fdf3e3; --track: #eceef1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116; --panel: #161b22; --panel-2: #1a2029; --border: #2a313b;
+      --text: #e6edf3; --muted: #9aa4b2; --accent: #818cf8; --accent-soft: #20263a;
+      --pass: #3fb950; --pass-soft: #16241b; --fail: #f85149; --fail-soft: #2a1719;
+      --warn: #d29922; --warn-soft: #2a2113; --track: #232a33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  header {
+    position: sticky; top: 0; z-index: 10; background: var(--panel);
+    border-bottom: 1px solid var(--border); padding: 14px 22px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  .spacer { flex: 1; }
+  .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+  .pill.accent { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+  .live { display: inline-flex; align-items: center; gap: 7px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pass); box-shadow: 0 0 0 0 rgba(63,185,80,.5); animation: pulse 2s infinite; }
+  .dot.stale { background: var(--warn); animation: none; }
+  .dot.err { background: var(--fail); animation: none; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(63,185,80,.45);} 70% { box-shadow: 0 0 0 7px rgba(63,185,80,0);} 100% { box-shadow: 0 0 0 0 rgba(63,185,80,0);} }
+  input, select {
+    font: inherit; color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  }
+  main { padding: 20px 22px 60px; max-width: 1320px; margin: 0 auto; }
+  .banner { display: none; margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: var(--fail-soft); color: var(--fail); border: 1px solid var(--fail); font-size: 13px; }
+  .banner.show { display: block; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+  .tile .label { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .tile .value { font-size: 28px; font-weight: 680; margin-top: 4px; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+  .tile .sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .tile.accent { border-color: var(--accent); }
+  .tile.accent .value { color: var(--accent); }
+  .tile.fail .value { color: var(--fail); }
+  .tile.pass .value { color: var(--pass); }
+
+  .grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 16px; }
+  .panel > h2 { font-size: 13px; font-weight: 620; margin: 0; padding: 13px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .panel > h2 .count { color: var(--muted); font-weight: 500; }
+  .panel .body { padding: 6px 16px 14px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 16px; text-align: center; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: left; color: var(--muted); font-weight: 550; font-size: 11.5px; text-transform: uppercase; letter-spacing: .4px; padding: 10px 16px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
+  tbody td { padding: 9px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  .tc-scroll { max-height: 460px; overflow-y: auto; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .chip { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .chip.pass { color: var(--pass); background: var(--pass-soft); }
+  .chip.fail { color: var(--fail); background: var(--fail-soft); }
+  .area-tag { font-size: 11px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+
+  .bar-track { height: 9px; background: var(--track); border-radius: 6px; overflow: hidden; display: flex; }
+  .bar-pass { background: var(--pass); height: 100%; }
+  .bar-fail { background: var(--fail); height: 100%; }
+  .cov-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+  .cov-row .name { flex: 0 0 34%; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cov-row .track-wrap { flex: 1; }
+  .cov-row .nums { flex: 0 0 auto; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .bigbar { height: 12px; border-radius: 8px; background: var(--track); overflow: hidden; margin: 8px 0 4px; }
+  .bigbar > div { height: 100%; background: var(--accent); border-radius: 8px; transition: width .5s ease; }
+
+  .kv { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .kv:last-child { border-bottom: none; }
+  .kv .v { font-weight: 620; font-variant-numeric: tabular-nums; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { font-size: 11.5px; padding: 3px 9px; border-radius: 7px; background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }
+  .tag.hot { color: var(--fail); background: var(--fail-soft); border-color: transparent; }
+  pre.directive { margin: 0; padding: 12px 14px; background: var(--panel-2); border-radius: 10px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid var(--border); }
+  .situation { margin-top: 4px; font-size: 13.5px; color: var(--muted); }
+  .situation b { color: var(--text); font-weight: 620; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐝 QA Agent — Live Dashboard</h1>
+  <span class="pill" id="projectPill">project: —</span>
+  <span class="pill accent" id="modelPill">model: —</span>
+  <span class="spacer"></span>
+  <label class="live"><span class="dot" id="statusDot"></span><span class="pill" id="updatedPill">connecting…</span></label>
+  <input id="projectInput" placeholder="project name" style="width:150px" />
+  <label class="pill" style="display:flex;gap:6px;align-items:center;cursor:pointer">
+    <input type="checkbox" id="autoToggle" checked style="width:auto;padding:0" /> auto
+  </label>
+</header>
+
+<main>
+  <div class="banner" id="banner"></div>
+
+  <section class="kpis" id="kpis"></section>
+
+  <div class="situation" id="situation"></div>
+
+  <div class="grid" style="margin-top:16px">
+    <div>
+      <div class="panel">
+        <h2>Test Cases <span class="count" id="tcCount"></span></h2>
+        <div class="tc-scroll">
+          <table>
+            <thead><tr><th>ID</th><th>Title</th><th>Area</th><th style="text-align:right">Verdict</th></tr></thead>
+            <tbody id="tcBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>🐞 Bugs Found <span class="count" id="bugCount"></span></h2>
+        <div class="body" id="bugsBody"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Coverage by Area <span class="count" id="covPct"></span></h2>
+        <div class="body">
+          <div class="bigbar"><div id="covFill" style="width:0%"></div></div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px" id="covSummary"></div>
+          <div id="covRows"></div>
+          <div style="margin-top:10px" class="tags" id="uncoveredTags"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>📜 SRS Knowledge — business policies</h2>
+        <div class="body" id="srsBody"></div>
+      </div>
+
+      <div class="panel">
+        <h2>🧭 Exploration Directive</h2>
+        <div class="body"><pre class="directive" id="directive">—</pre></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  const qs = new URLSearchParams(location.search);
+  let project = qs.get("project") || "contacts-app";
+  const $ = (id) => document.getElementById(id);
+  $("projectInput").value = project;
+
+  let lastOk = 0;
+  const REFRESH_MS = 4000;
+
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+  function num(n) { return (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString(); }
+
+  function tile(label, value, sub, cls) {
+    return `<div class="tile ${cls || ""}"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+  }
+
+  function render(d) {
+    const s = d.stats || {}, c = d.coverage || {};
+    const cov = c.summary || {};
+    const recent = c.recent_tests || [];
+    const areas = c.area_breakdown || {};
+    const failed = recent.filter(t => String(t.verdict).toLowerCase() === "failed");
+    const passed = recent.filter(t => String(t.verdict).toLowerCase() === "pass");
+    const passRate = recent.length ? Math.round(100 * passed.length / recent.length) : 0;
+
+    $("projectPill").textContent = "project: " + d.project;
+    $("modelPill").textContent = "model: " + ((d.model && (d.model.model || d.model.backend)) || "—");
+
+    // KPI tiles
+    $("kpis").innerHTML = [
+      tile("Total Tests", num(s.test_case_count), (s.test_run_count || 0) + " runs"),
+      tile("Pass Rate", passRate + "%", passed.length + "/" + recent.length + " recent", "pass"),
+      tile("Bugs Found", num(failed.length), "failed verdicts", "fail"),
+      tile("Coverage", (cov.coverage_pct != null ? cov.coverage_pct : 0) + "%", (cov.areas_tested || 0) + "/" + (cov.areas_available || 0) + " areas"),
+      tile("Business Policies", num(s.validation_rule_count), "validation rules (SRS)", "accent"),
+      tile("Requirements", num(s.requirement_count), num(s.covered_requirement_count) + " covered"),
+      tile("Entities", num(s.entity_count), "domain entities"),
+      tile("Screens", num(s.figma_screen_count), num(s.figma_element_count) + " UI elements"),
+    ].join("");
+
+    // Situation line
+    $("situation").innerHTML = recent.length
+      ? `Overall: <b>${num(s.test_case_count)}</b> test cases generated, <b>${failed.length}</b> bug(s) found across <b>${cov.areas_tested || 0}</b> of <b>${cov.areas_available || 0}</b> UI areas. The agent evaluated <b>${num(s.requirement_count)}</b> requirements and <b>${num(s.validation_rule_count)}</b> business policies extracted from the SRS.`
+      : `No tests executed yet for <b>${esc(d.project)}</b>. Start the executor loop to begin exploration.`;
+
+    // Test cases table
+    $("tcCount").textContent = recent.length ? `(${recent.length})` : "";
+    $("tcBody").innerHTML = recent.length ? recent.map(t => {
+      const v = String(t.verdict || "").toLowerCase();
+      const chip = v === "failed" ? '<span class="chip fail">failed</span>' : '<span class="chip pass">pass</span>';
+      return `<tr><td class="mono">${esc(t.id)}</td><td>${esc(t.title)}</td><td><span class="area-tag">${esc(t.area || "—")}</span></td><td style="text-align:right">${chip}</td></tr>`;
+    }).join("") : `<tr><td colspan="4"><div class="empty">No test cases yet.</div></td></tr>`;
+
+    // Bugs
+    $("bugCount").textContent = failed.length ? `(${failed.length})` : "";
+    $("bugsBody").innerHTML = failed.length ? failed.map(t =>
+      `<div class="kv"><span>${esc(t.title)}</span><span class="area-tag">${esc(t.area || "—")}</span></div>`
+    ).join("") : `<div class="empty">No bugs found yet ✨</div>`;
+
+    // Coverage by area
+    $("covPct").textContent = (cov.coverage_pct != null ? cov.coverage_pct : 0) + "%";
+    $("covFill").style.width = (cov.coverage_pct || 0) + "%";
+    $("covSummary").textContent = `${cov.areas_tested || 0} of ${cov.areas_available || 0} known UI areas exercised`;
+    const hot = new Set(c.hot_spots || []);
+    const areaEntries = Object.entries(areas).sort((a, b) => (b[1].total - a[1].total));
+    $("covRows").innerHTML = areaEntries.length ? areaEntries.map(([name, st]) => {
+      const tot = st.total || 0, ps = st.passed || 0, fl = st.failed || 0;
+      const pw = tot ? (100 * ps / tot) : 0, fw = tot ? (100 * fl / tot) : 0;
+      const hotTag = hot.has(name) ? ' 🔥' : '';
+      return `<div class="cov-row"><div class="name" title="${esc(name)}">${esc(name)}${hotTag}</div>
+        <div class="track-wrap"><div class="bar-track"><div class="bar-pass" style="width:${pw}%"></div><div class="bar-fail" style="width:${fw}%"></div></div></div>
+        <div class="nums">${ps}✓ ${fl}✗</div></div>`;
+    }).join("") : `<div class="empty">No area data yet.</div>`;
+
+    const unc = c.uncovered_areas || [];
+    $("uncoveredTags").innerHTML = unc.length
+      ? `<span style="font-size:11.5px;color:var(--muted);align-self:center">untested:</span>` + unc.map(a => `<span class="tag">${esc(a)}</span>`).join("")
+      : "";
+
+    // SRS knowledge
+    $("srsBody").innerHTML = `
+      <div class="kv"><span>Requirements extracted</span><span class="v">${num(s.requirement_count)}</span></div>
+      <div class="kv"><span>Business policies (validation rules)</span><span class="v">${num(s.validation_rule_count)}</span></div>
+      <div class="kv"><span>Domain entities</span><span class="v">${num(s.entity_count)}</span></div>
+      <div class="kv"><span>Requirements covered by tests</span><span class="v">${num(s.covered_requirement_count)} / ${num(s.requirement_count)}</span></div>
+      <div class="kv"><span>SRS chunks embedded</span><span class="v">${num(s.embedded_chunk_count)} / ${num(s.chunk_count)}</span></div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:8px">Extracted by the LLM from the ingested SRS.</div>`;
+
+    // Directive
+    $("directive").textContent = (c.exploration_directive || "—");
+  }
+
+  function setStatus(state) {
+    const dot = $("statusDot");
+    dot.className = "dot" + (state === "ok" ? "" : state === "stale" ? " stale" : " err");
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch(`/dashboard/data?project=${encodeURIComponent(project)}`, { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const d = await r.json();
+      render(d);
+      lastOk = Date.now();
+      $("banner").classList.remove("show");
+      setStatus("ok");
+    } catch (e) {
+      $("banner").textContent = "Could not reach the gateway (/dashboard/data): " + e.message + ". Is the gateway running on :9100?";
+      $("banner").classList.add("show");
+      setStatus("err");
+    }
+    tickUpdated();
+  }
+
+  function tickUpdated() {
+    if (!lastOk) { $("updatedPill").textContent = "connecting…"; return; }
+    const secs = Math.round((Date.now() - lastOk) / 1000);
+    $("updatedPill").textContent = secs <= 1 ? "updated just now" : `updated ${secs}s ago`;
+    if (secs > REFRESH_MS / 1000 + 6) setStatus("stale");
+  }
+
+  let timer = null;
+  function loop() { poll(); if ($("autoToggle").checked) timer = setTimeout(loop, REFRESH_MS); }
+  $("autoToggle").addEventListener("change", () => { if ($("autoToggle").checked) loop(); else clearTimeout(timer); });
+  $("projectInput").addEventListener("change", (e) => {
+    project = e.target.value.trim() || "contacts-app";
+    const u = new URL(location); u.searchParams.set("project", project); history.replaceState({}, "", u);
+    clearTimeout(timer); loop();
+  });
+  setInterval(tickUpdated, 1000);
+  loop();
+})();
+</script>
+</body>
+</html>

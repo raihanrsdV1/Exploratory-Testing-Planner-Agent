@@ -274,6 +274,33 @@ def agent_coverage(project: str, authorization: str | None) -> dict:
     }
 
 
+def dashboard_data(project: str) -> dict:
+    """Aggregate everything the operator dashboard renders (read-only, best-effort).
+
+    Combines knowledge-graph stats (requirements / validation rules / entities /
+    screens / tests) with the live coverage map, recent tests, and the active
+    model backend into a single payload the dashboard polls.
+    """
+    stats: dict = {}
+    try:
+        stats = rag_client.rag_get("/graph/stats", {"project": project})
+    except Exception:
+        stats = {}
+
+    coverage_data: dict = {}
+    try:
+        coverage_data = agent_coverage(project, None)
+    except Exception:
+        coverage_data = {}
+
+    return {
+        "project": project,
+        "model": model_client.backend_info(),
+        "stats": stats,
+        "coverage": coverage_data,
+    }
+
+
 def chat(req: ChatRequest, authorization: str | None) -> dict:
     config.check_gateway_auth(authorization)
     srs_context = ""

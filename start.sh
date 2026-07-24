@@ -25,7 +25,7 @@ EXECUTOR_LOG="$DIR/logs/simulation_result.txt"
 PID_FILE="$DIR/logs/services.pid"
 
 PROJECT="contacts-app"
-SRS_PATH="./data/inputs/SRS1.txt"
+SRS_PATH="./data/inputs/Sample-Contacts-App-SRS.txt"
 FIGMA_PATH="./data/inputs/GENERATED_JSON.json"
 
 # ── Colours ───────────────────────────────────────────────────────────────────

@@ -18,7 +18,10 @@ Nothing here is specific to any single app — all domain knowledge comes from t
 ingested SRS/UI knowledge graph at request time.
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI, Header
+from fastapi.responses import HTMLResponse
 
 from observability import setup_logging
 from observability.middleware import RequestLoggingMiddleware
@@ -66,6 +69,25 @@ app.add_middleware(RequestLoggingMiddleware)
 @app.get("/metrics", tags=["system"], summary="Get system metrics")
 def metrics():
     return get_metrics()
+
+
+_DASHBOARD_HTML = Path(__file__).resolve().parent.parent / "dashboard" / "index.html"
+
+
+@app.get("/dashboard", include_in_schema=False)
+def dashboard_page():
+    """Serve the operator dashboard (single-page monitoring UI)."""
+    return HTMLResponse(_DASHBOARD_HTML.read_text(encoding="utf-8"))
+
+
+@app.get(
+    "/dashboard/data",
+    tags=["system"],
+    summary="Aggregated dashboard data",
+    description="Read-only aggregate of graph stats, live coverage, recent tests, and the active model backend — polled by the dashboard.",
+)
+def dashboard_data(project: str):
+    return pipeline.dashboard_data(project)
 
 
 @app.get(

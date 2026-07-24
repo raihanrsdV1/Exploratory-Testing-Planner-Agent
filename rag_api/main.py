@@ -1756,7 +1756,7 @@ def demo_endpoints():
                     "path": "/ingest/srs",
                     "body": {
                         "project": "my-app",
-                        "source_path": "./data/inputs/SRS1.txt",
+                        "source_path": "./data/inputs/Sample-Contacts-App-SRS.txt",
                     },
                 },
                 {

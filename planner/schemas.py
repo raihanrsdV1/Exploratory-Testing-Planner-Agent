@@ -94,7 +94,7 @@ class LogVerdictRequest(BaseModel):
 class IngestSRSRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
         "project": "my-app",
-        "source_path": "./data/inputs/SRS1.txt",
+        "source_path": "./data/inputs/Sample-Contacts-App-SRS.txt",
         "chunk_chars": 1200,
         "use_model_summary": True,
         "require_model_summary": True,
