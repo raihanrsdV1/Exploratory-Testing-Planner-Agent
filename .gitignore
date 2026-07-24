@@ -17,6 +17,13 @@ build/
 venv/
 env/
 
+# ── Node / React dashboard ────────────────────────────────────────────────────
+node_modules/
+dashboard-react/dist/
+
+# ── Live App Model runtime artifacts (state screenshots) ──────────────────────
+data/appmodel/
+
 # ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 *.ipynb_checkpoints

@@ -27,6 +27,8 @@ This is a major upgrade from the original keyword-RAG prototype:
 | **Coverage** | free-text `area` strings | **Graph-native** `TestCase -[:COVERS]-> Requirement` edges |
 | **Gateway code** | one ~1800-line file | modular **`planner/`** package; gateway is a thin router |
 | **App specificity** | contacts-app baked in | **fully app-agnostic** — all domain knowledge comes from the ingested graph at runtime |
+| **UI knowledge** | requires a Figma export | **Live App Model** — the agent builds its own UI state graph from the running device (works with zero Figma/SRS) |
+| **Learning** | static; only verdicts stored | execution→learning loop: every run feeds observed states + transitions back into the graph |
 
 See `System_Architecture.md` for the multi-stage retrieval design.
 
@@ -80,11 +82,16 @@ planner/                  Core AI Logic
   coverage.py             Coverage tracking logic
   prompts.py              Agent prompts
   schemas.py              Data models
+  sources/                Pluggable knowledge sources (srs, figma_ui, figma_flow, live_ui)
 
 ingestion/                Format-agnostic ingestion pipeline
   document_loader.py      any document → text
   extractor.py            text → Requirement/Entity/ValidationRule (LLM + rule fallback)
   ui_normalizer.py        Figma export → canonical UI IR (no hardcoded purposes)
+  app_state.py            Live App Model: UI-state signature + dedup (structural + visual fallback)
+
+dashboard-react/          React (Vite) live monitoring UI — built + served at /dashboard
+dashboard/                Dependency-free fallback dashboard (single HTML file)
 
 clients/                  Execution scripts
   executor_runner.py      Real Android device executor (via Droidrun)
@@ -391,11 +398,70 @@ Logs are aggregated in JSON Lines format in the `logs/` directory for easy parsi
 
 ---
 
+## Live App Model (self-built UI state graph)
+
+When no Figma guide (or SRS) exists — the common case for a generic Android app —
+the agent **builds its own map of the app** by observing the running device. Every
+executor step's accessibility tree becomes a `UIState` node and each navigation a
+`TRANSITIONS_TO` edge, so the graph grows as the agent explores and is reused to
+plan future tests.
+
+The hard part is **state identity** — deciding whether a screen is new or one
+already seen. This is done structurally, not visually:
+
+- Each state's **signature** is a hash of its *structural skeleton* — the set of
+  controls by `(resource_id, class, content_description, clickable)` plus
+  `package`/`activity` and whether a dialog is open.
+- The volatile free **text is dropped**, so scrolling a list to different data is
+  the **same** state, and a **light→dark theme switch is the same state** (the
+  view hierarchy is identical; only pixels change).
+- Genuinely different screens (a new activity, an open dialog, an empty vs.
+  populated list) get **new** signatures.
+- Exact-signature is the fast path; a structural **Jaccard** near-match tolerates
+  minor chrome; and for apps with thin accessibility trees (Compose/games/WebView)
+  a **perceptual screenshot hash** is the visual fallback.
+
+This mirrors mobilerun's own guarded-macro state matching, and is unit-tested on
+the scroll / theme / navigate cases in `tests/test_app_state.py`
+(`./venv/bin/python tests/test_app_state.py`).
+
+**How it's built:** `clients/executor_runner.py` reads mobilerun's per-step
+trajectory (accessibility trees + screenshots) after each run and POSTs each
+observation to `POST /liveui/observe`, which dedupes it into the graph. Screenshots
+are stored under `data/appmodel/<project>/` and served via `/liveui/screenshot`.
+The map is exposed at `GET /appmodel/graph` and surfaced to the planner via the
+`live_ui` knowledge source. Abstraction logic lives in `ingestion/app_state.py`.
+
+---
+
+## Dashboard (live monitoring)
+
+An operator dashboard is served by the gateway at
+**<http://127.0.0.1:9100/dashboard?project=my-app>**. It polls every few seconds
+and shows: test cases and verdicts, bugs found, coverage by area, the business
+policies (validation rules) the LLM extracted from the SRS, the exploration
+directive, an **interactive Live App Model graph** (draggable state nodes; click a
+state to see its screenshot), and a **live mobilerun log stream** so you can watch
+what the agent is thinking/doing on the device in real time.
+
+The dashboard is a **React (Vite) app** in `dashboard-react/`, built to a single
+self-contained file (`npm --prefix dashboard-react install && npm --prefix
+dashboard-react run build`) that the gateway serves at `/dashboard` (falling back
+to the dependency-free `dashboard/index.html` if the build is absent). Data comes
+from `GET /dashboard/data`, logs from `GET /dashboard/logs`, and state screenshots
+from `GET /dashboard/screenshot`.
+
+**Where are the live agent logs?** mobilerun logs to the `mobilerun` logger; the
+executor tees it (plus its own logs) to `logs/mobilerun.log`, which the dashboard
+streams. Tail it directly with `tail -f logs/mobilerun.log`.
+
+---
+
 ## Knowledge graph model
 
 **Nodes:** `Project`, `SRS`, `Chunk` (+`embedding`), `Requirement` (+`embedding`),
 `Entity`, `ValidationRule`, `FigmaScreen`, `UIElement`, `FeatureArea`, `TestCase`,
-`TestRun`, `Summary`.
+`TestRun`, `Summary`, `UIState` (Live App Model).
 
 **Key relationships:**
 
@@ -408,6 +474,7 @@ Logs are aggregated in JSON Lines format in the `logs/` directory for easy parsi
 (UIElement)-[:NAVIGATES_TO]->(FigmaScreen)        # real prototype links when present
 (Project)-[:HAS_TEST]->(TestCase)-[:HAS_RUN]->(TestRun)
 (TestCase)-[:COVERS]->(Requirement)               # graph-native coverage
+(Project)-[:HAS_STATE]->(UIState)-[:TRANSITIONS_TO {action}]->(UIState)   # Live App Model (self-built)
 ```
 
 Vector indexes `chunk_embedding` and `requirement_embedding` are created

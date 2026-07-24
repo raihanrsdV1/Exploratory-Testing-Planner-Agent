@@ -57,6 +57,37 @@ class GraphSubgraphRequest(BaseModel):
     max_rels: int = 800
 
 
+class ObserveStateRequest(BaseModel):
+    """One observed UI state for the Live App Model (WP1)."""
+    project: str = Field(..., min_length=1)
+    # Normalized observation: {phone_state:{package,activity}, nodes:[...]}
+    # (mobilerun.macro.state.normalize_ui_state output, or equivalent).
+    normalized: dict
+    screenshot_b64: str | None = None
+    from_state_id: str | None = None
+    action: str = ""
+    element: str = ""
+
+
+class ExecutionLogRequest(BaseModel):
+    """One test execution's full record + the path it walked (WP3)."""
+    project: str = Field(..., min_length=1)
+    test_case_id: str = ""
+    title: str = ""
+    verdict: str = "failed"
+    duration_ms: int = 0
+    planned_steps: int = 0
+    device_steps: int = 0
+    states_visited: int = 0
+    error_type: str = ""
+    error_message: str = ""
+    device: str = ""
+    os_version: str = ""
+    app_package: str = ""
+    path: list[str] = Field(default_factory=list)         # ordered UIState ids visited
+    path_labels: list[str] = Field(default_factory=list)  # ordered state labels
+
+
 class SeedDemoTestsRequest(BaseModel):
     project: str = Field(..., min_length=1)
     area: str = "general"

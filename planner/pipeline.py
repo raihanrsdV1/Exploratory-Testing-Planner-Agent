@@ -293,11 +293,25 @@ def dashboard_data(project: str) -> dict:
     except Exception:
         coverage_data = {}
 
+    appmodel: dict = {}
+    try:
+        appmodel = rag_client.rag_get("/appmodel/graph", {"project": project})
+    except Exception:
+        appmodel = {}
+
+    executions: list = []
+    try:
+        executions = rag_client.rag_get("/execution/logs", {"project": project, "limit": 20}).get("logs", [])
+    except Exception:
+        executions = []
+
     return {
         "project": project,
         "model": model_client.backend_info(),
         "stats": stats,
         "coverage": coverage_data,
+        "appmodel": appmodel,
+        "executions": executions,
     }
 
 

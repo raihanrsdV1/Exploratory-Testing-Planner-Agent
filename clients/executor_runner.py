@@ -13,6 +13,7 @@ Workflow:
 """
 
 import asyncio
+import base64
 import logging
 import os
 import sys
@@ -63,6 +64,33 @@ if LOGTAIL_SOURCE_TOKEN:
         logger.addHandler(_cloud_handler)
     except ImportError:
         pass  # logtail not installed, skip silently
+
+# ── Live mobilerun log file ───────────────────────────────────────────────────
+# mobilerun logs its agent "thinking"/actions to the "mobilerun" logger (Rich
+# console, propagate=False). We ALSO tee it to logs/mobilerun.log so the run is
+# observable live and the dashboard can stream it. Attached after the mobilerun
+# import (below) so it survives mobilerun's own logging configuration.
+_LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+os.makedirs(_LOG_DIR, exist_ok=True)
+MOBILERUN_LOG = os.path.join(_LOG_DIR, "mobilerun.log")
+_mobilerun_file_attached = False
+
+
+def _attach_mobilerun_file_log():
+    """Idempotently tee the mobilerun + executor loggers to logs/mobilerun.log."""
+    global _mobilerun_file_attached
+    if _mobilerun_file_attached:
+        return
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s | %(message)s", "%H:%M:%S")
+    fh = logging.FileHandler(MOBILERUN_LOG)
+    fh.setFormatter(fmt)
+    for name in ("mobilerun", "executor"):
+        lg = logging.getLogger(name)
+        lg.addHandler(fh)
+        if lg.level == logging.NOTSET:
+            lg.setLevel(logging.INFO)
+    logging.getLogger("mobilerun").propagate = False
+    _mobilerun_file_attached = True
 
 
 def cloud_log(level: str, message: str, **extra):
@@ -262,6 +290,132 @@ def build_droidrun_goal(test_case: dict) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 2b. LIVE APP MODEL — feed the executor's real trajectory into the graph (WP1)
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def _safe_screenshot(driver):
+    """Best-effort current-device screenshot (bytes), or None."""
+    if driver is None:
+        return None
+    try:
+        return await driver.screenshot()
+    except Exception:
+        return None
+
+
+def _record_observations(observations, tc_id: str = "", driver_shot: bytes | None = None) -> int:
+    """Post each observed (ui_state, screenshot) into the Live App Model.
+
+    ``observations`` is a list of ``(elements_list, screenshot_bytes)`` captured
+    per UI state from mobilerun's event stream during the run. Each is normalized
+    and POSTed to ``/liveui/observe`` — which dedupes into the graph (structural
+    signature + visual fallback) and links the transition. This is the
+    execution->learning loop: exploring builds a reusable, screenshotted map.
+    """
+    if not observations:
+        return []
+    try:
+        from mobilerun.macro.state import normalize_ui_state
+    except Exception:
+        return []
+
+    prev_id = None
+    path = []  # ordered [{id, label}] — the route this test walked through the app model
+    last_i = len(observations) - 1
+    for i, (elements, shot) in enumerate(observations):
+        if not elements:
+            continue
+        try:
+            normalized = normalize_ui_state(elements)
+        except Exception:
+            continue
+        raw_shot = shot if shot else (driver_shot if i == last_i else None)
+        shot_b64 = None
+        if raw_shot:
+            try:
+                shot_b64 = base64.b64encode(raw_shot).decode("ascii")
+            except Exception:
+                shot_b64 = None
+        try:
+            resp = requests.post(
+                f"{RAG_URL}/liveui/observe",
+                json={
+                    "project": PROJECT,
+                    "normalized": normalized,
+                    "screenshot_b64": shot_b64,
+                    "from_state_id": prev_id,
+                    "action": f"step {i + 1}",
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            j = resp.json()
+            prev_id = j.get("state_id")
+            path.append({"id": prev_id, "label": j.get("label", "")})
+        except Exception as e:
+            cloud_log("warning", f"App model observe failed for {tc_id} step {i}: {e}")
+            break
+
+    if path:
+        shots = sum(1 for _e, s in observations if s)
+        print(f"   🗺  App model: recorded {len(path)} UI state(s), {shots} with screenshots")
+        cloud_log("info", f"App model updated for {tc_id}", test_case_id=tc_id, states_recorded=len(path))
+    return path
+
+
+# Cached device environment (adb serial + OS version) for execution logs.
+_DEVICE_ENV = None
+
+
+def _device_env() -> dict:
+    global _DEVICE_ENV
+    if _DEVICE_ENV is not None:
+        return _DEVICE_ENV
+    import subprocess
+
+    def sh(args):
+        try:
+            return subprocess.run(args, capture_output=True, text=True, timeout=8).stdout.strip()
+        except Exception:
+            return ""
+    serial = ""
+    for line in sh(["adb", "devices"]).splitlines()[1:]:
+        if "\tdevice" in line:
+            serial = line.split("\t")[0]
+            break
+    _DEVICE_ENV = {"device": serial, "os": sh(["adb", "shell", "getprop", "ro.build.version.release"])}
+    return _DEVICE_ENV
+
+
+def _log_execution(tc: dict, verdict: str, duration_ms: float, device_steps: int,
+                   path: list, error_type: str = "", error_message: str = "") -> None:
+    """Persist one execution record (WP3): timing, steps, environment, and walked path."""
+    env = _device_env()
+    payload = {
+        "project": PROJECT,
+        "test_case_id": tc.get("test_case_id", ""),
+        "title": tc.get("title", ""),
+        "verdict": verdict,
+        "duration_ms": int(duration_ms),
+        "planned_steps": len(tc.get("steps", []) or []),
+        "device_steps": int(device_steps or 0),
+        "states_visited": len(path),
+        "error_type": error_type,
+        "error_message": (error_message or "")[:500],
+        "device": env.get("device", ""),
+        "os_version": env.get("os", ""),
+        "app_package": TARGET_APP_PACKAGE,
+        "path": [s["id"] for s in path],
+        "path_labels": [s["label"] for s in path],
+    }
+    try:
+        requests.post(f"{RAG_URL}/execution/log", json=payload, timeout=30).raise_for_status()
+        print(f"   📋 Execution logged: {len(path)} states, verdict={verdict}")
+    except Exception as e:
+        cloud_log("warning", f"Execution log failed for {tc.get('test_case_id')}: {e}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 3. DROIDRUN EXECUTION
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -285,6 +439,8 @@ async def execute_test_on_device(test_case: dict) -> dict:
     """
     # Lazy import so the script doesn't crash during --help / preflight
     from mobilerun import MobileAgent, AndroidDriver, load_llm, MobileConfig, AgentConfig
+    from mobilerun.config_manager.config_manager import LoggingConfig
+    _attach_mobilerun_file_log()  # tee mobilerun's live logs to logs/mobilerun.log
 
     goal = build_droidrun_goal(test_case)
     tc_id = test_case.get("test_case_id", "?")
@@ -308,6 +464,9 @@ async def execute_test_on_device(test_case: dict) -> dict:
     )
 
     start_time = time.time()
+    agent = None
+    driver = None
+    observations = []  # (elements_list, screenshot_bytes) captured per observed UI state
 
     try:
         # Set up device driver (connects to default adb device)
@@ -327,8 +486,16 @@ async def execute_test_on_device(test_case: dict) -> dict:
             api_key=api_key,
         )
 
-        # Create and run the agent
-        config = MobileConfig(agent=AgentConfig(max_steps=EXECUTOR_MAX_STEPS))
+        # Create and run the agent. Trajectory capture is enabled so we can feed the
+        # real per-step UI states + screenshots into the Live App Model (WP1).
+        config = MobileConfig(
+            agent=AgentConfig(max_steps=EXECUTOR_MAX_STEPS),
+            logging=LoggingConfig(
+                save_trajectory="all",
+                trajectory_path="logs/trajectories",
+                trajectory_gifs=False,
+            ),
+        )
         # Pass a single LLM instance so it is used for ALL agent roles
         # (manager/executor/fast_agent/...). Passing a dict makes mobilerun
         # fill missing roles from config defaults (GoogleGenAI) and crash
@@ -341,10 +508,28 @@ async def execute_test_on_device(test_case: dict) -> dict:
             config=config,
         )
 
-        # agent.run() returns a WorkflowHandler; await it to get ResultEvent
-        result = await agent.run()
+        # Run the agent, STREAMING its events so we can grab a screenshot for each
+        # observed UI state (mobilerun only screenshots itself in vision mode; our
+        # text model doesn't, so we capture per-state screenshots ourselves here).
+        handler = agent.run()
+        try:
+            from mobilerun.agent.common.events import RecordUIStateEvent
+            async for ev in handler.stream_events():
+                if isinstance(ev, RecordUIStateEvent):
+                    shot = await _safe_screenshot(driver)
+                    observations.append((getattr(ev, "ui_state", None), shot))
+        except Exception as e:
+            cloud_log("warning", f"Event streaming issue for {tc_id}: {e}")
+        result = await handler
 
         duration = time.time() - start_time
+
+        # Execution -> learning loop: fold observed states into the Live App Model.
+        exec_path = []
+        try:
+            exec_path = _record_observations(observations, tc_id, driver_shot=await _safe_screenshot(driver))
+        except Exception as e:
+            cloud_log("warning", f"App model recording skipped for {tc_id}: {e}")
 
         # ResultEvent has: .success (bool), .reason (str), .steps (int)
         success = result.success
@@ -374,6 +559,7 @@ async def execute_test_on_device(test_case: dict) -> dict:
             reason=reason[:500],
         )
 
+        _log_execution(test_case, verdict, duration * 1000, steps_taken, exec_path)  # WP3
         return {"verdict": verdict, "notes": notes, "duration_seconds": duration}
 
     except asyncio.TimeoutError:
@@ -384,6 +570,12 @@ async def execute_test_on_device(test_case: dict) -> dict:
         )
         print(f"\n⏰ TIMEOUT after {EXECUTOR_TIMEOUT}s")
         cloud_log("error", f"Test {tc_id} TIMED OUT", test_case_id=tc_id, title=title, timeout=EXECUTOR_TIMEOUT)
+        exec_path = []
+        try:
+            exec_path = _record_observations(observations, tc_id, driver_shot=await _safe_screenshot(driver))  # partial exploration still enriches the map
+        except Exception:
+            pass
+        _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path, error_type="TIMEOUT", error_message=notes)
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
 
     except Exception as e:
@@ -395,6 +587,12 @@ async def execute_test_on_device(test_case: dict) -> dict:
         )
         print(f"\n❌ CRASH: {e}")
         cloud_log("error", f"Test {tc_id} CRASHED: {e}", test_case_id=tc_id, title=title, error=str(e))
+        exec_path = []
+        try:
+            exec_path = _record_observations(observations, tc_id, driver_shot=await _safe_screenshot(driver))  # partial exploration still enriches the map
+        except Exception:
+            pass
+        _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path, error_type="CRASH", error_message=str(e))
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
 
 

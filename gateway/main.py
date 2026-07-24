@@ -20,8 +20,9 @@ ingested SRS/UI knowledge graph at request time.
 
 from pathlib import Path
 
+import requests
 from fastapi import FastAPI, Header
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from observability import setup_logging
 from observability.middleware import RequestLoggingMiddleware
@@ -71,13 +72,15 @@ def metrics():
     return get_metrics()
 
 
-_DASHBOARD_HTML = Path(__file__).resolve().parent.parent / "dashboard" / "index.html"
+_DASH_REACT = Path(__file__).resolve().parent.parent / "dashboard-react" / "dist" / "index.html"
+_DASH_VANILLA = Path(__file__).resolve().parent.parent / "dashboard" / "index.html"
 
 
 @app.get("/dashboard", include_in_schema=False)
 def dashboard_page():
-    """Serve the operator dashboard (single-page monitoring UI)."""
-    return HTMLResponse(_DASHBOARD_HTML.read_text(encoding="utf-8"))
+    """Serve the operator dashboard (React single-file build; vanilla fallback)."""
+    path = _DASH_REACT if _DASH_REACT.exists() else _DASH_VANILLA
+    return HTMLResponse(path.read_text(encoding="utf-8"))
 
 
 @app.get(
@@ -88,6 +91,64 @@ def dashboard_page():
 )
 def dashboard_data(project: str):
     return pipeline.dashboard_data(project)
+
+
+# Dashboard-polling / plumbing noise to drop from the planner log stream so only
+# real planner reasoning (node_enter/node_exit/llm_call/retrieval) shows.
+_PLANNER_DROP = (
+    "path=/dashboard", "path=/health", "path=/metrics", "path=/favicon",
+    "endpoint=/graph/stats", "endpoint=/coverage/requirements",
+    "endpoint=/appmodel/graph", "endpoint=/figma/overview",
+)
+
+
+def _filter_planner(lines: list[str]) -> list[str]:
+    out = []
+    for l in lines:
+        if any(d in l for d in _PLANNER_DROP):
+            continue
+        if ("request_started" in l or "request_done" in l) and "path=/agent" not in l:
+            continue
+        out.append(l)
+    return out
+
+
+@app.get("/dashboard/logs", include_in_schema=False)
+def dashboard_logs(lines: int = 250, source: str = "mobilerun"):
+    """Tail of a live log so the dashboard shows what's happening in real time.
+
+    source=mobilerun -> the device agent's thinking/actions (logs/mobilerun.log)
+    source=planner   -> the planner's retrieval/generation reasoning (logs/gateway.log,
+                        polling noise filtered out).
+    """
+    fname = {"mobilerun": "mobilerun.log", "planner": "gateway.log"}.get(source, "mobilerun.log")
+    log_path = Path(__file__).resolve().parent.parent / "logs" / fname
+    if not log_path.exists():
+        return {"exists": False, "source": source, "lines": []}
+    try:
+        content = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        content = []
+    if source == "planner":
+        content = _filter_planner(content)
+    n = max(1, min(lines, 1000))
+    return {"exists": True, "source": source, "total": len(content), "lines": content[-n:]}
+
+
+@app.get("/dashboard/screenshot", include_in_schema=False)
+def dashboard_screenshot(project: str, state_id: str):
+    """Proxy a Live App Model state screenshot from the RAG API (same-origin for the dashboard)."""
+    try:
+        r = requests.get(
+            f"{config.RAG_API_URL}/liveui/screenshot",
+            params={"project": project, "state_id": state_id},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return Response(status_code=r.status_code)
+        return Response(content=r.content, media_type="image/png")
+    except requests.RequestException:
+        return Response(status_code=502)
 
 
 @app.get(

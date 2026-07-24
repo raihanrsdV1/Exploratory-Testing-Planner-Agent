@@ -1,0 +1,274 @@
+"""
+Live App Model — UI state abstraction.
+
+Turns a *normalized* UI observation (the shape produced by mobilerun's
+``macro.state.normalize_ui_state`` — or any ``{phone_state:{package,activity},
+nodes:[...]}`` dict) into a stable STATE SIGNATURE.
+
+Design goal (the hard part of model-based GUI testing): the signature must be
+**robust to volatile content** — scrolling a list of different data, or a
+light/dark theme switch, must NOT create a new state — while still
+**distinguishing genuinely different screens** (a new activity, an open dialog,
+an empty vs. populated list).
+
+How it stays robust:
+  * Identity is STRUCTURAL, not visual. A theme switch changes pixels, never the
+    view hierarchy, so a structural signature is theme-invariant by construction.
+  * The per-node key drops the volatile free ``text`` (the contact names that
+    change while scrolling) and keeps only *what a control is*:
+    (resource_id, class, content_description, clickable).
+  * Identical structural keys collapse (50 contact rows sharing one row template
+    → one key), so row COUNT and row DATA don't affect the signature.
+  * A few salient landmarks that DO define a distinct testable state are kept
+    (package, activity, whether a dialog/sheet is open).
+
+This module is pure / dependency-free so the abstraction can be unit-tested
+without a device (see ``tests/test_app_state.py``).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from typing import Any, Iterable
+
+# Substrings in a node's class name that mark a modal surface — an open dialog /
+# bottom sheet / popup menu is a genuinely different (testable) state.
+_MODAL_HINTS = ("dialog", "popupwindow", "bottomsheet", "sheet", "alert", "popupmenu")
+
+# Field separators for building stable string keys (unlikely to appear in ids).
+_F = "␟"  # ␟
+
+
+def _walk(nodes: Iterable[dict]) -> Iterable[dict]:
+    """Yield every node, recursing into ``children`` if the input is still nested.
+
+    ``normalize_ui_state`` already flattens, but we recurse defensively so raw
+    element trees also work.
+    """
+    for n in nodes or []:
+        if isinstance(n, dict):
+            yield n
+            children = n.get("children")
+            if children:
+                yield from _walk(children)
+
+
+def _structural_key(node: dict) -> str:
+    """What a control *is* — stable across content and theme. Drops free text."""
+    rid = str(node.get("resource_id") or node.get("resourceId") or "").strip()
+    cls = str(node.get("class") or node.get("className") or node.get("type") or "").strip()
+    cd = str(node.get("content_description") or node.get("contentDescription") or "").strip()
+    clickable = bool(node.get("clickable"))
+    return f"{rid}{_F}{cls}{_F}{cd}{_F}{int(clickable)}"
+
+
+def _has_meaning(key: str) -> bool:
+    """Keep only nodes that carry at least one identity-bearing field."""
+    rid, cls, cd, _click = key.split(_F)
+    return bool(rid or cls or cd)
+
+
+def abstract_state(normalized: dict) -> dict:
+    """Abstract a normalized UI observation into a stable signature + metadata.
+
+    Returns a dict with:
+      signature      — hex hash; equal iff two observations are the "same state"
+      package        — app package
+      activity       — top activity/window
+      key_set        — sorted list of structural node keys (for Jaccard re-scoring)
+      has_dialog     — a modal surface is open
+      element_count  — number of distinct structural controls
+      label          — a short human-readable name for the state
+    """
+    phone = normalized.get("phone_state") or {}
+    package = str(phone.get("package") or phone.get("appPackage") or "").strip()
+    activity = str(phone.get("activity") or phone.get("appActivity") or "").strip()
+
+    raw_nodes = normalized.get("nodes")
+    if raw_nodes is None:
+        raw_nodes = normalized.get("elements") or []
+
+    key_set: set[str] = set()
+    has_dialog = False
+    # Label hints: prefer content-descriptions (stable, e.g. "Create contact")
+    # over free text (volatile row data like a contact's name).
+    desc_hints: list[str] = []
+    text_hints: list[str] = []
+    resource_ids: list[str] = []
+
+    for n in _walk(raw_nodes):
+        key = _structural_key(n)
+        if _has_meaning(key):
+            key_set.add(key)
+            rid = str(n.get("resource_id") or n.get("resourceId") or "").strip()
+            if rid:
+                resource_ids.append(rid)
+        cls = str(n.get("class") or n.get("className") or "").lower()
+        if any(h in cls for h in _MODAL_HINTS):
+            has_dialog = True
+        # Label hints from any node: content-description (stable icon labels like
+        # "Search"/"Create contact") preferred over free text.
+        cd = str(n.get("content_description") or n.get("contentDescription") or "").strip()
+        if cd:
+            desc_hints.append(cd)
+        text = str(n.get("text") or "").strip()
+        if text:
+            text_hints.append(text)
+
+    sorted_keys = sorted(key_set)
+    signature = _signature(package, activity, sorted_keys, has_dialog)
+    label = _derive_label(activity, desc_hints + text_hints, resource_ids)
+
+    return {
+        "signature": signature,
+        "package": package,
+        "activity": activity,
+        "key_set": sorted_keys,
+        "has_dialog": has_dialog,
+        "element_count": len(sorted_keys),
+        "label": label,
+    }
+
+
+def _signature(package: str, activity: str, sorted_keys: list[str], has_dialog: bool) -> str:
+    h = hashlib.sha1()
+    h.update(package.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(activity.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(b"1" if has_dialog else b"0")
+    h.update(b"\x00")
+    for k in sorted_keys:
+        h.update(k.encode("utf-8"))
+        h.update(b"\x01")
+    return h.hexdigest()[:16]
+
+
+def similarity(key_set_a: list[str], key_set_b: list[str]) -> float:
+    """Jaccard over structural keys — the near-match score (mirrors mobilerun's
+    ``compare_states`` node score, on our content-abstracted keys)."""
+    a, b = set(key_set_a or []), set(key_set_b or [])
+    if not a and not b:
+        return 1.0
+    inter = len(a & b)
+    union = len(a | b)
+    return inter / union if union else 1.0
+
+
+def is_same_state(
+    obs: dict,
+    candidate: dict,
+    threshold: float = 0.9,
+) -> bool:
+    """Decide whether an observation is the SAME state as a stored candidate.
+
+    Exact signature match is the fast path; otherwise same package+activity and a
+    structural Jaccard at/above ``threshold`` (tolerates minor dynamic chrome).
+    """
+    if obs.get("signature") and obs["signature"] == candidate.get("signature"):
+        return True
+    if obs.get("package") != candidate.get("package"):
+        return False
+    if obs.get("activity") != candidate.get("activity"):
+        return False
+    if bool(obs.get("has_dialog")) != bool(candidate.get("has_dialog")):
+        return False
+    return similarity(obs.get("key_set", []), candidate.get("key_set", [])) >= threshold
+
+
+# Resource-id substrings that mark a screen-defining container (strong first),
+# element-level noise to skip, and id-part words to drop when humanizing.
+_STRONG_HINTS = ("fragment", "activity", "editor", "container", "screen", "main", "home", "page")
+_WEAK_HINTS = ("list", "detail", "picker", "settings", "search", "directory", "view")
+_NOISE_WORDS = ("divider", "separator", "spacer", "icon", "button", "label", "title",
+                "header", "footer", "chip", "item", "row", "text", "image", "box", "bar")
+_ID_STRIP = {"fragment", "activity", "scroller", "container", "root", "layout",
+             "view", "content", "id", "android", "below", "above", "gh"}
+
+
+def _label_from_resource_ids(resource_ids: list[str]) -> str:
+    """Humanize a screen-defining resource-id, e.g. '.../contact_editor_fragment' -> 'Contact Editor'.
+
+    Prefers strong screen-defining ids (fragment/editor/container/...) over weaker
+    ones, and skips element-level ids (dividers, buttons, ...) that don't name a screen.
+    """
+    def humanize(idpart: str) -> str:
+        words = [w for w in re.split(r"[_\-]", idpart) if w and w.lower() not in _ID_STRIP]
+        return " ".join(w.capitalize() for w in words) if words else ""
+
+    for hints in (_STRONG_HINTS, _WEAK_HINTS):
+        for rid in resource_ids:
+            idpart = rid.split(":id/")[-1].split("/")[-1].lower()
+            if not idpart or any(n in idpart for n in _NOISE_WORDS):
+                continue
+            if any(h in idpart for h in hints):
+                lbl = humanize(idpart)
+                if lbl:
+                    return lbl
+    return ""
+
+
+def _derive_label(activity: str, texts: list[str], resource_ids: list[str] | None = None) -> str:
+    """A short, human-readable name for the state (for the graph + dashboard).
+
+    Prefers a text/content-description hint; falls back to a humanized
+    screen-defining resource-id (mobilerun's recorded elements often carry only
+    ids), then the activity name, then a generic default.
+    """
+    hint = next((t for t in texts if 1 < len(t) <= 24), "")
+    if hint:
+        base = activity.rsplit(".", 1)[-1].rsplit("/", 1)[-1] if activity else ""
+        base = base.replace("Activity", "").replace("Fragment", "").strip()
+        return f"{base} · {hint}" if base else hint
+    rid_label = _label_from_resource_ids(resource_ids or [])
+    if rid_label:
+        return rid_label
+    if activity:
+        short = activity.rsplit(".", 1)[-1].rsplit("/", 1)[-1]
+        short = short.replace("Activity", "").replace("Fragment", "").strip()
+        if short:
+            return short
+    return "Screen"
+
+
+# Visual-fallback helper: when the accessibility tree is too thin (Compose without
+# semantics, games, WebViews, screenshot-only mode), identity falls back to a
+# perceptual hash of the screenshot. This is a plain average-hash (aHash) — no
+# model required — compared by Hamming distance on the caller side.
+def average_hash(image_bytes: bytes, hash_size: int = 8) -> str | None:
+    try:
+        import io
+
+        from PIL import Image
+    except Exception:
+        return None
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("L").resize(
+            (hash_size, hash_size), Image.BILINEAR
+        )
+        pixels = list(img.getdata())
+        avg = sum(pixels) / len(pixels)
+        bits = "".join("1" if p >= avg else "0" for p in pixels)
+        return f"{int(bits, 2):0{hash_size * hash_size // 4}x}"
+    except Exception:
+        return None
+
+
+def is_thin_tree(normalized: dict, min_controls: int = 3) -> bool:
+    """True when the a11y tree is too sparse to trust structurally (use visual fallback)."""
+    phone = normalized.get("phone_state") or {}
+    if phone.get("observationMode") == "screenshot_only" or phone.get("accessibilityTree") is False:
+        return True
+    nodes = normalized.get("nodes")
+    if nodes is None:
+        nodes = normalized.get("elements") or []
+    meaningful = sum(1 for n in _walk(nodes) if _has_meaning(_structural_key(n)))
+    return meaningful < min_controls
+
+
+def hamming(a: str, b: str) -> int:
+    """Hamming distance between two equal-length hex perceptual hashes."""
+    if not a or not b or len(a) != len(b):
+        return 10 ** 9
+    return bin(int(a, 16) ^ int(b, 16)).count("1")

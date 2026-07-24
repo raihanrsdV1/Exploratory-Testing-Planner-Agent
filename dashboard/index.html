@@ -97,6 +97,14 @@
   pre.directive { margin: 0; padding: 12px 14px; background: var(--panel-2); border-radius: 10px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid var(--border); }
   .situation { margin-top: 4px; font-size: 13.5px; color: var(--muted); }
   .situation b { color: var(--text); font-weight: 620; }
+
+  .states { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .state-card { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--panel-2); }
+  .state-card .shot { width: 100%; aspect-ratio: 9/16; object-fit: cover; object-position: top; background: var(--track); display: block; }
+  .state-card .noshot { width: 100%; aspect-ratio: 9/16; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px; background: var(--track); }
+  .state-card .meta { padding: 8px 10px; }
+  .state-card .meta .name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .state-card .meta .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -157,6 +165,14 @@
         <h2>🧭 Exploration Directive</h2>
         <div class="body"><pre class="directive" id="directive">—</pre></div>
       </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px">
+    <h2>🗺️ Live App Model <span class="count" id="appmodelCount"></span></h2>
+    <div class="body">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px" id="appmodelSummary">The self-built map of screens the agent has actually reached, deduped by structural signature.</div>
+      <div class="states" id="statesGrid"></div>
     </div>
   </div>
 </main>
@@ -252,6 +268,21 @@
 
     // Directive
     $("directive").textContent = (c.exploration_directive || "—");
+
+    // Live App Model
+    const am = d.appmodel || {};
+    const states = am.nodes || [], trans = am.edges || [];
+    $("appmodelCount").textContent = states.length ? `(${states.length} states · ${trans.length} transitions)` : "";
+    $("appmodelSummary").textContent = states.length
+      ? `${states.length} distinct screens reached, ${trans.length} transitions learned. Built live from the executor's real navigation — scrolling/theme don't create duplicates.`
+      : `No states observed yet. Run the executor loop — the map builds itself as the agent explores the app.`;
+    $("statesGrid").innerHTML = states.length ? states.slice(0, 24).map(n => {
+      const shot = n.has_shot
+        ? `<img class="shot" loading="lazy" src="/dashboard/screenshot?project=${encodeURIComponent(d.project)}&state_id=${encodeURIComponent(n.id)}" alt="">`
+        : `<div class="noshot">no screenshot</div>`;
+      const dlg = n.has_dialog ? " · dialog" : "";
+      return `<div class="state-card">${shot}<div class="meta"><div class="name" title="${esc(n.label)}">${esc(n.label || "?")}</div><div class="sub">${n.visits || 0} visits · ${n.elements || 0} controls${dlg}</div></div></div>`;
+    }).join("") : `<div class="empty">No app-model states yet.</div>`;
   }
 
   function setStatus(state) {

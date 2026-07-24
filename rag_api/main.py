@@ -2,12 +2,13 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
+import base64
 import json
 import os
 import re
 
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, FileResponse
 from neo4j import GraphDatabase
 from pydantic import BaseModel, Field
 
@@ -18,7 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from . import embeddings
-from ingestion import ui_normalizer
+from ingestion import ui_normalizer, app_state
 
 # `or default` (not just getenv default) so an empty value in .env doesn't crash startup.
 NEO4J_URI = os.getenv("NEO4J_URI") or "neo4j://127.0.0.1:7687"
@@ -75,6 +76,10 @@ async def lifespan(_: FastAPI):
         session.run("CREATE CONSTRAINT requirement_id IF NOT EXISTS FOR (r:Requirement) REQUIRE r.id IS UNIQUE")
         session.run("CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE")
         session.run("CREATE CONSTRAINT vrule_id IF NOT EXISTS FOR (v:ValidationRule) REQUIRE v.id IS UNIQUE")
+        # Live App Model (WP1): observed UI states.
+        session.run("CREATE CONSTRAINT uistate_id IF NOT EXISTS FOR (s:UIState) REQUIRE s.id IS UNIQUE")
+        # Execution logs (WP3): one record per test run, with the path it walked.
+        session.run("CREATE CONSTRAINT execlog_id IF NOT EXISTS FOR (e:ExecutionLog) REQUIRE e.id IS UNIQUE")
         _ensure_vector_indexes(session)
     yield
 
@@ -1078,6 +1083,12 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
         )
         screen_index = [dict(r) for r in screens]
 
+        state_row = session.run(
+            "MATCH (p:Project {name:$project})-[:HAS_STATE]->(s:UIState) RETURN count(s) AS c",
+            project=req.project,
+        ).single()
+        appmodel_state_count = (state_row["c"] if state_row else 0) or 0
+
     return {
         "project": req.project,
         "srs_summary": (proj_row["srs_summary"] if proj_row else "") or "",
@@ -1085,6 +1096,7 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
         "figma_source": (proj_row["figma_source"] if proj_row else "") or "",
         "recent_tests": recent_tests,
         "screen_index": screen_index,
+        "appmodel_state_count": appmodel_state_count,
     }
 
 
@@ -1538,6 +1550,240 @@ def _rrf_merge(keyword: list[dict], vector: list[dict], limit: int, k: int = 60)
         if len(out) >= limit:
             break
     return out
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Live App Model (WP1): self-built UI state graph from live device observations.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_APPMODEL_DIR = Path(__file__).resolve().parent.parent / "data" / "appmodel"
+
+# Structural Jaccard at/above this merges an observation into an existing state
+# (tolerates minor dynamic chrome). Exact signature match is the fast path.
+_STATE_MERGE_THRESHOLD = float(os.getenv("STATE_MERGE_THRESHOLD", "0.9"))
+# Hamming distance (on 8x8 average-hash) under which two thin-tree screens match.
+_PHASH_MATCH_DISTANCE = int(os.getenv("PHASH_MATCH_DISTANCE", "6"))
+
+
+def _find_matching_state(session, project: str, ab=None, phash: str | None = None):
+    """Return (state_id, is_new=False) for an existing match, else (None, True).
+
+    1. exact structural signature; 2. structural Jaccard >= threshold within the
+    same package/activity/dialog bucket; 3. perceptual-hash match for thin trees.
+    """
+    # 1. exact signature
+    row = session.run(
+        "MATCH (s:UIState {project:$project, signature:$sig}) RETURN s.id AS id LIMIT 1",
+        project=project, sig=ab["signature"],
+    ).single()
+    if row:
+        return row["id"], False
+
+    # 2. structural near-match within the same window bucket
+    candidates = session.run(
+        """
+        MATCH (s:UIState {project:$project, package:$package, activity:$activity, has_dialog:$has_dialog})
+        RETURN s.id AS id, s.key_set AS key_set
+        """,
+        project=project, package=ab["package"], activity=ab["activity"], has_dialog=ab["has_dialog"],
+    )
+    best_id, best_score = None, 0.0
+    for c in candidates:
+        score = app_state.similarity(ab["key_set"], c.get("key_set") or [])
+        if score > best_score:
+            best_id, best_score = c["id"], score
+    if best_id and best_score >= _STATE_MERGE_THRESHOLD:
+        return best_id, False
+
+    # 3. perceptual-hash fallback (thin a11y trees: Compose/games/WebView)
+    if phash:
+        rows = session.run(
+            "MATCH (s:UIState {project:$project}) WHERE s.phash IS NOT NULL RETURN s.id AS id, s.phash AS phash",
+            project=project,
+        )
+        for r in rows:
+            if app_state.hamming(phash, r["phash"]) <= _PHASH_MATCH_DISTANCE:
+                return r["id"], False
+
+    return None, True
+
+
+@app.post("/liveui/observe")
+def liveui_observe(req: ObserveStateRequest, authorization: str | None = Header(default=None)):
+    """Record one observed UI state into the Live App Model (find-or-create + transition).
+
+    The agent's own perception: turns a normalized on-device observation into a
+    ``UIState`` node (deduped by structural signature, with a visual fallback),
+    stores its screenshot, and links the transition that reached it.
+    """
+    _check_auth(authorization)
+    ab = app_state.abstract_state(req.normalized or {})
+    now = _utc_now()
+
+    phash = None
+    screenshot_bytes = None
+    if req.screenshot_b64:
+        try:
+            screenshot_bytes = base64.b64decode(req.screenshot_b64)
+            if app_state.is_thin_tree(req.normalized or {}):
+                phash = app_state.average_hash(screenshot_bytes)
+        except Exception:
+            screenshot_bytes = None
+
+    with driver.session() as session:
+        existing_id, is_new = _find_matching_state(session, req.project, ab=ab, phash=phash)
+        state_id = existing_id or f"{req.project}::state::{ab['signature']}"
+
+        # Persist screenshot (only the first time, or if missing) for the dashboard.
+        screenshot_ref = None
+        if screenshot_bytes:
+            proj_dir = _APPMODEL_DIR / _slug(req.project)
+            proj_dir.mkdir(parents=True, exist_ok=True)
+            fpath = proj_dir / f"{ab['signature']}.png"
+            if is_new or not fpath.exists():
+                try:
+                    fpath.write_bytes(screenshot_bytes)
+                except Exception:
+                    pass
+            screenshot_ref = str(fpath.relative_to(_APPMODEL_DIR.parent))
+
+        embedding = None
+        if is_new and embeddings.is_enabled():
+            vecs = _embed_texts([f"{ab['label']} {' '.join(ab['key_set'][:20])}"])
+            embedding = vecs[0] if vecs else None
+
+        session.run(
+            """
+            MERGE (p:Project {name:$project})
+            ON CREATE SET p.created_at = $now
+            SET p.updated_at = $now
+            MERGE (s:UIState {id:$state_id})
+            ON CREATE SET s.first_seen = $now, s.visit_count = 0
+            SET s.project = $project, s.signature = $sig, s.package = $package,
+                s.activity = $activity, s.label = $label, s.key_set = $key_set,
+                s.has_dialog = $has_dialog, s.element_count = $element_count,
+                s.last_seen = $now, s.visit_count = coalesce(s.visit_count,0) + 1
+            """
+            + ("SET s.screenshot_ref = $screenshot_ref\n" if screenshot_ref else "")
+            + ("SET s.phash = $phash\n" if phash else "")
+            + ("SET s.embedding = $embedding\n" if embedding else "")
+            + "MERGE (p)-[:HAS_STATE]->(s)",
+            project=req.project, state_id=state_id, now=now,
+            sig=ab["signature"], package=ab["package"], activity=ab["activity"],
+            label=ab["label"], key_set=ab["key_set"], has_dialog=ab["has_dialog"],
+            element_count=ab["element_count"],
+            screenshot_ref=screenshot_ref, phash=phash, embedding=embedding,
+        )
+
+        # Record the transition that reached this state (multiple actions -> multiple edges).
+        if req.from_state_id and req.from_state_id != state_id:
+            session.run(
+                """
+                MATCH (a:UIState {id:$from_id})
+                MATCH (b:UIState {id:$to_id})
+                MERGE (a)-[e:TRANSITIONS_TO {action:$action}]->(b)
+                ON CREATE SET e.first_seen = $now, e.visit_count = 0, e.element = $element
+                SET e.last_seen = $now, e.visit_count = coalesce(e.visit_count,0) + 1
+                """,
+                from_id=req.from_state_id, to_id=state_id,
+                action=(req.action or "step")[:120], element=req.element[:120], now=now,
+            )
+
+    return {"status": "ok", "project": req.project, "state_id": state_id,
+            "signature": ab["signature"], "is_new": is_new, "label": ab["label"]}
+
+
+@app.get("/appmodel/graph")
+def appmodel_graph(project: str, authorization: str | None = Header(default=None)):
+    """The Live App Model as a node/edge graph (for the dashboard & inspection)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        nodes = [dict(r) for r in session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_STATE]->(s:UIState)
+            RETURN s.id AS id, s.label AS label, s.activity AS activity,
+                   s.visit_count AS visits, s.has_dialog AS has_dialog,
+                   s.element_count AS elements,
+                   (s.screenshot_ref IS NOT NULL) AS has_shot
+            ORDER BY s.visit_count DESC
+            """, project=project)]
+        edges = [dict(r) for r in session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_STATE]->(a:UIState)-[e:TRANSITIONS_TO]->(b:UIState)
+            RETURN a.id AS source, b.id AS target, e.action AS action, e.visit_count AS visits
+            """, project=project)]
+    return {"project": project, "state_count": len(nodes), "nodes": nodes, "edges": edges}
+
+
+@app.post("/execution/log")
+def execution_log(req: ExecutionLogRequest, authorization: str | None = Header(default=None)):
+    """Record one test execution (WP3): verdict, timing, steps, environment, and the
+    ordered PATH of UIStates it walked through the Live App Model."""
+    _check_auth(authorization)
+    now = _utc_now()
+    log_id = f"{req.project}::exec::{_slug(req.test_case_id) or 'tc'}::{now}"
+    internal_tc = f"{req.project}::tc::{_slug(req.title)}" if req.title else ""
+    with driver.session() as session:
+        session.run(
+            """
+            MERGE (p:Project {name:$project})
+            ON CREATE SET p.created_at = $now
+            SET p.updated_at = $now
+            CREATE (e:ExecutionLog {id:$id})
+            SET e.project=$project, e.test_case_id=$tcid, e.title=$title, e.verdict=$verdict,
+                e.duration_ms=$dur, e.planned_steps=$ps, e.device_steps=$ds, e.states_visited=$sv,
+                e.error_type=$et, e.error_message=$em, e.device=$dev, e.os_version=$os,
+                e.app_package=$pkg, e.path=$path, e.path_labels=$labels, e.created_at=$now
+            MERGE (p)-[:HAS_EXECUTION_LOG]->(e)
+            WITH e
+            OPTIONAL MATCH (t:TestCase {id:$internal_tc})
+            FOREACH (_ IN CASE WHEN t IS NULL THEN [] ELSE [1] END | MERGE (e)-[:FOR_TEST]->(t))
+            """,
+            project=req.project, id=log_id, now=now, tcid=req.test_case_id, title=req.title,
+            verdict=req.verdict, dur=req.duration_ms, ps=req.planned_steps, ds=req.device_steps,
+            sv=req.states_visited, et=req.error_type, em=req.error_message[:500], dev=req.device,
+            os=req.os_version, pkg=req.app_package, path=req.path, labels=req.path_labels,
+            internal_tc=internal_tc,
+        )
+    return {"status": "ok", "log_id": log_id}
+
+
+@app.get("/execution/logs")
+def execution_logs(project: str, limit: int = 20, authorization: str | None = Header(default=None)):
+    """Recent execution logs with their walked paths (for the dashboard timeline)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)
+            RETURN e.test_case_id AS test_case_id, e.title AS title, e.verdict AS verdict,
+                   e.duration_ms AS duration_ms, e.device_steps AS device_steps,
+                   e.states_visited AS states_visited, e.error_type AS error_type,
+                   e.path AS path, e.path_labels AS path_labels, e.created_at AS created_at
+            ORDER BY e.created_at DESC LIMIT $limit
+            """,
+            project=project, limit=max(1, min(limit, 100)),
+        )
+        logs = [dict(r) for r in rows]
+    return {"project": project, "logs": logs}
+
+
+@app.get("/liveui/screenshot")
+def liveui_screenshot(project: str, state_id: str, authorization: str | None = Header(default=None)):
+    """Serve a stored state screenshot (referenced by UIState.screenshot_ref)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        row = session.run(
+            "MATCH (s:UIState {id:$id, project:$project}) RETURN s.screenshot_ref AS ref",
+            id=state_id, project=project,
+        ).single()
+    ref = row["ref"] if row else None
+    if not ref:
+        raise HTTPException(status_code=404, detail="No screenshot for this state")
+    fpath = _APPMODEL_DIR.parent / ref
+    if not fpath.exists():
+        raise HTTPException(status_code=404, detail="Screenshot file missing")
+    return FileResponse(str(fpath), media_type="image/png")
 
 
 @app.post("/retrieve")

@@ -131,11 +131,17 @@ Each WP is sized for handoff to a coding agent: goal, mapped ETA-REQ, files to t
 - **Acceptance (302 AC):** re-execution uses stored shortest path (retrievable API); failed paths avoided; tree grows without duplication; path retrieval < 200ms.
 - **Verify:** Run the same test twice; second run's prompt contains the learned path; confirm fewer exploratory steps.
 
-### WP5 — Experiential learning *(ETA-REQ-303.2–303.6)*
-- **Goal:** Error patterns, strategy memory, coverage heatmap, sessions, knowledge decay.
+### WP5 — Experiential learning + Business-Logic Intelligence *(ETA-REQ-303.2–303.6; extended)*
+- **Goal:** Error patterns, strategy memory, coverage heatmap, sessions, knowledge decay — plus a genuinely good, evolving business-logic model from the SRS.
 - **Touch:** `ErrorPattern`, `StrategyMemory`, `CoverageHeatmap`, `Session` nodes; `GET /execution/error-patterns`, `GET /coverage/heatmap`, `POST /session/start|end`, `GET /session/context`; persist `CoverageHeatmap` (replaces ephemeral compute in `planner/coverage.py`); `knowledge_half_life` (default 90d) weighting in retrieval scoring; strategy-effectiveness update when a test finds a defect.
-- **Acceptance (303 AC):** logs queryable; error patterns surfaced in planner; strategy scores bias generation; heatmap drives prioritization; session continuity across calls; decay applied.
-- **Verify:** Across a multi-test session, show coverage heatmap growth and a strategy score changing after a defect-finding test.
+- **Business-Logic Intelligence (folded in here because it is fundamentally the bug-oracle and, like all knowledge here, must evolve over time — the same "freshness/decay" theme as 303.6):**
+  - **Multi-pass extraction** — replace the single `ingestion/extractor.py` LLM call with per-section extraction over the chunked SRS, then a synthesis pass that merges/de-duplicates/resolves cross-references (the "several agent calls" the reviewer asked for). Removes truncation + shallowness on large SRS.
+  - **Self-critique pass** — the agent reviews its own extraction against the source, fills gaps, and flags ambiguities/TODOs (the real Samsung SRS literally defers a threshold "after Q3 research" — surface it as an untestable-yet rule, not silence).
+  - **Confidence + provenance** — every `ValidationRule` links `DERIVED_FROM` the SRS `Chunk` it came from, with a confidence score; low-confidence rules are marked for human review.
+  - **Versioning + drift detection** — re-ingesting creates a new SRS version, diffs rules against the prior version, flags added/changed/removed business rules, and marks the affected `FeatureArea`s for re-testing. This is the "business logic changes over time" requirement.
+  - Fixes today's silent failure mode: extraction falling back to regex → 0 entities with no signal.
+- **Acceptance (303 AC + BLI):** logs queryable; error patterns surfaced; strategy scores bias generation; heatmap drives prioritization; session continuity; decay applied; **SRS extraction is multi-pass with provenance + confidence, and re-ingesting a changed SRS flags drifted rules + affected areas.**
+- **Verify:** Across a multi-test session, show coverage heatmap growth and a strategy score changing after a defect-finding test; re-ingest a lightly edited SRS and confirm the changed rule is flagged and its area marked for re-test.
 
 ### WP6 — Multi-dimensional KG *(ETA-REQ-304; validate on `application` axis first, B9)*
 - **Goal:** Partition + filter by profile/platform/application; cross-dimensional transfer.
