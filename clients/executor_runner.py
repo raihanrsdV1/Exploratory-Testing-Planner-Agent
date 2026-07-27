@@ -24,6 +24,16 @@ from datetime import datetime, timezone
 import requests
 from dotenv import load_dotenv
 
+# ── Force UTF-8 console output ────────────────────────────────────────────────
+# droidrun/mobilerun logs emoji and arrows; the Windows console defaults to
+# cp1252 and raises UnicodeEncodeError on every such line. Reconfiguring the
+# existing stdout/stderr objects in place fixes it for all logging handlers.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 # ── Load .env from project root ──────────────────────────────────────────────
 load_dotenv()
 

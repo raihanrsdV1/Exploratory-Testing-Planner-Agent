@@ -1,6 +1,21 @@
 import os
+import sys
 import requests
+from dotenv import load_dotenv
 
+# ── Force UTF-8 console output ────────────────────────────────────────────────
+# Planner/model output can contain emoji and arrows; the Windows console
+# defaults to cp1252 and raises UnicodeEncodeError on such characters.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+# ── Load .env from project root ──────────────────────────────────────────────
+load_dotenv()
+
+OUTPUT_FILE = os.getenv("SIM_OUTPUT_FILE", "").strip()
 BASE = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
 RAG_URL = os.getenv("RAG_URL", "http://127.0.0.1:9010").rstrip("/")
 PROJECT = os.getenv("PROJECT", "contacts-app")
@@ -179,6 +194,13 @@ def _preflight():
     rag.raise_for_status()
     print("RAG health:", rag.json())
 
+    backend = ((gw_data or {}).get("model") or {}).get("backend", "")
+    if backend != "ngrok":
+        # openrouter/gemini call the cloud API directly; there is no local
+        # model server to health-check.
+        print(f"Model backend: {backend} (cloud API, skipping local /health check)")
+        return
+
     model_api = (gw_data or {}).get("model_api", "")
     if not model_api:
         raise RuntimeError("Gateway health did not return model_api URL")
@@ -245,5 +267,32 @@ def main(rounds: int = 3):
         print("-", t.get("id"), "|", t.get("verdict"), "|", t.get("title"))
 
 
+class _Tee:
+    """Mirror stdout to a file so the full run is saved as well as printed."""
+
+    def __init__(self, stream, fh):
+        self._stream = stream
+        self._fh = fh
+
+    def write(self, data):
+        self._stream.write(data)
+        self._fh.write(data)
+
+    def flush(self):
+        self._stream.flush()
+        self._fh.flush()
+
+
 if __name__ == "__main__":
-    main(rounds=int(os.getenv("SIM_ROUNDS", "3")))
+    rounds = int(os.getenv("SIM_ROUNDS", "3"))
+    if OUTPUT_FILE:
+        os.makedirs(os.path.dirname(os.path.abspath(OUTPUT_FILE)), exist_ok=True)
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as fh:
+            sys.stdout = _Tee(sys.stdout, fh)
+            try:
+                main(rounds=rounds)
+            finally:
+                sys.stdout = sys.stdout._stream
+        print(f"\nSimulator output saved to: {OUTPUT_FILE}")
+    else:
+        main(rounds=rounds)
