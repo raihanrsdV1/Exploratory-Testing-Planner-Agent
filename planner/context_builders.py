@@ -43,13 +43,13 @@ def build_learned_context(
     selected_screens: list[str],
     defect_blocks: list[str],
     nav_blocks: list[str],
-) -> tuple[str, str, str]:
-    """Assemble defect / navigation / failed-path context for the generation prompt.
+) -> tuple[str, str, str, str]:
+    """Assemble defect / navigation / failed-path / strategy context for generation.
 
     Uses whatever the retrieval loop already gathered, and best-effort fills the
     gaps from dedicated endpoints. All app-agnostic — nothing is fetched unless the
     source is available for this project. Returns (defect_context, nav_context,
-    failed_nav)."""
+    failed_nav, strategy_context)."""
     from .sources.navtree import format_path
 
     # Defects (REQ-301.5): prefer gathered blocks, else fetch a focused block.
@@ -86,7 +86,22 @@ def build_learned_context(
         except Exception:
             failed_nav = ""
 
-    return defect_context, nav_context, failed_nav
+    # WP5 (303.3/303.6): bias generation toward strategies that have found defects,
+    # decay-weighted so stale wins fade. Best-effort — empty when none learned yet.
+    strategy_context = ""
+    try:
+        strategies = rag_client.rag_get("/strategy/memory", {"project": project}).get("strategies", [])
+        effective = [s for s in strategies if s.get("decayed_score", 0) > 0][:4]
+        if effective:
+            strategy_context = "\n".join(
+                f"- {s.get('strategy_type','?')} (effectiveness {round(s.get('decayed_score',0),2)}, "
+                f"found defects {s.get('times_effective',0)}/{s.get('times_applied',0)} times)"
+                for s in effective
+            )
+    except Exception:
+        strategy_context = ""
+
+    return defect_context, nav_context, failed_nav, strategy_context
 
 
 def build_figma_overview_context(figma_overview: list[dict]) -> str:

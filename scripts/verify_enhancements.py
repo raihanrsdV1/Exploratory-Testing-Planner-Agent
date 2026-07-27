@@ -9,10 +9,15 @@ Usage:  python scripts/verify_enhancements.py         (RAG_URL defaults to :9010
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+from pathlib import Path
 
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from ingestion import extractor
 
 RAG = os.getenv("RAG_URL", "http://127.0.0.1:9010").rstrip("/")
 PROJECT = os.getenv("VERIFY_PROJECT", "verify-enh")
@@ -172,6 +177,80 @@ def main() -> int:
 
     retr = post("/retrieve", {"project": PROJECT, "query": "save a contact", "top_k": 5, "include_history": False})
     check("retrieval context surfaces defect-prone-area bias", "Defect-prone areas" in retr.get("context", ""), retr.get("context", "")[:80])
+
+    # ── WP5: Business-Logic Intelligence — multi-pass extraction + critique ───
+    print("\nWP5 multi-pass extraction + self-critique (stub model, no tokens)")
+
+    def stub_model(prompt, max_tokens, thinking):
+        if "EXTRACTION UNDER REVIEW" in prompt:  # self-critique pass
+            return {"answer": json.dumps({
+                "confidence": {"FR-1": 0.9, "FR-2": 0.3},
+                "missing": [{"id": "FR-9", "type": "functional",
+                             "text": "Sessions must expire after inactivity", "feature": "security", "priority": "high"}],
+                "open_questions": ["Duplicate-match threshold TBD after Q3 research"],
+            })}
+        return {"answer": json.dumps({  # per-section extraction (same ids each chunk → dedup)
+            "document_title": "Test SRS",
+            "requirements": [
+                {"id": "FR-1", "type": "functional", "text": "Name must not be empty", "feature": "create", "priority": "high"},
+                {"id": "FR-2", "type": "functional", "text": "Phone must be valid", "feature": "create", "priority": "medium"},
+            ],
+            "entities": [{"name": "Contact", "description": "a contact"}],
+            "validation_rules": [{"field": "name", "rule": "name required", "requirement_id": "FR-1"}],
+        })}
+
+    merged = extractor._merge_extractions([
+        extractor._normalize_extraction(json.loads(stub_model("x", 0, False)["answer"])),
+        extractor._normalize_extraction(json.loads(stub_model("x", 0, False)["answer"])),
+    ])
+    check("synthesis pass dedups requirements across sections", len(merged["requirements"]) == 2, str(len(merged["requirements"])))
+
+    ex, src = extractor.extract("3.1 A\nname text\n\n3.2 B\nphone text", model_call=stub_model, multipass=True)
+    check("extraction source is multipass", src == "multipass", src)
+    check("self-critique added a missing requirement (FR-9)", any(r["id"] == "FR-9" for r in ex["requirements"]))
+    fr2 = next((r for r in ex["requirements"] if r["id"] == "FR-2"), {})
+    check("low critique confidence flags needs_review", fr2.get("needs_review") is True, str(fr2.get("confidence")))
+    check("self-critique surfaced an open question", any("TBD" in q or "threshold" in q.lower() for q in ex.get("open_questions", [])))
+
+    fb, fbsrc = extractor.extract("FR-1: The name field shall not be empty.\nTODO: define max length later.", model_call=None)
+    check("rule-based fallback attaches confidence", fb["requirements"] and "confidence" in fb["requirements"][0], str(fb["requirements"][:1]))
+    check("fallback surfaces TODO as open question", any("todo" in q.lower() for q in fb.get("open_questions", [])), str(fb.get("open_questions")))
+
+    # ── WP5: provenance + confidence in the graph, and SRS drift detection ────
+    print("\nWP5 provenance/confidence + SRS versioning & drift")
+
+    def ingest_srs(label, text):
+        extraction, _ = extractor.extract(text, model_call=None)  # rule-based, no tokens
+        return post("/ingest/srs", {"project": PROJECT, "source_path": f"inline://{label}",
+                                    "srs_text": text, "extraction": extraction})
+
+    srs_v1 = ("FR-1: The name field shall not be empty when saving a contact.\n"
+              "FR-2: The phone number must conform to international format.\n")
+    r1 = ingest_srs("v1", srs_v1)
+    check("SRS v1 recorded as version 1", r1.get("srs_version") == 1, str(r1.get("srs_version")))
+    check("v1 is not flagged as a re-ingest", r1.get("areas_flagged_for_retest", 0) == 0)
+
+    blr = get("/business-logic/rules", {"project": PROJECT})
+    check("business-logic rules carry confidence", blr.get("rules") and "confidence" in blr["rules"][0], str(blr.get("count")))
+    check("rules carry needs_review flag", blr.get("rules") and "needs_review" in blr["rules"][0])
+    check("at least one rule has SRS-chunk provenance", any(r.get("provenance_chunk") for r in blr.get("rules", [])), "no provenance (embeddings off?)")
+
+    srs_v2 = ("FR-1: The name field shall not be empty when saving a contact.\n"
+              "FR-2: The phone number must conform to national format only.\n"
+              "FR-3: The email address shall be validated before saving.\n")
+    r2 = ingest_srs("v2", srs_v2)
+    check("re-ingest creates SRS version 2", r2.get("srs_version") == 2, str(r2.get("srs_version")))
+    check("drift detected rule changes on re-ingest", (r2.get("rules_added", 0) + r2.get("rules_removed", 0)) >= 2, str(r2))
+    check("re-ingest flagged areas for re-test", r2.get("areas_flagged_for_retest", 0) >= 1, str(r2.get("areas_flagged_for_retest")))
+
+    drift = get("/srs/drift", {"project": PROJECT})
+    check("drift endpoint reports latest version 2", (drift.get("latest") or {}).get("version") == 2, str(drift.get("total_versions")))
+    check("drift endpoint lists areas needing re-test", len(drift.get("areas_needing_retest", [])) >= 1, str(drift.get("areas_needing_retest")))
+
+    # ── WP5: decay-weighted strategy suggestions ─────────────────────────────
+    print("\nWP5 decay-weighted strategy memory")
+    strat2 = get("/strategy/memory", {"project": PROJECT}).get("strategies", [])
+    check("strategies carry a decay-weighted score", strat2 and "decayed_score" in strat2[0], str(strat2[:1]))
 
     print(f"\n{'='*60}\nRESULT: {_passed} passed, {_failed} failed\n{'='*60}")
     return 1 if _failed else 0

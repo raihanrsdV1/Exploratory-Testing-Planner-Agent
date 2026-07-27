@@ -89,6 +89,7 @@ async def lifespan(_: FastAPI):
         session.run("CREATE CONSTRAINT errpat_id IF NOT EXISTS FOR (e:ErrorPattern) REQUIRE e.id IS UNIQUE")
         session.run("CREATE CONSTRAINT strat_id IF NOT EXISTS FOR (s:StrategyMemory) REQUIRE s.id IS UNIQUE")
         session.run("CREATE CONSTRAINT session_id IF NOT EXISTS FOR (s:Session) REQUIRE s.id IS UNIQUE")
+        session.run("CREATE CONSTRAINT srsver_id IF NOT EXISTS FOR (v:SRSVersion) REQUIRE v.id IS UNIQUE")
         _ensure_vector_indexes(session)
     yield
 
@@ -566,6 +567,18 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
                 """,
                 project=req.project,
             )
+            # SRS version history + drift flags (WP5) are derived from the SRS.
+            session.run(
+                """
+                MATCH (p:Project {name:$project})-[:HAS_SRS_VERSION]->(sv:SRSVersion)
+                DETACH DELETE sv
+                """,
+                project=req.project,
+            )
+            session.run(
+                "MATCH (fa:FeatureArea {project:$project}) REMOVE fa.needs_retest, fa.retest_reason, fa.retest_since",
+                project=req.project,
+            )
             # Entity-graph slice (requirements / rules / entities) is derived from the SRS.
             session.run(
                 """
@@ -719,6 +732,19 @@ def _write_entity_graph(session, project: str, extraction: dict | None, now: str
     if not extraction or not isinstance(extraction, dict):
         return {"requirements_written": 0, "entities_written": 0, "validation_rules_written": 0}
 
+    # WP5 drift detection: snapshot the CURRENT rules before we replace them, so a
+    # re-ingest can diff added/changed/removed business rules and flag areas.
+    old_rules = [
+        (str(r["feature"] or ""), _slug(str(r["rule"] or ""))[:80], str(r["rule"] or ""))
+        for r in session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(req:Requirement)-[:HAS_RULE]->(v:ValidationRule)
+            RETURN req.feature AS feature, v.rule AS rule
+            """,
+            project=project,
+        )
+    ]
+
     # Wipe previous entity-graph slice for this project (keep feature areas — shared with figma/tests).
     session.run(
         """
@@ -745,6 +771,11 @@ def _write_entity_graph(session, project: str, extraction: dict | None, now: str
         ref_id = str(r.get("id", "") or f"R{i+1}")
         req_uid = f"{project}::req::{ref_id}"
         feature = ui_normalizer.slug(r.get("feature") or "general")
+        try:
+            confidence = float(r.get("confidence", 0.75))
+        except (TypeError, ValueError):
+            confidence = 0.75
+        needs_review = bool(r.get("needs_review", confidence < 0.6))
         session.run(
             """
             MATCH (p:Project {name:$project})
@@ -754,6 +785,7 @@ def _write_entity_graph(session, project: str, extraction: dict | None, now: str
                 req.priority = $priority, req.feature = $feature,
                 req.objects = $objects, req.constraints = $constraints,
                 req.acceptance = $acceptance, req.embedding = $embedding,
+                req.confidence = $confidence, req.needs_review = $needs_review,
                 req.updated_at = $now
             MERGE (p)-[:HAS_REQUIREMENT]->(req)
             MERGE (fa:FeatureArea {key:$feature_key})
@@ -767,9 +799,27 @@ def _write_entity_graph(session, project: str, extraction: dict | None, now: str
             priority=str(r.get("priority", "medium")), feature=feature,
             objects=r.get("objects", []) or [], constraints=r.get("constraints", []) or [],
             acceptance=r.get("acceptance", []) or [], embedding=req_vecs[i],
+            confidence=confidence, needs_review=needs_review,
             feature_key=f"{project}::{feature}", feature_label=feature.replace("_", " "),
             now=now,
         )
+
+        # WP5 provenance: link the requirement to the SRS chunk it derives from.
+        if req_vecs[i]:
+            try:
+                session.run(
+                    """
+                    MATCH (req:Requirement {id:$req_uid})
+                    CALL db.index.vector.queryNodes('chunk_embedding', 1, $vec)
+                    YIELD node, score
+                    WITH req, node, score WHERE node.project = $project AND score >= 0.6
+                    MERGE (req)-[d:DERIVED_FROM]->(node)
+                    SET d.score = score
+                    """,
+                    req_uid=req_uid, vec=req_vecs[i], project=project,
+                )
+            except Exception:
+                pass  # no vector index / older Neo4j
 
         # Link requirement to its domain objects as Entity nodes.
         for obj in (r.get("objects", []) or []):
@@ -811,27 +861,91 @@ def _write_entity_graph(session, project: str, extraction: dict | None, now: str
             continue
         owner_ref = str(v.get("requirement_id", "")).strip()
         owner_uid = f"{project}::req::{owner_ref}" if owner_ref else None
+        try:
+            rconf = float(v.get("confidence", 0.75))
+        except (TypeError, ValueError):
+            rconf = 0.75
         session.run(
             """
             MATCH (p:Project {name:$project})
             MERGE (vr:ValidationRule {id:$vr_id})
-            SET vr.project = $project, vr.field = $field, vr.rule = $rule, vr.updated_at = $now
+            SET vr.project = $project, vr.field = $field, vr.rule = $rule,
+                vr.confidence = $confidence, vr.needs_review = $needs_review, vr.updated_at = $now
             WITH vr
             OPTIONAL MATCH (owner:Requirement {id:$owner_uid})
             FOREACH (_ IN CASE WHEN owner IS NULL THEN [] ELSE [1] END |
                 MERGE (owner)-[:HAS_RULE]->(vr)
             )
+            // WP5 provenance: the rule derives from the same SRS chunk as its requirement.
+            WITH vr
+            OPTIONAL MATCH (owner:Requirement {id:$owner_uid})-[:DERIVED_FROM]->(c:Chunk)
+            FOREACH (_ IN CASE WHEN c IS NULL THEN [] ELSE [1] END |
+                MERGE (vr)-[:DERIVED_FROM]->(c)
+            )
             """,
             project=project, vr_id=f"{project}::vrule::{j}",
-            field=str(v.get("field", "")), rule=rule_text, owner_uid=owner_uid, now=now,
+            field=str(v.get("field", "")), rule=rule_text, owner_uid=owner_uid,
+            confidence=rconf, needs_review=bool(v.get("needs_review", rconf < 0.6)), now=now,
         )
         rules_written += 1
+
+    # ── WP5 versioning + drift detection ─────────────────────────────────────
+    feature_by_ref = {str(r.get("id", "")): ui_normalizer.slug(r.get("feature") or "general") for r in requirements}
+    new_rules = [
+        (feature_by_ref.get(str(v.get("requirement_id", "")), ""), _slug(str(v.get("rule", "")))[:80], str(v.get("rule", "")))
+        for v in rules if str(v.get("rule", "")).strip()
+    ]
+    old_set = {(f, k) for (f, k, _t) in old_rules}
+    new_set = {(f, k) for (f, k, _t) in new_rules}
+    added = [t for (f, k, t) in new_rules if (f, k) not in old_set]
+    removed = [t for (f, k, t) in old_rules if (f, k) not in new_set]
+    changed_features = sorted(
+        {f for (f, k, _t) in new_rules if (f, k) not in old_set and f}
+        | {f for (f, k, _t) in old_rules if (f, k) not in new_set and f}
+    )
+    is_reingest = len(old_rules) > 0
+
+    vrow = session.run(
+        "MATCH (p:Project {name:$project})-[:HAS_SRS_VERSION]->(sv:SRSVersion) RETURN count(sv) AS c",
+        project=project,
+    ).single()
+    version = ((vrow["c"] if vrow else 0) or 0) + 1
+    session.run(
+        """
+        MATCH (p:Project {name:$project})
+        CREATE (sv:SRSVersion {id:$id})
+        SET sv.project=$project, sv.version=$version, sv.created_at=$now,
+            sv.rules_added=$added_count, sv.rules_removed=$removed_count,
+            sv.added_rules=$added, sv.removed_rules=$removed, sv.changed_features=$features,
+            sv.open_questions=$oq, sv.is_reingest=$reingest
+        MERGE (p)-[:HAS_SRS_VERSION]->(sv)
+        """,
+        project=project, id=f"{project}::srsver::{version}", version=version, now=now,
+        added_count=len(added), removed_count=len(removed),
+        added=added[:50], removed=removed[:50], features=changed_features,
+        oq=(extraction.get("open_questions", []) or [])[:30], reingest=is_reingest,
+    )
+    # Only flag areas for re-test on a genuine re-ingest (not the first load).
+    if is_reingest and changed_features:
+        for f in changed_features:
+            session.run(
+                """
+                MATCH (fa:FeatureArea {key:$key})
+                SET fa.needs_retest=true, fa.retest_reason=$reason, fa.retest_since=$now
+                """,
+                key=f"{project}::{f}", reason=f"business-rule drift in SRS v{version}", now=now,
+            )
 
     return {
         "requirements_written": len(requirements),
         "entities_written": len({ui_normalizer.slug(str(e.get('name', '') if isinstance(e, dict) else e)) for e in entities} | {ui_normalizer.slug(str(o)) for r in requirements for o in (r.get('objects', []) or [])}),
         "validation_rules_written": rules_written,
         "requirements_embedded": sum(1 for v in req_vecs if v is not None),
+        "srs_version": version,
+        "rules_added": len(added),
+        "rules_removed": len(removed),
+        "areas_flagged_for_retest": len(changed_features) if is_reingest else 0,
+        "open_questions": len(extraction.get("open_questions", []) or []),
     }
 
 
@@ -1901,6 +2015,72 @@ def defects_context(project: str, query: str = "", area: str = "", top_k: int = 
     _check_auth(authorization)
     with driver.session() as session:
         return {"project": project, "context": defects_mod.retrieve_defect_context(session, project, query, area, top_k)}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# WP5 — Business-Logic Intelligence: rule provenance/confidence + SRS drift
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.get("/business-logic/rules")
+def business_logic_rules(project: str, needs_review: bool = False,
+                         authorization: str | None = Header(default=None)):
+    """Validation rules with confidence + provenance (source chunk). Set
+    needs_review=true to return only low-confidence rules flagged for human review."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(req:Requirement)-[:HAS_RULE]->(vr:ValidationRule)
+            WHERE ($needs_review = false) OR (coalesce(vr.needs_review,false) = true)
+            OPTIONAL MATCH (vr)-[:DERIVED_FROM]->(c:Chunk)
+            RETURN req.ref_id AS requirement_id, req.feature AS feature, vr.rule AS rule,
+                   coalesce(vr.confidence, 0.75) AS confidence,
+                   coalesce(vr.needs_review, false) AS needs_review,
+                   c.id AS provenance_chunk, left(c.text, 160) AS provenance_text
+            ORDER BY confidence ASC
+            """,
+            project=project, needs_review=needs_review,
+        )
+        rules = [dict(r) for r in rows]
+    return {"project": project, "count": len(rules), "rules": rules}
+
+
+@app.get("/srs/drift")
+def srs_drift(project: str, authorization: str | None = Header(default=None)):
+    """Latest SRS version diff: added/changed/removed business rules + flagged areas (WP5)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        latest = session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_SRS_VERSION]->(sv:SRSVersion)
+            RETURN sv.version AS version, sv.created_at AS created_at, sv.is_reingest AS is_reingest,
+                   sv.rules_added AS rules_added, sv.rules_removed AS rules_removed,
+                   sv.added_rules AS added_rules, sv.removed_rules AS removed_rules,
+                   sv.changed_features AS changed_features, sv.open_questions AS open_questions
+            ORDER BY sv.version DESC LIMIT 1
+            """,
+            project=project,
+        ).single()
+        flagged = [
+            dict(r) for r in session.run(
+                """
+                MATCH (p:Project {name:$project})-[:HAS_FEATURE]->(fa:FeatureArea)
+                WHERE coalesce(fa.needs_retest,false) = true
+                RETURN fa.label AS area, fa.retest_reason AS reason, fa.retest_since AS since
+                """,
+                project=project,
+            )
+        ]
+        version_count = session.run(
+            "MATCH (p:Project {name:$project})-[:HAS_SRS_VERSION]->(sv:SRSVersion) RETURN count(sv) AS c",
+            project=project,
+        ).single()
+    return {
+        "project": project,
+        "total_versions": (version_count["c"] if version_count else 0) or 0,
+        "latest": dict(latest) if latest else None,
+        "areas_needing_retest": flagged,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────

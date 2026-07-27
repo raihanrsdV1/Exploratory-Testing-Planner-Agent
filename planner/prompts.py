@@ -210,6 +210,7 @@ def build_testcase_prompt(
     defect_context: str = "",
     nav_context: str = "",
     failed_nav: str = "",
+    strategy_context: str = "",
 ) -> str:
     cmap = coverage_map or {}
     rtests = recent_tests or []
@@ -296,6 +297,16 @@ def build_testcase_prompt(
             "## Known Failed Navigation Paths",
             "(These navigation steps have repeatedly failed — do NOT rely on them.)",
             failed_nav,
+            "",
+        ]
+
+    # WP5 (REQ-303.3) — bias toward test strategies that have historically found defects.
+    if strategy_context:
+        parts += [
+            "## Strategy Suggestions",
+            "(These exploratory strategies have found the most defects on this app — prefer one "
+            "of them for this test, and set 'test_type' accordingly.)",
+            strategy_context,
             "",
         ]
 

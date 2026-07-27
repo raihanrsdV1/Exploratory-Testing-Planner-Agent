@@ -119,17 +119,24 @@ def record_strategy(session, project, strategy_type, effective: bool, now) -> di
 
 
 def top_strategies(session, project, limit: int = 8) -> list[dict]:
+    """Strategies ranked by decay-weighted effectiveness (REQ-303.6: stale wins fade)."""
     rows = session.run(
         """
         MATCH (s:StrategyMemory {project:$project})
         RETURN s.strategy_type AS strategy_type, coalesce(s.effectiveness_score,0.0) AS effectiveness_score,
-               coalesce(s.times_applied,0) AS times_applied, coalesce(s.times_effective,0) AS times_effective
-        ORDER BY effectiveness_score DESC, times_effective DESC
-        LIMIT $limit
+               coalesce(s.times_applied,0) AS times_applied, coalesce(s.times_effective,0) AS times_effective,
+               s.updated_at AS updated_at
         """,
-        project=project, limit=limit,
+        project=project,
     )
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        w = decay_weight(d.pop("updated_at", "") or "")
+        d["decayed_score"] = round(d["effectiveness_score"] * w, 4)
+        out.append(d)
+    out.sort(key=lambda x: (x["decayed_score"], x["times_effective"]), reverse=True)
+    return out[:limit]
 
 
 # ── Coverage heatmap (REQ-303.4) ─────────────────────────────────────────────
