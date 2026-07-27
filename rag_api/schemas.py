@@ -88,8 +88,9 @@ class ExecutionLogRequest(BaseModel):
     planned_steps: int = 0
     device_steps: int = 0
     states_visited: int = 0
-    error_type: str = ""
+    error_type: str = ""       # WP7: classified failure category (NAVIGATION_FAILURE, ...)
     error_message: str = ""
+    recovery_action: str = ""  # WP7: self-healing recovery attempted + its outcome
     device: str = ""
     os_version: str = ""
     app_package: str = ""

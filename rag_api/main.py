@@ -23,6 +23,7 @@ from . import defects as defects_mod
 from . import navtree as navtree_mod
 from . import learning as learning_mod
 from . import dimensions as dimensions_mod
+from . import risk as risk_mod
 from ingestion import ui_normalizer, app_state, defect_loader
 
 # `or default` (not just getenv default) so an empty value in .env doesn't crash startup.
@@ -1941,7 +1942,8 @@ def execution_log(req: ExecutionLogRequest, authorization: str | None = Header(d
             CREATE (e:ExecutionLog {id:$id})
             SET e.project=$project, e.test_case_id=$tcid, e.title=$title, e.verdict=$verdict,
                 e.duration_ms=$dur, e.planned_steps=$ps, e.device_steps=$ds, e.states_visited=$sv,
-                e.error_type=$et, e.error_message=$em, e.device=$dev, e.os_version=$os,
+                e.error_type=$et, e.error_message=$em, e.recovery_action=$recovery,
+                e.device=$dev, e.os_version=$os,
                 e.app_package=$pkg, e.path=$path, e.path_labels=$labels, e.created_at=$now
             MERGE (p)-[:HAS_EXECUTION_LOG]->(e)
             WITH e
@@ -1950,7 +1952,8 @@ def execution_log(req: ExecutionLogRequest, authorization: str | None = Header(d
             """,
             project=req.project, id=log_id, now=now, tcid=req.test_case_id, title=req.title,
             verdict=req.verdict, dur=req.duration_ms, ps=req.planned_steps, ds=req.device_steps,
-            sv=req.states_visited, et=req.error_type, em=req.error_message[:500], dev=req.device,
+            sv=req.states_visited, et=req.error_type, em=req.error_message[:500],
+            recovery=req.recovery_action[:300], dev=req.device,
             os=req.os_version, pkg=req.app_package, path=req.path, labels=req.path_labels,
             internal_tc=internal_tc,
         )
@@ -1988,6 +1991,7 @@ def execution_logs(project: str, limit: int = 20, authorization: str | None = He
             RETURN e.test_case_id AS test_case_id, e.title AS title, e.verdict AS verdict,
                    e.duration_ms AS duration_ms, e.device_steps AS device_steps,
                    e.states_visited AS states_visited, e.error_type AS error_type,
+                   e.recovery_action AS recovery_action,
                    e.path AS path, e.path_labels AS path_labels, e.created_at AS created_at
             ORDER BY e.created_at DESC LIMIT $limit
             """,
@@ -2137,6 +2141,20 @@ def dimensions_list(project: str, authorization: str | None = Header(default=Non
     _check_auth(authorization)
     with driver.session() as session:
         return dimensions_mod.list_dimensions(session, project)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# WP7 — Regression risk scoring (ETA-REQ-306)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.get("/risk/scores")
+def risk_scores(project: str, authorization: str | None = Header(default=None)):
+    """Compute + persist + return regression risk per feature area (306.1/306.3)."""
+    _check_auth(authorization)
+    now = _utc_now()
+    with driver.session() as session:
+        scored = risk_mod.compute_risk_scores(session, project, now)
+    return {"project": project, "risk_scores": scored}
 
 
 @app.get("/dimensions/transfer-suggestions")

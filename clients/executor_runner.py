@@ -53,6 +53,8 @@ EXECUTOR_LLM_MODEL = os.getenv("EXECUTOR_LLM_MODEL", "gemini-2.5-pro")
 EXECUTOR_TIMEOUT = int(os.getenv("EXECUTOR_TIMEOUT", "120"))
 EXECUTOR_ROUNDS = int(os.getenv("EXECUTOR_ROUNDS", "2"))
 EXECUTOR_MAX_STEPS = int(os.getenv("EXECUTOR_MAX_STEPS", "30"))
+# WP7 self-healing: attempt one adaptive recovery on a recoverable failure.
+SELF_HEAL = os.getenv("SELF_HEAL", "1").strip().lower() not in {"0", "false", "no"}
 TARGET_APP_PACKAGE = os.getenv("TARGET_APP_PACKAGE", "com.android.contacts")
 
 # ── Logtail / Better Stack live logging ──────────────────────────────────────
