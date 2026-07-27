@@ -320,6 +320,31 @@ def defect_summary_lite(session, project) -> dict:
     }
 
 
+def feature_density_map(session, project) -> dict:
+    """{feature_slug: defect_density 0..1} for defect-weighted retrieval (REQ-301.3).
+
+    Keyed by the FeatureArea slug (the tail of its key) so it lines up with a
+    Requirement's ``feature`` slug."""
+    rows = session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_FEATURE]->(fa:FeatureArea)
+        WHERE coalesce(fa.defect_density,0.0) > 0
+        RETURN fa.key AS key, fa.defect_density AS density
+        """,
+        project=project,
+    )
+    return {str(r["key"]).split("::")[-1]: float(r["density"]) for r in rows}
+
+
+def prone_areas_hint(session, project, top: int = 5) -> str:
+    """One-line retrieval bias toward the hottest defect areas (REQ-301.3)."""
+    areas = prone_areas(session, project, limit=top)
+    if not areas:
+        return ""
+    names = ", ".join(f"{a['area']} (density={round(a.get('density',0.0),2)})" for a in areas)
+    return f"Defect-prone areas — prioritise retrieving/testing these first: {names}"
+
+
 def retrieve_defect_context(session, project, query: str, area: str, top_k: int = 6) -> str:
     """Formatted defect context block for the planner's DefectSource (REQ-301.5)."""
     rows = session.run(

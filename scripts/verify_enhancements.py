@@ -158,6 +158,21 @@ def main() -> int:
     check("brief exposes navtree_node_count", brief.get("navtree_node_count", 0) >= 3, str(brief.get("navtree_node_count")))
     check("brief carries defect_summary text", bool(brief.get("defect_summary")))
 
+    # ── WP1: Live App Model knowledge-decay (recency weighting) ───────────────
+    print("\nWP1 Live App Model decay")
+    am = get("/appmodel/graph", {"project": PROJECT})
+    nodes = am.get("nodes", [])
+    check("appmodel nodes carry a recency_weight", nodes and "recency_weight" in nodes[0], str(nodes[:1]))
+    check("freshly-observed states are not stale", am.get("stale_states") == 0, str(am.get("stale_states")))
+
+    # ── WP2: sample defect file + defect-weighted retrieval ───────────────────
+    print("\nWP2 sample defects + defect-weighted /retrieve")
+    ingf = post("/ingest/defects", {"project": PROJECT, "source_path": "./data/inputs/defects_sample.json"})
+    check("sample defect file ingested (6 defects)", ingf.get("defects_written") == 6, str(ingf.get("defects_written")))
+
+    retr = post("/retrieve", {"project": PROJECT, "query": "save a contact", "top_k": 5, "include_history": False})
+    check("retrieval context surfaces defect-prone-area bias", "Defect-prone areas" in retr.get("context", ""), retr.get("context", "")[:80])
+
     print(f"\n{'='*60}\nRESULT: {_passed} passed, {_failed} failed\n{'='*60}")
     return 1 if _failed else 0
 

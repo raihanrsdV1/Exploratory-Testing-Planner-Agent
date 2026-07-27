@@ -1758,7 +1758,7 @@ def appmodel_graph(project: str, authorization: str | None = Header(default=None
             MATCH (p:Project {name:$project})-[:HAS_STATE]->(s:UIState)
             RETURN s.id AS id, s.label AS label, s.activity AS activity,
                    s.visit_count AS visits, s.has_dialog AS has_dialog,
-                   s.element_count AS elements,
+                   s.element_count AS elements, s.last_seen AS last_seen,
                    (s.screenshot_ref IS NOT NULL) AS has_shot
             ORDER BY s.visit_count DESC
             """, project=project)]
@@ -1767,7 +1767,17 @@ def appmodel_graph(project: str, authorization: str | None = Header(default=None
             MATCH (p:Project {name:$project})-[:HAS_STATE]->(a:UIState)-[e:TRANSITIONS_TO]->(b:UIState)
             RETURN a.id AS source, b.id AS target, e.action AS action, e.visit_count AS visits
             """, project=project)]
-    return {"project": project, "state_count": len(nodes), "nodes": nodes, "edges": edges}
+    # WP1 knowledge-decay (B4/303.6): weight each state by recency so states that
+    # vanished after an app update fade out. Computed on read — no stale nodes.
+    stale = 0
+    for n in nodes:
+        w = learning_mod.decay_weight(n.pop("last_seen", "") or "")
+        n["recency_weight"] = round(w, 4)
+        n["stale"] = w < 0.5
+        if n["stale"]:
+            stale += 1
+    return {"project": project, "state_count": len(nodes), "stale_states": stale,
+            "nodes": nodes, "edges": edges}
 
 
 @app.post("/execution/log")
@@ -2049,6 +2059,16 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
             )
             recent_tests = [dict(r) for r in test_rows]
 
+        # REQ-301.3: defect-weighted retrieval — rank requirements in historically
+        # fragile areas higher, and surface the prone-area bias in the context.
+        density = defects_mod.feature_density_map(session, req.project)
+        prone_hint = defects_mod.prone_areas_hint(session, req.project) if density else ""
+
+    if density and req_hits:
+        for r in req_hits:
+            r["defect_density"] = density.get(str(r.get("feature") or ""), 0.0)
+        req_hits.sort(key=lambda r: r.get("defect_density", 0.0), reverse=True)
+
     history_lines = [
         f"- [{t.get('verdict','unknown')}] {t.get('id','')}: {t.get('title','')}"
         + (f" | notes: {t.get('notes','')}" if t.get("notes") else "")
@@ -2063,6 +2083,8 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
         requirement_lines.append(line)
 
     context_parts = []
+    if prone_hint:
+        context_parts.append(prone_hint)
     if srs_chunks:
         context_parts.append("SRS requirements:\n" + "\n\n".join(srs_chunks))
     if requirement_lines:

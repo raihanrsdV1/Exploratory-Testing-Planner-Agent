@@ -1,0 +1,80 @@
+{
+  "defects": [
+    {
+      "id": "BUG-101",
+      "title": "App crashes when saving a contact with an empty name",
+      "description": "Tapping Save on the Create Contact screen with the name field blank crashes the app instead of showing a validation error.",
+      "severity": "critical",
+      "status": "open",
+      "area": "create_contact",
+      "root_cause_category": "input_validation",
+      "frequency": 7,
+      "first_seen": "2026-01-12",
+      "last_seen": "2026-06-20",
+      "affected_screen": "Create Contact",
+      "requirement_ids": ["FR-2"]
+    },
+    {
+      "id": "BUG-102",
+      "title": "Saving a contact with only a phone number bypasses name validation",
+      "description": "A contact with no name but a phone number is saved silently; the name-required rule is not enforced.",
+      "severity": "high",
+      "status": "open",
+      "area": "create_contact",
+      "root_cause_category": "input_validation",
+      "frequency": 4,
+      "first_seen": "2026-02-01",
+      "last_seen": "2026-06-18",
+      "affected_screen": "Create Contact"
+    },
+    {
+      "id": "BUG-103",
+      "title": "Duplicate contact detection misses case-insensitive name matches",
+      "description": "Adding 'john doe' when 'John Doe' exists does not trigger the duplicate merge prompt.",
+      "severity": "medium",
+      "status": "open",
+      "area": "duplicate_detection",
+      "root_cause_category": "logic_error",
+      "frequency": 3,
+      "first_seen": "2026-03-05",
+      "last_seen": "2026-05-30"
+    },
+    {
+      "id": "BUG-104",
+      "title": "Search does not update in real time while typing",
+      "description": "Results only refresh after the search field loses focus, violating the real-time search requirement.",
+      "severity": "medium",
+      "status": "closed",
+      "area": "search",
+      "root_cause_category": "logic_error",
+      "frequency": 2,
+      "first_seen": "2026-01-20",
+      "last_seen": "2026-04-10",
+      "resolution": "Fixed in 1.0.3 — debounced onChange listener added."
+    },
+    {
+      "id": "BUG-105",
+      "title": "Cloud sync silently fails on flaky networks with no retry",
+      "description": "When connectivity drops mid-sync the operation aborts without an error or automatic retry, risking data loss.",
+      "severity": "high",
+      "status": "open",
+      "area": "data_sync",
+      "root_cause_category": "error_handling",
+      "frequency": 5,
+      "first_seen": "2026-02-14",
+      "last_seen": "2026-06-25"
+    },
+    {
+      "id": "BUG-106",
+      "title": "Export to CSV drops the contact photo reference",
+      "description": "CSV export omits the photo file reference field even when the contact has a photo.",
+      "severity": "low",
+      "status": "open",
+      "area": "data_export",
+      "root_cause_category": "data_mapping",
+      "frequency": 1,
+      "first_seen": "2026-04-02",
+      "last_seen": "2026-04-02"
+    }
+  ]
+}

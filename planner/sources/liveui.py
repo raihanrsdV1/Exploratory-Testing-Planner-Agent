@@ -26,6 +26,11 @@ class LiveUISource(KnowledgeSource):
             return None
         nodes = data.get("nodes", []) or []
         edges = data.get("edges", []) or []
+        # WP1 decay: ignore states that have faded out (stale after an app update),
+        # unless every known state is stale (then keep them so we still have a map).
+        fresh = [n for n in nodes if not n.get("stale")]
+        if fresh:
+            nodes = fresh
         if not nodes:
             return None
 
