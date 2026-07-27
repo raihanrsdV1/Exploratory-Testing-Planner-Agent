@@ -36,6 +36,59 @@ def build_figma_context(project: str, screen_names: list[str]) -> str:
     return "\n".join(lines)
 
 
+def build_learned_context(
+    project: str,
+    available_names: set,
+    objective: str,
+    selected_screens: list[str],
+    defect_blocks: list[str],
+    nav_blocks: list[str],
+) -> tuple[str, str, str]:
+    """Assemble defect / navigation / failed-path context for the generation prompt.
+
+    Uses whatever the retrieval loop already gathered, and best-effort fills the
+    gaps from dedicated endpoints. All app-agnostic — nothing is fetched unless the
+    source is available for this project. Returns (defect_context, nav_context,
+    failed_nav)."""
+    from .sources.navtree import format_path
+
+    # Defects (REQ-301.5): prefer gathered blocks, else fetch a focused block.
+    defect_context = "\n\n".join(dict.fromkeys(defect_blocks))[:2000]
+    if not defect_context and "defects" in available_names:
+        try:
+            data = rag_client.rag_get("/defects/context", {"project": project, "query": objective, "top_k": 6})
+            defect_context = (data.get("context") or "")[:2000]
+        except Exception:
+            defect_context = ""
+
+    # Learned navigation path (REQ-302.4) to the screen(s) the planner is targeting.
+    nav_context = "\n\n".join(dict.fromkeys(nav_blocks))[:1500]
+    failed_nav = ""
+    if "navtree" in available_names:
+        if not nav_context:
+            for screen in (selected_screens or [])[:1]:
+                try:
+                    data = rag_client.rag_get("/navtree/retrieve-path", {"project": project, "screen": screen})
+                    steps = data.get("steps", []) or []
+                    if steps:
+                        nav_context = f"Proven shortest path to '{screen}':\n{format_path(steps)}"
+                        break
+                except Exception:
+                    pass
+        try:
+            fp = rag_client.rag_get("/navtree/failed-paths", {"project": project, "limit": 8}).get("failed_paths", [])
+            if fp:
+                failed_nav = "\n".join(
+                    f"- avoid: {s.get('action','?')} → '{s.get('screen','?')}' "
+                    f"({s.get('success_count',0)}/{s.get('visit_count',0)} succeeded)"
+                    for s in fp
+                )
+        except Exception:
+            failed_nav = ""
+
+    return defect_context, nav_context, failed_nav
+
+
 def build_figma_overview_context(figma_overview: list[dict]) -> str:
     if not figma_overview:
         return ""

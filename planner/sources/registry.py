@@ -10,13 +10,18 @@ of importing it and appending it to ``_SOURCES``.
 from __future__ import annotations
 
 from .base import KnowledgeSource, RetrievalRequest, RetrievedBlock
+from .defects import DefectSource
 from .figma_flow import FigmaFlowSource
 from .figma_ui import FigmaUISource
 from .liveui import LiveUISource
+from .navtree import NavTreeSource
 from .srs import SRSSource
 
 # Order = the order the retrieval planner sees sources advertised in.
-_SOURCES: list[KnowledgeSource] = [SRSSource(), FigmaUISource(), FigmaFlowSource(), LiveUISource()]
+_SOURCES: list[KnowledgeSource] = [
+    SRSSource(), FigmaUISource(), FigmaFlowSource(), LiveUISource(),
+    DefectSource(), NavTreeSource(),
+]
 
 
 def all_sources() -> list[KnowledgeSource]:

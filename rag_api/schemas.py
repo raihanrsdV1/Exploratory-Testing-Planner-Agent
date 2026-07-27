@@ -42,6 +42,8 @@ class LogTestRequest(BaseModel):
     area: str = "general"
     # Original requirement refs (e.g. ["FR-5","FR-7"]) this test covers -> COVERS edges.
     requirement_ids: list[str] = Field(default_factory=list)
+    # Exploratory heuristic used (boundary/negative/state_transition/...) -> StrategyMemory.
+    test_type: str = ""
 
 
 class ResetProjectRequest(BaseModel):
@@ -86,6 +88,38 @@ class ExecutionLogRequest(BaseModel):
     app_package: str = ""
     path: list[str] = Field(default_factory=list)         # ordered UIState ids visited
     path_labels: list[str] = Field(default_factory=list)  # ordered state labels
+
+
+class IngestDefectsRequest(BaseModel):
+    """Defect-history ingestion (ETA-REQ-301.1). Accepts a file path, inline text
+    (JSON/CSV), or a pre-parsed list of defect dicts."""
+    project: str = Field(..., min_length=1)
+    source_path: str | None = None
+    raw_text: str | None = None
+    defects: list[dict] | None = None
+
+
+class NavRecordPathRequest(BaseModel):
+    """Record a navigation path through the app model (ETA-REQ-302.2)."""
+    project: str = Field(..., min_length=1)
+    test_case_id: str = ""
+    title: str = ""
+    verdict: str = "pass"
+    path: list[str] = Field(default_factory=list)         # ordered UIState ids
+    path_labels: list[str] = Field(default_factory=list)  # ordered state labels
+    actions: list[str] = Field(default_factory=list)      # action taken to reach each step
+
+
+class SessionStartRequest(BaseModel):
+    """Start an exploratory testing session (ETA-REQ-303.5)."""
+    project: str = Field(..., min_length=1)
+    focus_area: str = ""
+    strategy: str = ""
+
+
+class SessionEndRequest(BaseModel):
+    project: str = Field(..., min_length=1)
+    session_id: str = ""
 
 
 class SeedDemoTestsRequest(BaseModel):

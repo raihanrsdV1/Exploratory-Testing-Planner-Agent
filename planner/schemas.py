@@ -123,6 +123,31 @@ class IngestFigmaRequest(BaseModel):
     use_model_classification: bool = Field(default=True, description="Use the LLM to classify each screen into a feature-area purpose (dynamic, app-agnostic) instead of relying on the screen name slug. Falls back to the name-derived slug if the model is unavailable.")
 
 
+class IngestDefectsRequest(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "project": "my-app",
+        "source_path": "./data/inputs/defects.json",
+    }})
+
+    project: str = Field(..., min_length=1, description="Project identifier. Created automatically if it does not exist.")
+    source_path: str | None = Field(default=None, description="Local path to a defect export (JSON array/object or CSV). Path traversal ('..') is rejected.")
+    raw_text: str | None = Field(default=None, description="Inline defect data (JSON or CSV). If provided, `source_path` is not read.")
+    defects: list[dict] | None = Field(default=None, description="Pre-parsed list of defect dicts (bypasses the loader).")
+
+
+class SessionStartRequest(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"example": {"project": "my-app", "focus_area": "", "strategy": ""}})
+    project: str = Field(..., min_length=1, description="Project identifier.")
+    focus_area: str = Field(default="", description="Optional feature area to focus the session on.")
+    strategy: str = Field(default="", description="Optional exploration strategy label for the session.")
+
+
+class SessionEndRequest(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"example": {"project": "my-app", "session_id": ""}})
+    project: str = Field(..., min_length=1, description="Project identifier.")
+    session_id: str = Field(default="", description="Session id to end. Blank ends the current active session.")
+
+
 class ResetProjectRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
         "project": "my-app",

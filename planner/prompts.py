@@ -207,6 +207,9 @@ def build_testcase_prompt(
     failed_titles: list[str],
     coverage_map: dict | None = None,
     recent_tests: list[dict] | None = None,
+    defect_context: str = "",
+    nav_context: str = "",
+    failed_nav: str = "",
 ) -> str:
     cmap = coverage_map or {}
     rtests = recent_tests or []
@@ -266,6 +269,35 @@ def build_testcase_prompt(
         ]
     if figma_flow_context:
         parts += ["## Screen Navigation Transitions", figma_flow_context, ""]
+
+    # ETA-REQ-301.5 — historical defects steer generation toward fragile areas.
+    if defect_context:
+        parts += [
+            "## Defect History Context",
+            "(These areas/behaviours have broken before — prioritise a test that probes one of them "
+            "or an adjacent variant. Set 'area' to the defect-prone area when it fits the objective.)",
+            defect_context,
+            "",
+        ]
+
+    # ETA-REQ-302.4 — proven shortest navigation path (follow it, don't re-explore).
+    if nav_context:
+        parts += [
+            "## Learned Navigation Path",
+            "(A previously-proven shortest route. Reuse these exact steps to reach the screen instead "
+            "of guessing navigation.)",
+            nav_context,
+            "",
+        ]
+
+    # ETA-REQ-302.6 — known dead ends to avoid.
+    if failed_nav:
+        parts += [
+            "## Known Failed Navigation Paths",
+            "(These navigation steps have repeatedly failed — do NOT rely on them.)",
+            failed_nav,
+            "",
+        ]
 
     history_block = "\n".join(f"- {t}" for t in done_titles[:40]) or "- none"
     failed_block = "\n".join(f"- {t}" for t in failed_titles[:20]) or "- none"

@@ -170,6 +170,31 @@ def reset_project(req: ResetProjectRequest, authorization: str | None) -> dict:
     return rag_client.rag_post("/project/reset", req.model_dump())
 
 
+def ingest_defects(req, authorization: str | None) -> dict:
+    """Proxy defect-history ingestion to the RAG API (ETA-REQ-301.1)."""
+    config.check_gateway_auth(authorization)
+    if req.source_path and any(part == ".." for part in Path(req.source_path).parts):
+        raise HTTPException(status_code=400, detail="Path traversal not allowed in source_path")
+    out = rag_client.rag_post("/ingest/defects", req.model_dump())
+    log.info("defects_ingested", project=req.project, defects=out.get("defects_written", 0))
+    return out
+
+
+def session_start(req, authorization: str | None) -> dict:
+    config.check_gateway_auth(authorization)
+    return rag_client.rag_post("/session/start", req.model_dump())
+
+
+def session_context(project: str, authorization: str | None) -> dict:
+    config.check_gateway_auth(authorization)
+    return rag_client.rag_get("/session/context", {"project": project})
+
+
+def session_end(req, authorization: str | None) -> dict:
+    config.check_gateway_auth(authorization)
+    return rag_client.rag_post("/session/end", req.model_dump())
+
+
 # ── Core: next test case ─────────────────────────────────────────────────────────
 
 def generate_next_testcase(req: NextTestCaseRequest, authorization: str | None) -> dict:

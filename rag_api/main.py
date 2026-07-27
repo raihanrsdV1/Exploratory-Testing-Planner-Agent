@@ -19,7 +19,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from . import embeddings
-from ingestion import ui_normalizer, app_state
+from . import defects as defects_mod
+from . import navtree as navtree_mod
+from . import learning as learning_mod
+from ingestion import ui_normalizer, app_state, defect_loader
 
 # `or default` (not just getenv default) so an empty value in .env doesn't crash startup.
 NEO4J_URI = os.getenv("NEO4J_URI") or "neo4j://127.0.0.1:7687"
@@ -80,6 +83,12 @@ async def lifespan(_: FastAPI):
         session.run("CREATE CONSTRAINT uistate_id IF NOT EXISTS FOR (s:UIState) REQUIRE s.id IS UNIQUE")
         # Execution logs (WP3): one record per test run, with the path it walked.
         session.run("CREATE CONSTRAINT execlog_id IF NOT EXISTS FOR (e:ExecutionLog) REQUIRE e.id IS UNIQUE")
+        # Next-gen enhancement (ETA-REQ-301/302/303) node types.
+        session.run("CREATE CONSTRAINT defect_id IF NOT EXISTS FOR (d:Defect) REQUIRE d.id IS UNIQUE")
+        session.run("CREATE CONSTRAINT navnode_id IF NOT EXISTS FOR (n:NavTreeNode) REQUIRE n.id IS UNIQUE")
+        session.run("CREATE CONSTRAINT errpat_id IF NOT EXISTS FOR (e:ErrorPattern) REQUIRE e.id IS UNIQUE")
+        session.run("CREATE CONSTRAINT strat_id IF NOT EXISTS FOR (s:StrategyMemory) REQUIRE s.id IS UNIQUE")
+        session.run("CREATE CONSTRAINT session_id IF NOT EXISTS FOR (s:Session) REQUIRE s.id IS UNIQUE")
         _ensure_vector_indexes(session)
     yield
 
@@ -515,6 +524,16 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
                 """,
                 project=req.project,
             )
+            # Execution-derived learning artifacts (REQ-302/303) are per-test-run — clear them too.
+            session.run(
+                """
+                MATCH (n {project:$project})
+                WHERE n:ExecutionLog OR n:NavTreeNode OR n:ErrorPattern
+                   OR n:StrategyMemory OR n:Session OR n:CoverageHeatmap
+                DETACH DELETE n
+                """,
+                project=req.project,
+            )
 
         if req.delete_srs:
             session.run(
@@ -528,6 +547,21 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
             session.run(
                 """
                 MATCH (:Project {name:$project})-[:HAS_SUMMARY]->(sum:Summary {kind:'srs'})
+                DETACH DELETE sum
+                """,
+                project=req.project,
+            )
+            # Defect history (REQ-301) is knowledge-base data alongside the SRS.
+            session.run(
+                """
+                MATCH (p:Project {name:$project})-[:HAS_DEFECT]->(d:Defect)
+                DETACH DELETE d
+                """,
+                project=req.project,
+            )
+            session.run(
+                """
+                MATCH (:Project {name:$project})-[:HAS_SUMMARY]->(sum:Summary {kind:'defects'})
                 DETACH DELETE sum
                 """,
                 project=req.project,
@@ -1053,7 +1087,8 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
             MATCH (p:Project {name:$project})
             RETURN p.srs_summary AS srs_summary,
                    p.figma_summary AS figma_summary,
-                   p.figma_source AS figma_source
+                   p.figma_source AS figma_source,
+                   p.defect_summary AS defect_summary
             """,
             project=req.project,
         ).single()
@@ -1083,20 +1118,33 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
         )
         screen_index = [dict(r) for r in screens]
 
-        state_row = session.run(
-            "MATCH (p:Project {name:$project})-[:HAS_STATE]->(s:UIState) RETURN count(s) AS c",
+        counts = session.run(
+            """
+            MATCH (p:Project {name:$project})
+            OPTIONAL MATCH (p)-[:HAS_STATE]->(s:UIState)
+            OPTIONAL MATCH (p)-[:HAS_DEFECT]->(d:Defect)
+            OPTIONAL MATCH (p)-[:HAS_NAV_TREE]->(:NavTreeNode)
+            OPTIONAL MATCH (nav:NavTreeNode {project:$project})
+            RETURN count(DISTINCT s) AS states, count(DISTINCT d) AS defects,
+                   count(DISTINCT nav) AS nav_nodes
+            """,
             project=req.project,
         ).single()
-        appmodel_state_count = (state_row["c"] if state_row else 0) or 0
+        appmodel_state_count = (counts["states"] if counts else 0) or 0
+        defect_count = (counts["defects"] if counts else 0) or 0
+        navtree_node_count = (counts["nav_nodes"] if counts else 0) or 0
 
     return {
         "project": req.project,
         "srs_summary": (proj_row["srs_summary"] if proj_row else "") or "",
         "figma_summary": (proj_row["figma_summary"] if proj_row else "") or "",
         "figma_source": (proj_row["figma_source"] if proj_row else "") or "",
+        "defect_summary": (proj_row["defect_summary"] if proj_row else "") or "",
         "recent_tests": recent_tests,
         "screen_index": screen_index,
         "appmodel_state_count": appmodel_state_count,
+        "defect_count": defect_count,
+        "navtree_node_count": navtree_node_count,
     }
 
 
@@ -1250,7 +1298,7 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             SET p.updated_at = $now
             MERGE (t:TestCase {id:$internal_test_id})
             SET t.project = $project, t.title = $title, t.area = $area,
-                t.external_id = $external_test_case_id,
+                t.external_id = $external_test_case_id, t.test_type = $test_type,
                 t.last_verdict = $verdict, t.last_notes = $notes,
                 t.last_run_at = $now, t.updated_at = $now
             MERGE (p)-[:HAS_TEST]->(t)
@@ -1262,11 +1310,18 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             SET r.project = $project, r.verdict = $verdict,
                 r.notes = $notes, r.created_at = $now
             MERGE (t)-[:HAS_RUN]->(r)
+            WITH t, fa
+            // REQ-301.6: mark defect-area traceability when this area has known defects.
+            OPTIONAL MATCH (fa)<-[:AFFECTS_AREA]-(d:Defect)
+            WITH t, fa, count(d) AS dcount
+            FOREACH (_ IN CASE WHEN dcount > 0 THEN [1] ELSE [] END |
+                SET t.targets_defect_area = true
+                MERGE (t)-[:TARGETS_DEFECT_AREA]->(fa))
             """,
             project=req.project,
             internal_test_id=internal_test_id,
             external_test_case_id=req.test_case_id,
-            title=req.title, area=req.area, verdict=req.verdict,
+            title=req.title, area=req.area, verdict=req.verdict, test_type=req.test_type,
             notes=req.notes, now=now, run_id=run_id,
             feature_key=f"{req.project}::{area_slug}",
         )
@@ -1745,7 +1800,27 @@ def execution_log(req: ExecutionLogRequest, authorization: str | None = Header(d
             os=req.os_version, pkg=req.app_package, path=req.path, labels=req.path_labels,
             internal_tc=internal_tc,
         )
-    return {"status": "ok", "log_id": log_id}
+
+        # REQ-302.2: reinforce the navigation tree from the path this run walked.
+        nav = {}
+        if req.path:
+            nav = navtree_mod.record_path(
+                session, req.project, req.test_case_id, req.title, req.verdict,
+                req.path, req.path_labels, [], _slug, now,
+            )
+
+        # REQ-303.3: reinforce strategy memory. In this system a 'failed' verdict
+        # means the test exposed a defect, i.e. the strategy was effective.
+        strat = {}
+        if internal_tc:
+            row = session.run(
+                "MATCH (t:TestCase {id:$tc}) RETURN t.test_type AS tt, t.area AS area", tc=internal_tc
+            ).single()
+            strategy_type = (row["tt"] if row and row["tt"] else (row["area"] if row else "")) or "unspecified"
+            strat = learning_mod.record_strategy(
+                session, req.project, strategy_type, effective=(req.verdict == "failed"), now=now,
+            )
+    return {"status": "ok", "log_id": log_id, "navtree": nav, "strategy": strat}
 
 
 @app.get("/execution/logs")
@@ -1766,6 +1841,146 @@ def execution_logs(project: str, limit: int = 20, authorization: str | None = He
         )
         logs = [dict(r) for r in rows]
     return {"project": project, "logs": logs}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ETA-REQ-301 — Defect history as a knowledge-graph source
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.post("/ingest/defects")
+def ingest_defects(req: IngestDefectsRequest, authorization: str | None = Header(default=None)):
+    """Ingest historical defect data (JSON/CSV/list) into the knowledge graph (REQ-301.1)."""
+    _check_auth(authorization)
+    if req.defects is not None:
+        parsed = [defect_loader.normalize_defect(d, i) for i, d in enumerate(req.defects)]
+    else:
+        if req.source_path and any(part == ".." for part in Path(req.source_path).parts):
+            raise HTTPException(status_code=400, detail="Path traversal not allowed in source_path")
+        try:
+            parsed = defect_loader.load_defects(source_path=req.source_path, raw_text=req.raw_text)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    now = _utc_now()
+    with driver.session() as session:
+        stats = defects_mod.write_defects(session, req.project, parsed, _embed_texts, _slug, now)
+    return {"status": "ok", "project": req.project, "defects_parsed": len(parsed), **stats}
+
+
+@app.get("/defects/summary")
+def defects_summary(project: str, authorization: str | None = Header(default=None)):
+    """Project-level defect summary: totals, severity/root-cause distribution, prone areas (REQ-301.4)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return defects_mod.defect_summary(session, project)
+
+
+@app.get("/defects/prone-areas")
+def defects_prone_areas(project: str, limit: int = 10, authorization: str | None = Header(default=None)):
+    """Top defect-prone feature areas by weighted density (REQ-301.3)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": project, "prone_areas": defects_mod.prone_areas(session, project, limit)}
+
+
+@app.get("/defects/context")
+def defects_context(project: str, query: str = "", area: str = "", top_k: int = 6,
+                    authorization: str | None = Header(default=None)):
+    """Formatted defect context block for planner prompt injection (REQ-301.5)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": project, "context": defects_mod.retrieve_defect_context(session, project, query, area, top_k)}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ETA-REQ-302 — Execution path memory (navigation tree)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.post("/navtree/record-path")
+def navtree_record_path(req: NavRecordPathRequest, authorization: str | None = Header(default=None)):
+    """Record a navigation path; extend/reinforce the tree, keep the shortest pass path (REQ-302.2)."""
+    _check_auth(authorization)
+    now = _utc_now()
+    with driver.session() as session:
+        result = navtree_mod.record_path(
+            session, req.project, req.test_case_id, req.title, req.verdict,
+            req.path, req.path_labels, req.actions, _slug, now,
+        )
+    return {"status": "ok", "project": req.project, **result}
+
+
+@app.get("/navtree/retrieve-path")
+def navtree_retrieve_path(project: str, screen: str = "", test_id: str = "",
+                          authorization: str | None = Header(default=None)):
+    """Return the shortest known-good path to a target screen or completing a test (REQ-302.4)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": project, **navtree_mod.retrieve_path(session, project, screen, test_id, _slug)}
+
+
+@app.get("/navtree/failed-paths")
+def navtree_failed_paths(project: str, limit: int = 15, authorization: str | None = Header(default=None)):
+    """Navigation steps to avoid — repeatedly-failing nodes (REQ-302.6)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": project, "failed_paths": navtree_mod.failed_paths(session, project, limit)}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ETA-REQ-303 — Incremental experiential learning
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.get("/execution/error-patterns")
+def execution_error_patterns(project: str, authorization: str | None = Header(default=None)):
+    """Mine + return recurring error patterns from execution logs (REQ-303.2)."""
+    _check_auth(authorization)
+    now = _utc_now()
+    with driver.session() as session:
+        return {"project": project, "error_patterns": learning_mod.mine_error_patterns(session, project, now)}
+
+
+@app.get("/coverage/heatmap")
+def coverage_heatmap(project: str, authorization: str | None = Header(default=None)):
+    """Requirement/area/screen/element coverage heatmap (REQ-303.4)."""
+    _check_auth(authorization)
+    now = _utc_now()
+    with driver.session() as session:
+        return learning_mod.coverage_heatmap(session, project, now)
+
+
+@app.get("/strategy/memory")
+def strategy_memory(project: str, authorization: str | None = Header(default=None)):
+    """Learned test strategies ranked by effectiveness (REQ-303.3)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": project, "strategies": learning_mod.top_strategies(session, project)}
+
+
+@app.post("/session/start")
+def session_start(req: SessionStartRequest, authorization: str | None = Header(default=None)):
+    """Start a resumable exploratory testing session (REQ-303.5)."""
+    _check_auth(authorization)
+    now = _utc_now()
+    with driver.session() as session:
+        return learning_mod.session_start(session, req.project, req.focus_area, req.strategy, now)
+
+
+@app.get("/session/context")
+def session_context(project: str, authorization: str | None = Header(default=None)):
+    """Retrieve the current active session's context (REQ-303.5)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return learning_mod.session_context(session, project)
+
+
+@app.post("/session/end")
+def session_end(req: SessionEndRequest, authorization: str | None = Header(default=None)):
+    """End a session and persist its summary (REQ-303.5)."""
+    _check_auth(authorization)
+    now = _utc_now()
+    with driver.session() as session:
+        return learning_mod.session_end(session, req.project, req.session_id, now)
 
 
 @app.get("/liveui/screenshot")

@@ -31,11 +31,14 @@ from observability.metrics import get_metrics
 from planner import config, model_client, pipeline
 from planner.schemas import (
     ChatRequest,
+    IngestDefectsRequest,
     IngestFigmaRequest,
     IngestSRSRequest,
     LogVerdictRequest,
     NextTestCaseRequest,
     ResetProjectRequest,
+    SessionEndRequest,
+    SessionStartRequest,
 )
 
 setup_logging()
@@ -214,6 +217,37 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default
 )
 def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(default=None)):
     return pipeline.ingest_figma(req, authorization)
+
+
+@app.post(
+    "/defects/ingest",
+    summary="Ingest defect history",
+    description=(
+        "Loads historical defect reports (bug DB / issue-tracker export) into the knowledge graph as a "
+        "first-class source (ETA-REQ-301). Accepts a file path or inline JSON/CSV. Defects are linked to "
+        "the feature areas and screens they affect, clustered by similarity, and used to bias test "
+        "generation toward historically fragile functionality."
+    ),
+    tags=["ingest"],
+    response_description="Ingest result with defect/similarity/area-scoring counts.",
+)
+def ingest_defects(req: IngestDefectsRequest, authorization: str | None = Header(default=None)):
+    return pipeline.ingest_defects(req, authorization)
+
+
+@app.post("/session/start", tags=["agent"], summary="Start an exploratory session")
+def session_start(req: SessionStartRequest, authorization: str | None = Header(default=None)):
+    return pipeline.session_start(req, authorization)
+
+
+@app.get("/session/context", tags=["agent"], summary="Get current session context")
+def session_context(project: str, authorization: str | None = Header(default=None)):
+    return pipeline.session_context(project, authorization)
+
+
+@app.post("/session/end", tags=["agent"], summary="End an exploratory session")
+def session_end(req: SessionEndRequest, authorization: str | None = Header(default=None)):
+    return pipeline.session_end(req, authorization)
 
 
 @app.post(

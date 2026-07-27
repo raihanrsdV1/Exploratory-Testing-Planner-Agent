@@ -47,6 +47,8 @@ class AgentState(TypedDict):
     srs_context_blocks: list
     figma_ui_blocks: list
     flow_context_blocks: list
+    defect_blocks: list
+    nav_blocks: list
     last_round_retrieved_notes: list
     
     # Trace
@@ -195,6 +197,8 @@ def execute_retrieval(state: AgentState) -> AgentState:
         "srs": state["srs_context_blocks"],
         "figma_ui": state["figma_ui_blocks"],
         "figma_flow": state["flow_context_blocks"],
+        "defects": state["defect_blocks"],
+        "navtree": state["nav_blocks"],
     }
 
     round_retrieved_notes = []
@@ -281,7 +285,14 @@ def generate_testcase(state: AgentState) -> AgentState:
         if state["figma_ui_blocks"] else context_builders.build_figma_context(state["project"], state["selected_screens"][:3])
     )
     figma_flow_context = "\n\n".join(dict.fromkeys(state["flow_context_blocks"]))[:2500]
-    
+
+    # REQ-301.5 / 302.4 / 303: learned-intelligence context, injected when available.
+    available_names = {s["name"] for s in state.get("available_sources", [])}
+    defect_context, nav_context, failed_nav = context_builders.build_learned_context(
+        state["project"], available_names, state["objective"],
+        state["selected_screens"], state["defect_blocks"], state["nav_blocks"],
+    )
+
     prompt = prompts.build_testcase_prompt(
         app_name=state["app_name"],
         objective=state["objective"],
@@ -293,6 +304,9 @@ def generate_testcase(state: AgentState) -> AgentState:
         failed_titles=state["failed_titles"],
         coverage_map=state["coverage_map"],
         recent_tests=state["recent_tests"],
+        defect_context=defect_context,
+        nav_context=nav_context,
+        failed_nav=failed_nav,
     )
     
     model_data = model_client.call_model(prompt, state["max_new_tokens"], state["enable_thinking"])
@@ -425,6 +439,8 @@ def run_agent(req_args: dict) -> dict:
         srs_context_blocks=[],
         figma_ui_blocks=[],
         flow_context_blocks=[],
+        defect_blocks=[],
+        nav_blocks=[],
         last_round_retrieved_notes=[],
         
         planner_trace=[],
@@ -450,12 +466,13 @@ def run_agent(req_args: dict) -> dict:
             try:
                 rag_client.rag_post("/tests/log", {
                     "project": final_state["project"],
-                    "test_case_id": parsed.get("test_case_id") or f"TC-{int(time.time())}",
+                    "test_case_id": parsed.get("test_case_id") or "TC-GEN",
                     "title": parsed.get("title") or "Generated Test Case",
                     "verdict": "pass",
                     "notes": "[GENERATED] Awaiting execution.",
                     "area": parsed.get("area", "general"),
                     "requirement_ids": parsed.get("requirement_ids", []) if isinstance(parsed.get("requirement_ids"), list) else [],
+                    "test_type": parsed.get("test_type", ""),
                 })
             except Exception:
                 pass
