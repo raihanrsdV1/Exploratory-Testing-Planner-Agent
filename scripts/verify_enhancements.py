@@ -252,6 +252,37 @@ def main() -> int:
     strat2 = get("/strategy/memory", {"project": PROJECT}).get("strategies", [])
     check("strategies carry a decay-weighted score", strat2 and "decayed_score" in strat2[0], str(strat2[:1]))
 
+    # ── WP6: multi-dimensional partitioning + filtering + transfer ────────────
+    print("\nWP6 multi-dimensional KG")
+    # Reset just the SRS slice so all chunks carry one platform tag (clean filter demo).
+    post("/project/reset", {"project": PROJECT, "delete_tests": False, "delete_srs": True, "delete_figma": False})
+    srs_dim = ("FR-1: The contact list shall display saved contacts alphabetically.\n"
+               "FR-2: The user shall refresh the contact list by pulling down.\n")
+    extraction, _ = extractor.extract(srs_dim, model_call=None)
+    post("/ingest/srs", {"project": PROJECT, "source_path": "inline://android", "srs_text": srs_dim,
+                         "extraction": extraction, "platform": "android"})
+
+    dl = get("/dimensions/list", {"project": PROJECT})
+    check("project registers platform=android dimension", "android" in dl.get("platform", []), str(dl))
+
+    r_in = post("/retrieve", {"project": PROJECT, "query": "refresh contact list", "top_k": 5,
+                              "include_history": False, "platform": "android"})
+    check("matching-dimension retrieval returns content", len(r_in.get("chunks", [])) > 0, str(len(r_in.get("chunks", []))))
+    r_miss = post("/retrieve", {"project": PROJECT, "query": "refresh contact list", "top_k": 5,
+                                "include_history": False, "platform": "tizen"})
+    check("out-of-dimension retrieval excludes tagged content (no leakage)", len(r_miss.get("chunks", [])) == 0, str(len(r_miss.get("chunks", []))))
+
+    post("/tests/log", {"project": PROJECT, "test_case_id": "TD-C", "title": "Verify contact save flow",
+                        "verdict": "pass", "area": "create_contact", "application": "contacts", "platform": "android"})
+    post("/tests/log", {"project": PROJECT, "test_case_id": "TD-S", "title": "Verify settings toggle",
+                        "verdict": "pass", "area": "settings", "application": "settings", "platform": "android"})
+    ts = get("/dimensions/transfer-suggestions",
+             {"project": PROJECT, "application": "contacts", "platform": "windows"}).get("suggestions", [])
+    titles = [s["title"] for s in ts]
+    check("transfer suggests same-app test for the untested platform", "Verify contact save flow" in titles, str(titles))
+    check("transfer carries a confidence score", ts and 0 < ts[0].get("transfer_confidence", 0) <= 1, str(ts[:1]))
+    check("no cross-application leakage in transfer", "Verify settings toggle" not in titles, str(titles))
+
     print(f"\n{'='*60}\nRESULT: {_passed} passed, {_failed} failed\n{'='*60}")
     return 1 if _failed else 0
 

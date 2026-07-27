@@ -230,6 +230,9 @@ def log_verdict(req: LogVerdictRequest, authorization: str | None) -> dict:
         "notes": rag_notes,
         "area": req.area,
         "requirement_ids": req.requirement_ids,
+        "profile": req.profile,
+        "platform": req.platform,
+        "application": req.application,
     })
 
 
@@ -260,6 +263,9 @@ def log_verdict_and_next(req: LogVerdictRequest, authorization: str | None) -> d
         max_new_tokens=req.max_new_tokens,
         enable_thinking=req.enable_thinking,
         debug_trace=req.debug_trace,
+        profile=req.profile,
+        platform=req.platform,
+        application=req.application,
     )
     next_data = generate_next_testcase(next_req, authorization)
     return {"log": log_data, "next": next_data}

@@ -49,8 +49,11 @@ def _cosine(a, b) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-def write_defects(session, project, defects, embed_texts, slug, now) -> dict:
-    """Persist a batch of canonical defect dicts and derive their relationships."""
+def write_defects(session, project, defects, embed_texts, slug, now, dims: dict | None = None) -> dict:
+    """Persist a batch of canonical defect dicts and derive their relationships.
+
+    ``dims`` (WP6) tags each written defect with profile/platform/application so
+    defects stay partitioned per environment."""
     if not defects:
         return {"defects_written": 0}
 
@@ -99,6 +102,8 @@ def write_defects(session, project, defects, embed_texts, slug, now) -> dict:
             weight=w, unresolved=is_unresolved(d.get("status")), embedding=vec,
             feature_key=feature_key, area_label=area.replace("_", " "), now=now,
         )
+        if dims:
+            session.run("MATCH (d:Defect {id:$uid}) SET d += $dims", uid=defect_uid, dims=dims)
         written += 1
 
         # AFFECTS_SCREEN — best-effort match to an observed UIState or Figma screen by label.

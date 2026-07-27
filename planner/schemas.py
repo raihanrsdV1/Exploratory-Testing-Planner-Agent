@@ -46,6 +46,9 @@ class NextTestCaseRequest(BaseModel):
     enable_thinking: bool = Field(default=False, description="Enable extended reasoning traces (supported models only). Increases latency.")
     debug_trace: bool = Field(default=False, description="Include full debug trace in the response: prompt texts, raw model output, and retrieved context blocks for every planning round.")
     max_retrieval_rounds: int = Field(default=3, ge=1, le=6, description="Maximum planning/retrieval rounds before the gateway forces test case generation. Higher values gather more context but increase latency.")
+    profile: str = Field(default="", description="WP6: target device profile (mobile/tv/fhub/watch). Filters retrieval + adds a Target Environment block.")
+    platform: str = Field(default="", description="WP6: target platform (android/windows/tizen). Filters retrieval to dimension-matching context.")
+    application: str = Field(default="", description="WP6: target application id. Filters retrieval and scopes cross-dimensional transfer.")
 
 
 class LogVerdictRequest(BaseModel):
@@ -85,6 +88,9 @@ class LogVerdictRequest(BaseModel):
     area: str = Field(default="general", description="Feature area of the test case (a runtime-derived slug, e.g. 'data_entry', 'search'). Used to compute the coverage map and drive the adaptive next-test objective.")
     requirement_ids: list[str] = Field(default_factory=list, description="Requirement IDs (e.g. ['FR-5','FR-7']) this test exercises. Creates COVERS edges in the knowledge graph for graph-native requirement coverage.")
     next_objective: str = Field(default="", description="Override the adaptive objective for the next test case. Leave blank to let the planner derive the objective from the verdict and coverage state (recommended).")
+    profile: str = Field(default="", description="WP6: target device profile the test ran on (tags the TestCase).")
+    platform: str = Field(default="", description="WP6: target platform the test ran on (tags the TestCase).")
+    application: str = Field(default="", description="WP6: target application the test ran on (tags the TestCase).")
     top_k: int = Field(default=5, ge=1, le=20, description="Max SRS chunks retrieved for the next test case generation.")
     max_new_tokens: int = Field(default=2048, ge=64, le=8192, description="Token budget for the next test case generation call.")
     enable_thinking: bool = Field(default=False, description="Enable extended reasoning for the next test generation call.")

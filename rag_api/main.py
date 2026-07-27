@@ -22,6 +22,7 @@ from . import embeddings
 from . import defects as defects_mod
 from . import navtree as navtree_mod
 from . import learning as learning_mod
+from . import dimensions as dimensions_mod
 from ingestion import ui_normalizer, app_state, defect_loader
 
 # `or default` (not just getenv default) so an empty value in .env doesn't crash startup.
@@ -90,6 +91,10 @@ async def lifespan(_: FastAPI):
         session.run("CREATE CONSTRAINT strat_id IF NOT EXISTS FOR (s:StrategyMemory) REQUIRE s.id IS UNIQUE")
         session.run("CREATE CONSTRAINT session_id IF NOT EXISTS FOR (s:Session) REQUIRE s.id IS UNIQUE")
         session.run("CREATE CONSTRAINT srsver_id IF NOT EXISTS FOR (v:SRSVersion) REQUIRE v.id IS UNIQUE")
+        # Multi-dimensional partitioning (ETA-REQ-304 / WP6).
+        session.run("CREATE CONSTRAINT profile_name IF NOT EXISTS FOR (d:Profile) REQUIRE d.name IS UNIQUE")
+        session.run("CREATE CONSTRAINT platform_name IF NOT EXISTS FOR (d:Platform) REQUIRE d.name IS UNIQUE")
+        session.run("CREATE CONSTRAINT application_name IF NOT EXISTS FOR (d:Application) REQUIRE d.name IS UNIQUE")
         _ensure_vector_indexes(session)
     yield
 
@@ -707,6 +712,13 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default
         # Build / refresh the requirement entity graph (GraphRAG layer).
         entity_stats = _write_entity_graph(session, req.project, req.extraction, now)
 
+        # WP6: tag this SRS's content with the ingest's dimensions (304.6).
+        dims = dimensions_mod.clean_dims(req.profile, req.platform, req.application)
+        if dims:
+            dimensions_mod.register(session, req.project, dims, now)
+            dimensions_mod.tag_project_content(session, req.project, "Chunk", dims)
+            dimensions_mod.tag_project_content(session, req.project, "Requirement", dims)
+
     return {
         "status": "ok",
         "project": req.project,
@@ -1181,6 +1193,12 @@ def ingest_figma(req: IngestFigmaRequest, authorization: str | None = Header(def
                 ).single()
                 real_transitions += (res["c"] if res else 0)
 
+        # WP6: tag this Figma export's screens with the ingest's dimensions (304.6).
+        dims = dimensions_mod.clean_dims(req.profile, req.platform, req.application)
+        if dims:
+            dimensions_mod.register(session, req.project, dims, now)
+            dimensions_mod.tag_project_content(session, req.project, "FigmaScreen", dims)
+
     return {
         "status": "ok",
         "project": req.project,
@@ -1458,6 +1476,12 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             ).single()
             covered += (res["c"] if res else 0)
 
+        # WP6: tag the test case with its target dimensions (304.2 VALID_FOR_*/TESTS_*).
+        dims = dimensions_mod.clean_dims(req.profile, req.platform, req.application)
+        if dims:
+            dimensions_mod.register(session, req.project, dims, now)
+            session.run("MATCH (t:TestCase {id:$id}) SET t += $dims", id=internal_test_id, dims=dims)
+
     return {
         "status": "ok",
         "project": req.project,
@@ -1636,13 +1660,15 @@ def seed_demo_tests(req: SeedDemoTestsRequest, authorization: str | None = Heade
     }
 
 
-def _keyword_chunks(session, project: str, tokens: list[str], limit: int) -> list[dict]:
+def _keyword_chunks(session, project: str, tokens: list[str], limit: int, dims: dict | None = None) -> list[dict]:
     if not tokens:
         return []
+    dim_where, dim_params = dimensions_mod.where_clause("c", dims or {})
+    dim_where = f" AND {dim_where}" if dim_where else ""
     rows = session.run(
-        """
-        MATCH (p:Project {name:$project})-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk)
-        WHERE c.text IS NOT NULL
+        f"""
+        MATCH (p:Project {{name:$project}})-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk)
+        WHERE c.text IS NOT NULL{dim_where}
         WITH c,
              reduce(sc = 0, t IN $tokens |
                 sc + CASE WHEN toLower(c.text) CONTAINS t THEN 1 ELSE 0 END
@@ -1652,23 +1678,25 @@ def _keyword_chunks(session, project: str, tokens: list[str], limit: int) -> lis
         ORDER BY score DESC, c.order ASC
         LIMIT $limit
         """,
-        project=project, tokens=tokens, limit=limit,
+        project=project, tokens=tokens, limit=limit, **dim_params,
     )
     return [{"id": r["id"], "text": r["text"]} for r in rows if r.get("text")]
 
 
-def _vector_chunks(session, project: str, qvec: list[float], limit: int) -> list[dict]:
+def _vector_chunks(session, project: str, qvec: list[float], limit: int, dims: dict | None = None) -> list[dict]:
     """Semantic chunk search via the native Neo4j vector index."""
+    dim_where, dim_params = dimensions_mod.where_clause("node", dims or {})
+    dim_where = f" AND {dim_where}" if dim_where else ""
     try:
         rows = session.run(
-            """
+            f"""
             CALL db.index.vector.queryNodes($index, $k, $qvec) YIELD node, score
-            WHERE node.project = $project AND node.text IS NOT NULL
+            WHERE node.project = $project AND node.text IS NOT NULL{dim_where}
             RETURN node.id AS id, node.text AS text, score
             ORDER BY score DESC
             LIMIT $limit
             """,
-            index=CHUNK_VECTOR_INDEX, k=limit * 5, qvec=qvec, project=project, limit=limit,
+            index=CHUNK_VECTOR_INDEX, k=limit * 5, qvec=qvec, project=project, limit=limit, **dim_params,
         )
         return [{"id": r["id"], "text": r["text"]} for r in rows if r.get("text")]
     except Exception as e:  # noqa: BLE001 - index missing / old server: degrade to keyword
@@ -1676,13 +1704,15 @@ def _vector_chunks(session, project: str, qvec: list[float], limit: int) -> list
         return []
 
 
-def _vector_requirements(session, project: str, qvec: list[float], limit: int) -> list[dict]:
+def _vector_requirements(session, project: str, qvec: list[float], limit: int, dims: dict | None = None) -> list[dict]:
     """Semantic requirement search + their validation rules (graph hop)."""
+    dim_where, dim_params = dimensions_mod.where_clause("node", dims or {})
+    dim_where = f" AND {dim_where}" if dim_where else ""
     try:
         rows = session.run(
-            """
+            f"""
             CALL db.index.vector.queryNodes($index, $k, $qvec) YIELD node, score
-            WHERE node.project = $project
+            WHERE node.project = $project{dim_where}
             OPTIONAL MATCH (node)-[:HAS_RULE]->(v:ValidationRule)
             WITH node, score, collect(v.rule) AS rules
             RETURN node.ref_id AS ref_id, node.text AS text, node.feature AS feature,
@@ -1690,7 +1720,7 @@ def _vector_requirements(session, project: str, qvec: list[float], limit: int) -
             ORDER BY score DESC
             LIMIT $limit
             """,
-            index=REQUIREMENT_VECTOR_INDEX, k=limit * 5, qvec=qvec, project=project, limit=limit,
+            index=REQUIREMENT_VECTOR_INDEX, k=limit * 5, qvec=qvec, project=project, limit=limit, **dim_params,
         )
         return [dict(r) for r in rows]
     except Exception as e:  # noqa: BLE001
@@ -1987,8 +2017,11 @@ def ingest_defects(req: IngestDefectsRequest, authorization: str | None = Header
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
     now = _utc_now()
+    dims = dimensions_mod.clean_dims(req.profile, req.platform, req.application)
     with driver.session() as session:
-        stats = defects_mod.write_defects(session, req.project, parsed, _embed_texts, _slug, now)
+        if dims:
+            dimensions_mod.register(session, req.project, dims, now)
+        stats = defects_mod.write_defects(session, req.project, parsed, _embed_texts, _slug, now, dims=dims)
     return {"status": "ok", "project": req.project, "defects_parsed": len(parsed), **stats}
 
 
@@ -2081,6 +2114,43 @@ def srs_drift(project: str, authorization: str | None = Header(default=None)):
         "latest": dict(latest) if latest else None,
         "areas_needing_retest": flagged,
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# WP6 — Multi-dimensional knowledge-graph partitioning (ETA-REQ-304)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.post("/dimensions/register")
+def dimensions_register(req: DimensionsRegisterRequest, authorization: str | None = Header(default=None)):
+    """Register the profile/platform/application a project targets (304.2)."""
+    _check_auth(authorization)
+    dims = dimensions_mod.clean_dims(req.profile, req.platform, req.application)
+    now = _utc_now()
+    with driver.session() as session:
+        dimensions_mod.register(session, req.project, dims, now)
+        return {"status": "ok", "project": req.project, "registered": dims}
+
+
+@app.get("/dimensions/list")
+def dimensions_list(project: str, authorization: str | None = Header(default=None)):
+    """Dimensions a project targets (304.1)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return dimensions_mod.list_dimensions(session, project)
+
+
+@app.get("/dimensions/transfer-suggestions")
+def dimensions_transfer(project: str, profile: str = "", platform: str = "", application: str = "",
+                        limit: int = 10, authorization: str | None = Header(default=None)):
+    """Cross-dimensional transfer (304.4): tests from another (profile/platform) of the
+    SAME application that could apply to the requested target environment. Also
+    materializes MAY_APPLY_TO edges with a transfer_confidence."""
+    _check_auth(authorization)
+    target = dimensions_mod.clean_dims(profile, platform, application)
+    now = _utc_now()
+    with driver.session() as session:
+        suggestions = dimensions_mod.transfer_suggestions(session, project, target, limit=limit, now=now)
+    return {"project": project, "target_env": target, "count": len(suggestions), "suggestions": suggestions}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2205,22 +2275,26 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
     _check_auth(authorization)
     tokens = _query_tokens(req.query)
     qvec = embeddings.embed_query(req.query) if embeddings.is_enabled() else None
+    dims = dimensions_mod.clean_dims(req.profile, req.platform, req.application)
+    dim_where, dim_params = dimensions_mod.where_clause("c", dims)
+    dim_where_fb = f" AND {dim_where}" if dim_where else ""
 
     with driver.session() as session:
-        keyword_hits = _keyword_chunks(session, req.project, tokens, req.top_k)
-        vector_hits = _vector_chunks(session, req.project, qvec, req.top_k) if qvec else []
-        req_hits = _vector_requirements(session, req.project, qvec, req.top_k) if qvec else []
+        keyword_hits = _keyword_chunks(session, req.project, tokens, req.top_k, dims)
+        vector_hits = _vector_chunks(session, req.project, qvec, req.top_k, dims) if qvec else []
+        req_hits = _vector_requirements(session, req.project, qvec, req.top_k, dims) if qvec else []
 
         if vector_hits or keyword_hits:
             srs_chunks = _rrf_merge(keyword_hits, vector_hits, req.top_k)
             retrieval_mode = "hybrid" if (vector_hits and keyword_hits) else ("vector" if vector_hits else "keyword")
         else:
             fallback = session.run(
-                """
-                MATCH (p:Project {name:$project})-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk)
+                f"""
+                MATCH (p:Project {{name:$project}})-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(c:Chunk)
+                WHERE c.text IS NOT NULL{dim_where_fb}
                 RETURN c.text AS text ORDER BY c.order ASC LIMIT $top_k
                 """,
-                project=req.project, top_k=req.top_k,
+                project=req.project, top_k=req.top_k, **dim_params,
             )
             srs_chunks = [r["text"] for r in fallback if r.get("text")]
             retrieval_mode = "fallback_ordered"
@@ -2279,6 +2353,7 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
         "requirements": req_hits,
         "recent_tests": recent_tests,
         "retrieval_mode": retrieval_mode,
+        "dimensions": dims,
     }
 
 

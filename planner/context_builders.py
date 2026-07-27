@@ -36,6 +36,23 @@ def build_figma_context(project: str, screen_names: list[str]) -> str:
     return "\n".join(lines)
 
 
+def target_environment_text(dims: dict) -> str:
+    """`## Target Environment` prompt block content (WP6 / 304.5). Empty when no dims."""
+    if not dims:
+        return ""
+    order = [("application", "Application"), ("platform", "Platform"), ("profile", "Profile")]
+    lines = [f"- {label}: {dims[k]}" for k, label in order if dims.get(k)]
+    hint = {
+        "watch": "small screen, rotary/crown input, terse UI — keep steps minimal.",
+        "tv": "10-foot UI, D-pad/remote navigation, no touch.",
+        "mobile": "touch gestures on a portrait phone screen.",
+        "fhub": "fitness-hub surface — glanceable panels.",
+    }.get(dims.get("profile", ""), "")
+    if hint:
+        lines.append(f"- Interaction model: {hint}")
+    return "\n".join(lines)
+
+
 def build_learned_context(
     project: str,
     available_names: set,

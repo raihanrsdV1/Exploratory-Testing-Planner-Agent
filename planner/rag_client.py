@@ -57,12 +57,15 @@ def rag_post(endpoint: str, payload: dict, timeout: int = 120) -> dict:
 
 # ── Typed knowledge-graph queries ───────────────────────────────────────────────
 
-def get_srs_and_history(project: str, query: str, top_k: int) -> dict:
+def get_srs_and_history(project: str, query: str, top_k: int, dims: dict | None = None) -> dict:
     """
     Hybrid (vector + keyword + graph-hop) SRS retrieval. `query` is sent as
     natural language so the RAG layer can embed it for semantic matching.
+    `dims` (WP6) optionally filters retrieval to a profile/platform/application.
     """
-    return rag_post("/retrieve", {"project": project, "query": query, "top_k": top_k, "include_history": False})
+    payload = {"project": project, "query": query, "top_k": top_k, "include_history": False}
+    payload.update(dims or {})
+    return rag_post("/retrieve", payload)
 
 
 def get_figma_screens(project: str) -> list[dict]:

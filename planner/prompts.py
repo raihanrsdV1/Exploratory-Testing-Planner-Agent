@@ -211,6 +211,7 @@ def build_testcase_prompt(
     nav_context: str = "",
     failed_nav: str = "",
     strategy_context: str = "",
+    target_env: str = "",
 ) -> str:
     cmap = coverage_map or {}
     rtests = recent_tests or []
@@ -239,6 +240,15 @@ def build_testcase_prompt(
         directive,
         "",
     ]
+
+    # WP6 (REQ-304.5) — steer steps to the target environment's interaction model.
+    if target_env:
+        parts += [
+            "## Target Environment",
+            "(Generate steps appropriate to this environment — respect its input model and constraints.)",
+            target_env,
+            "",
+        ]
 
     if srs_context:
         parts += [

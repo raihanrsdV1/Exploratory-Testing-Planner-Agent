@@ -38,6 +38,7 @@ class AgentState(TypedDict):
     fallback_screens: list
     coverage_map: dict
     available_sources: list  # [{"name","purpose"}] — sources with data for this project
+    dimensions: dict  # WP6: {profile?, platform?, application?} target env filter
     
     # Iteration state
     round_no: int
@@ -271,7 +272,10 @@ def generate_testcase(state: AgentState) -> AgentState:
     # must still generate).
     available_names = {s["name"] for s in state.get("available_sources", [])}
     if not state["srs_context_blocks"] and "srs" in available_names:
-        data = rag_client.get_srs_and_history(state["project"], state["objective"], top_k=min(state["top_k"], 3))
+        data = rag_client.get_srs_and_history(
+            state["project"], state["objective"], top_k=min(state["top_k"], 3),
+            dims=state.get("dimensions") or None,
+        )
         block = data.get("context", "")
         if block:
             state["srs_context_blocks"].append(block)
@@ -293,6 +297,8 @@ def generate_testcase(state: AgentState) -> AgentState:
         state["selected_screens"], state["defect_blocks"], state["nav_blocks"],
     )
 
+    target_env = context_builders.target_environment_text(state.get("dimensions") or {})
+
     prompt = prompts.build_testcase_prompt(
         app_name=state["app_name"],
         objective=state["objective"],
@@ -308,6 +314,7 @@ def generate_testcase(state: AgentState) -> AgentState:
         nav_context=nav_context,
         failed_nav=failed_nav,
         strategy_context=strategy_context,
+        target_env=target_env,
     )
     
     model_data = model_client.call_model(prompt, state["max_new_tokens"], state["enable_thinking"])
@@ -432,6 +439,8 @@ def run_agent(req_args: dict) -> dict:
         brief={}, recent_tests=[], done_titles=[], failed_titles=[], done_areas=[],
         figma_screens=[], figma_overview=[], fallback_screens=[], coverage_map={},
         available_sources=[],
+        dimensions={k: str(req_args.get(k) or "").strip().lower()
+                    for k in ("profile", "platform", "application") if str(req_args.get(k) or "").strip()},
 
         round_no=1,
         max_retrieval_rounds=max(1, min(req_args.get("max_retrieval_rounds", 6), 6)),
@@ -474,6 +483,7 @@ def run_agent(req_args: dict) -> dict:
                     "area": parsed.get("area", "general"),
                     "requirement_ids": parsed.get("requirement_ids", []) if isinstance(parsed.get("requirement_ids"), list) else [],
                     "test_type": parsed.get("test_type", ""),
+                    **(final_state.get("dimensions") or {}),
                 })
             except Exception:
                 pass

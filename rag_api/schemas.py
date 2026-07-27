@@ -1,7 +1,14 @@
 from pydantic import BaseModel, Field
 from typing import Literal
 
-class IngestFigmaRequest(BaseModel):
+class DimensionMixin(BaseModel):
+    """Optional WP6 partitioning dimensions (profile/platform/application)."""
+    profile: str = ""
+    platform: str = ""
+    application: str = ""
+
+
+class IngestFigmaRequest(DimensionMixin):
     project: str = Field(..., min_length=1)
     source_path: str = Field(..., min_length=1)
     figma_json: str | None = None
@@ -11,7 +18,7 @@ class IngestFigmaRequest(BaseModel):
     purpose_hints: dict[str, str] | None = None
 
 
-class RetrieveRequest(BaseModel):
+class RetrieveRequest(DimensionMixin):
     project: str = Field(..., min_length=1)
     query: str = Field(..., min_length=1)
     top_k: int = 5
@@ -23,7 +30,7 @@ class BriefContextRequest(BaseModel):
     recent_limit: int = 12
 
 
-class IngestSRSRequest(BaseModel):
+class IngestSRSRequest(DimensionMixin):
     project: str = Field(..., min_length=1)
     source_path: str = Field(..., min_length=1)
     srs_text: str | None = None
@@ -33,7 +40,7 @@ class IngestSRSRequest(BaseModel):
     extraction: dict | None = None
 
 
-class LogTestRequest(BaseModel):
+class LogTestRequest(DimensionMixin):
     project: str = Field(..., min_length=1)
     test_case_id: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1)
@@ -90,13 +97,18 @@ class ExecutionLogRequest(BaseModel):
     path_labels: list[str] = Field(default_factory=list)  # ordered state labels
 
 
-class IngestDefectsRequest(BaseModel):
+class IngestDefectsRequest(DimensionMixin):
     """Defect-history ingestion (ETA-REQ-301.1). Accepts a file path, inline text
     (JSON/CSV), or a pre-parsed list of defect dicts."""
     project: str = Field(..., min_length=1)
     source_path: str | None = None
     raw_text: str | None = None
     defects: list[dict] | None = None
+
+
+class DimensionsRegisterRequest(DimensionMixin):
+    """Register the dimensions a project targets, without ingesting content (WP6)."""
+    project: str = Field(..., min_length=1)
 
 
 class NavRecordPathRequest(BaseModel):
