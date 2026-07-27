@@ -324,7 +324,7 @@ classification. To ingest **without a model** (deterministic rule-based fallback
 
 ```bash
 curl -X POST http://127.0.0.1:9100/srs/ingest -H 'Content-Type: application/json' -d '{
-  "project":"my-app","source_path":"./data/inputs/SRS1.txt",
+  "project":"my-app","source_path":"./data/inputs/Sample-Contacts-App-SRS.txt",
   "use_model_summary":false,"require_model_summary":false,"extract_entities":true
 }'
 curl -X POST http://127.0.0.1:9100/figma/ingest -H 'Content-Type: application/json' -d '{
@@ -532,10 +532,20 @@ Override the model with `EMBEDDING_MODEL`.
 pip install -r requirements.txt
 # .env: NEO4J_* + MODEL_BACKEND=openrouter + OPENROUTER_API_KEY + OPENROUTER_MODEL
 
-uvicorn rag_api.main:app       --port 9010 --reload     # terminal 1
-uvicorn gateway.main:app --port 9100 --reload     # terminal 2
+uvicorn rag_api.main:app --port 9010 --reload           # terminal 1
+uvicorn gateway.main:app --port 9100 --reload           # terminal 2
 
 PROJECT=my-app python scripts/ingest_all.py             # terminal 3
 curl -X POST http://127.0.0.1:9100/agent/next-testcase \
   -H 'Content-Type: application/json' -d '{"project":"my-app"}'
+```
+
+Powershell runnable:
+
+```bash
+pip install -r requirements.txt
+uvicorn rag_api.main:app --port 9010 --reload           # terminal 1
+uvicorn gateway.main:app --port 9100 --reload           # terminal 2
+$env:PROJECT="my-app"; python .\scripts\ingest_all.py   # terminal 3
+Invoke-RestMethod -Uri "http://127.0.0.1:9100/agent/next-testcase" -Method POST -ContentType "application/json" -Body '{"project":"my-app"}'
 ```
