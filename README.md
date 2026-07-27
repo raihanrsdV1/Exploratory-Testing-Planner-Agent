@@ -297,12 +297,26 @@ Pick any `project` name — it scopes everything in the graph.
 # SRS — any format (.txt/.md/.pdf/.docx/.html). Builds chunks+embeddings AND the requirement graph.
 curl -X POST http://127.0.0.1:9100/srs/ingest \
   -H 'Content-Type: application/json' \
-  -d '{"project":"my-app","source_path":"./data/inputs/SRS1.txt"}'
+  -d '{"project":"my-app","source_path":"./data/inputs/Sample-Contacts-App-SRS.txt"}'
 
 # Figma — canonical UI IR, dynamic feature-area classification
 curl -X POST http://127.0.0.1:9100/figma/ingest \
   -H 'Content-Type: application/json' \
   -d '{"project":"my-app","source_path":"./data/inputs/GENERATED_JSON.json"}'
+```
+
+For windows powershell:
+
+```bash
+# SRS — any format (.txt/.md/.pdf/.docx/.html). Builds chunks+embeddings AND the requirement graph.
+curl.exe -X POST "http://127.0.0.1:9100/srs/ingest" `
+    -H "Content-Type: application/json" `
+    -d '{"project":"my-app","source_path":"./data/inputs/Sample-Contacts-App-SRS.txt"}'
+
+# Figma — canonical UI IR, dynamic feature-area classification
+curl.exe -X POST "http://127.0.0.1:9100/figma/ingest" `
+  -H "Content-Type: application/json" `
+  --data-raw '{\"project\":\"my-app\",\"source_path\":\"./data/inputs/GENERATED_JSON.json\"}'
 ```
 
 The defaults use the LLM for the SRS summary, entity extraction, and screen
