@@ -1,5 +1,8 @@
 import os
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 BASE_GATEWAY = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
 BASE_RAG = os.getenv("RAG_URL", "http://127.0.0.1:9010").rstrip("/")
