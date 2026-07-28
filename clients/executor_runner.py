@@ -302,6 +302,79 @@ def build_droidrun_goal(test_case: dict) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 2c. SELF-HEALING (WP7 / ETA-REQ-305): classify failures + adaptive recovery
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Failure category -> recovery strategy (REQ-305.1 / 305.2). Pure + app-agnostic.
+_RECOVERY = {
+    "NAVIGATION_FAILURE": {"action": "try an alternate navigation path from the learned nav tree", "retry": True},
+    "ELEMENT_NOT_FOUND": {"action": "wait for the screen to settle and re-locate the element, or use a similar label", "retry": True},
+    "ASSERTION_FAILURE": {"action": "capture the actual post-action state and log it as a potential defect", "retry": False},
+    "TIMEOUT": {"action": "retry with an extended timeout", "retry": True},
+    "CRASH": {"action": "restart the app and resume from the last stable screen", "retry": True},
+    "PERMISSION_DENIED": {"action": "grant the required permission/precondition, then retry", "retry": True},
+}
+
+
+def classify_failure(reason: str, success: bool = False) -> str:
+    """Classify a Droidrun failure reason into a category (REQ-305.1). Pure."""
+    if success:
+        return ""
+    r = (reason or "").lower()
+    if any(k in r for k in ("permission", "denied", "not granted")):
+        return "PERMISSION_DENIED"
+    if any(k in r for k in ("crash", "terminated", "closed unexpectedly", "anr", "has stopped", "force close")):
+        return "CRASH"
+    if any(k in r for k in ("timeout", "timed out", "unresponsive", "no response")):
+        return "TIMEOUT"
+    if any(k in r for k in ("not found", "no such element", "could not find", "couldn't find",
+                            "element missing", "no element", "unable to locate")):
+        return "ELEMENT_NOT_FOUND"
+    if any(k in r for k in ("could not reach", "navigat", "wrong screen", "unable to open",
+                            "screen not", "did not reach")):
+        return "NAVIGATION_FAILURE"
+    return "ASSERTION_FAILURE"
+
+
+def recovery_strategy(category: str) -> dict:
+    """Recovery strategy descriptor for a failure category (REQ-305.2). Pure."""
+    return _RECOVERY.get(category, {"action": "re-attempt with a fresh observation", "retry": False})
+
+
+def build_retry_goal(test_case: dict, category: str, reason: str, strategy: dict, extra: str = "") -> str:
+    """Retry goal with a `## Previous Failure Context` block (REQ-305.3). Pure."""
+    base = build_droidrun_goal(test_case)
+    block = [
+        "",
+        "## Previous Failure Context",
+        f"The previous attempt FAILED (classified as {category}).",
+        f"What went wrong: {(reason or 'unknown')[:300]}",
+        f"Recovery approach to apply now: {strategy.get('action', 're-attempt')}.",
+    ]
+    if extra:
+        block.append(extra)
+    block.append("Adjust your steps accordingly and re-attempt the goal.")
+    return base + "\n" + "\n".join(block)
+
+
+def _learned_nav_hint(test_case: dict) -> str:
+    """Best-effort learned shortest path to the target screen (for NAVIGATION_FAILURE recovery)."""
+    screen = test_case.get("screen", "")
+    if not screen:
+        return ""
+    try:
+        data = requests.get(f"{RAG_URL}/navtree/retrieve-path",
+                            params={"project": PROJECT, "screen": screen}, timeout=15).json()
+        steps = data.get("steps", []) or []
+        if steps:
+            path = "; ".join(f"{s.get('action','')}->{s.get('screen','')}" for s in steps)
+            return f"Proven path to '{screen}': {path}"
+    except Exception:
+        pass
+    return ""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 2b. LIVE APP MODEL — feed the executor's real trajectory into the graph (WP1)
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -400,8 +473,10 @@ def _device_env() -> dict:
 
 
 def _log_execution(tc: dict, verdict: str, duration_ms: float, device_steps: int,
-                   path: list, error_type: str = "", error_message: str = "") -> None:
-    """Persist one execution record (WP3): timing, steps, environment, and walked path."""
+                   path: list, error_type: str = "", error_message: str = "",
+                   recovery_action: str = "") -> None:
+    """Persist one execution record (WP3/WP7): timing, steps, environment, walked
+    path, classified failure category, and any self-healing recovery outcome."""
     env = _device_env()
     payload = {
         "project": PROJECT,
@@ -414,6 +489,7 @@ def _log_execution(tc: dict, verdict: str, duration_ms: float, device_steps: int
         "states_visited": len(path),
         "error_type": error_type,
         "error_message": (error_message or "")[:500],
+        "recovery_action": (recovery_action or "")[:300],
         "device": env.get("device", ""),
         "os_version": env.get("os", ""),
         "app_package": TARGET_APP_PACKAGE,
@@ -548,11 +624,56 @@ async def execute_test_on_device(test_case: dict) -> dict:
         reason = result.reason or "No reason provided by Droidrun"
         steps_taken = result.steps
 
+        # WP7 self-healing (REQ-305): classify the failure and attempt one adaptive
+        # recovery before giving up.
+        error_type = classify_failure(reason, success)
+        recovery_action = ""
+        if not success and SELF_HEAL:
+            strat = recovery_strategy(error_type)
+            if strat["retry"]:
+                extra = _learned_nav_hint(test_case) if error_type == "NAVIGATION_FAILURE" else ""
+                retry_goal = build_retry_goal(test_case, error_type, reason, strat, extra)
+                print(f"\n🔧 Self-heal: {error_type} → {strat['action']} (retrying once)")
+                cloud_log("info", f"Self-healing retry for {tc_id}",
+                          test_case_id=tc_id, category=error_type, strategy=strat["action"])
+                try:
+                    retry_timeout = EXECUTOR_TIMEOUT * 2 if error_type == "TIMEOUT" else EXECUTOR_TIMEOUT
+                    rec_agent = MobileAgent(goal=retry_goal, llms=llm, driver=driver,
+                                            timeout=retry_timeout, config=config)
+                    rec_handler = rec_agent.run()
+                    try:
+                        from mobilerun.agent.common.events import RecordUIStateEvent
+                        async for ev in rec_handler.stream_events():
+                            if isinstance(ev, RecordUIStateEvent):
+                                shot = await _safe_screenshot(driver)
+                                observations.append((getattr(ev, "ui_state", None), shot))
+                    except Exception:
+                        pass
+                    rec_result = await rec_handler
+                    if rec_result.success:
+                        success = True
+                        steps_taken += rec_result.steps
+                        reason = f"Recovered via self-heal: {rec_result.reason or ''}".strip()
+                        recovery_action = f"{error_type}: {strat['action']} -> RECOVERED"
+                    else:
+                        recovery_action = f"{error_type}: {strat['action']} -> still failed"
+                    try:  # fold recovery observations into the app model
+                        exec_path = _record_observations(observations, tc_id, driver_shot=await _safe_screenshot(driver))
+                    except Exception:
+                        pass
+                except Exception as e:
+                    recovery_action = f"{error_type}: recovery attempt errored ({e})"
+            else:
+                recovery_action = f"{error_type}: {strat['action']} (no retry — logged for investigation)"
+
+        duration = time.time() - start_time
         verdict = "pass" if success else "failed"
+        logged_error_type = "" if success else error_type
         notes = (
             f"Droidrun execution completed in {duration:.1f}s. "
             f"Steps taken: {steps_taken}. "
             f"Success={success}. Reason: {reason}"
+            + (f" | Self-heal: {recovery_action}" if recovery_action else "")
         )
 
         status_icon = "✅" if success else "❌"
@@ -569,9 +690,13 @@ async def execute_test_on_device(test_case: dict) -> dict:
             steps_taken=steps_taken,
             duration_seconds=round(duration, 1),
             reason=reason[:500],
+            error_type=logged_error_type,
+            recovery_action=recovery_action,
         )
 
-        _log_execution(test_case, verdict, duration * 1000, steps_taken, exec_path)  # WP3
+        _log_execution(test_case, verdict, duration * 1000, steps_taken, exec_path,  # WP3 + WP7
+                       error_type=logged_error_type, error_message=("" if success else reason[:500]),
+                       recovery_action=recovery_action)
         return {"verdict": verdict, "notes": notes, "duration_seconds": duration}
 
     except asyncio.TimeoutError:

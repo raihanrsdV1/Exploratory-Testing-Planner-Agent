@@ -283,6 +283,50 @@ def main() -> int:
     check("transfer carries a confidence score", ts and 0 < ts[0].get("transfer_confidence", 0) <= 1, str(ts[:1]))
     check("no cross-application leakage in transfer", "Verify settings toggle" not in titles, str(titles))
 
+    # ── WP7: self-healing classification/recovery + regression risk ──────────
+    print("\nWP7 self-healing + regression risk")
+    import clients.executor_runner as _ex
+    check("failure classification covers all six categories",
+          _ex.classify_failure("timed out") == "TIMEOUT"
+          and _ex.classify_failure("could not find the Save element") == "ELEMENT_NOT_FOUND"
+          and _ex.classify_failure("unable to navigate to the target screen") == "NAVIGATION_FAILURE"
+          and _ex.classify_failure("the app crashed") == "CRASH"
+          and _ex.classify_failure("permission was denied") == "PERMISSION_DENIED"
+          and _ex.classify_failure("result did not match expected") == "ASSERTION_FAILURE")
+    check("recovery retries recoverable failures but not plain assertions",
+          _ex.recovery_strategy("TIMEOUT")["retry"] is True and _ex.recovery_strategy("ASSERTION_FAILURE")["retry"] is False)
+    check("retry goal injects ## Previous Failure Context (305.3)",
+          "## Previous Failure Context" in _ex.build_retry_goal({"screen": "S", "steps": ["x"]}, "CRASH", "app crashed", _ex.recovery_strategy("CRASH")))
+
+    post("/execution/log", {"project": PROJECT, "test_case_id": "TC-HEAL", "title": "Healable nav test",
+                            "verdict": "pass", "error_type": "NAVIGATION_FAILURE",
+                            "recovery_action": "NAVIGATION_FAILURE: alt nav path -> RECOVERED",
+                            "path": [list_id], "path_labels": [s_list["label"]]})
+    elog = get("/execution/logs", {"project": PROJECT, "limit": 20}).get("logs", [])
+    heal = next((e for e in elog if e.get("test_case_id") == "TC-HEAL"), {})
+    check("execution log persists the self-healing recovery outcome", "RECOVERED" in (heal.get("recovery_action") or ""), str(heal.get("recovery_action")))
+
+    # Regression risk on an isolated project for a deterministic ranking.
+    RP = PROJECT + "-risk"
+    post("/project/reset", {"project": RP, "delete_tests": True, "delete_srs": True, "delete_figma": True})
+    post("/ingest/defects", {"project": RP, "defects": [
+        {"id": "RB-1", "title": "Payment double charge", "severity": "critical", "status": "open", "area": "payment_flow"},
+        {"id": "RB-2", "title": "Payment timeout unhandled", "severity": "high", "status": "open", "area": "payment_flow"},
+        {"id": "RB-3", "title": "Help page typo", "severity": "low", "status": "closed", "area": "help_page"}]})
+    post("/tests/log", {"project": RP, "test_case_id": "TC-PAY", "title": "Verify payment declines gracefully",
+                        "verdict": "failed", "area": "payment_flow"})
+    post("/tests/log", {"project": RP, "test_case_id": "TC-HELP", "title": "Verify help page opens",
+                        "verdict": "pass", "area": "help_page"})
+    risk = get("/risk/scores", {"project": RP}).get("risk_scores", [])
+    top = risk[0] if risk else {}
+    check("risk scores computed, ranked, in [0,1]", bool(risk) and 0 < top.get("regression_risk_score", 0) <= 1, str(top))
+    check("highest-risk area is the defect+failure hotspot", top.get("area", "").replace(" ", "_") == "payment_flow", str(top.get("area")))
+    check("risk score exposes its contributing factors",
+          all(k in top for k in ("defect_density", "fail_ratio", "defect_recency", "nav_instability")), str(list(top.keys())))
+    # Score persisted on the FeatureArea (306.1) — a re-read returns the same ranking.
+    risk2 = get("/risk/scores", {"project": RP}).get("risk_scores", [])
+    check("risk scores persist on FeatureArea nodes", risk2 and risk2[0].get("area") == top.get("area"))
+
     print(f"\n{'='*60}\nRESULT: {_passed} passed, {_failed} failed\n{'='*60}")
     return 1 if _failed else 0
 

@@ -292,7 +292,7 @@ def generate_testcase(state: AgentState) -> AgentState:
 
     # REQ-301.5 / 302.4 / 303: learned-intelligence context, injected when available.
     available_names = {s["name"] for s in state.get("available_sources", [])}
-    defect_context, nav_context, failed_nav, strategy_context = context_builders.build_learned_context(
+    defect_context, nav_context, failed_nav, strategy_context, risk_context = context_builders.build_learned_context(
         state["project"], available_names, state["objective"],
         state["selected_screens"], state["defect_blocks"], state["nav_blocks"],
     )
@@ -315,6 +315,7 @@ def generate_testcase(state: AgentState) -> AgentState:
         failed_nav=failed_nav,
         strategy_context=strategy_context,
         target_env=target_env,
+        risk_context=risk_context,
     )
     
     model_data = model_client.call_model(prompt, state["max_new_tokens"], state["enable_thinking"])

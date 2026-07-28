@@ -336,6 +336,19 @@ def dashboard_data(project: str) -> dict:
     except Exception:
         executions = []
 
+    # WP7 regression risk + WP2 defect-prone areas (best-effort; drive dashboard panels).
+    risk_scores: list = []
+    try:
+        risk_scores = rag_client.rag_get("/risk/scores", {"project": project}).get("risk_scores", [])
+    except Exception:
+        risk_scores = []
+
+    defects: dict = {}
+    try:
+        defects = rag_client.rag_get("/defects/summary", {"project": project})
+    except Exception:
+        defects = {}
+
     return {
         "project": project,
         "model": model_client.backend_info(),
@@ -343,6 +356,8 @@ def dashboard_data(project: str) -> dict:
         "coverage": coverage_data,
         "appmodel": appmodel,
         "executions": executions,
+        "risk_scores": risk_scores,
+        "defects": defects,
     }
 
 

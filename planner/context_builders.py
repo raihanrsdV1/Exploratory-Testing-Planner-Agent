@@ -60,13 +60,13 @@ def build_learned_context(
     selected_screens: list[str],
     defect_blocks: list[str],
     nav_blocks: list[str],
-) -> tuple[str, str, str, str]:
-    """Assemble defect / navigation / failed-path / strategy context for generation.
+) -> tuple[str, str, str, str, str]:
+    """Assemble defect / navigation / failed-path / strategy / risk context for generation.
 
     Uses whatever the retrieval loop already gathered, and best-effort fills the
     gaps from dedicated endpoints. All app-agnostic — nothing is fetched unless the
     source is available for this project. Returns (defect_context, nav_context,
-    failed_nav, strategy_context)."""
+    failed_nav, strategy_context, risk_context)."""
     from .sources.navtree import format_path
 
     # Defects (REQ-301.5): prefer gathered blocks, else fetch a focused block.
@@ -118,7 +118,21 @@ def build_learned_context(
     except Exception:
         strategy_context = ""
 
-    return defect_context, nav_context, failed_nav, strategy_context
+    # WP7 (REQ-306.2): bias generation toward the highest regression-risk areas.
+    risk_context = ""
+    try:
+        scores = rag_client.rag_get("/risk/scores", {"project": project}).get("risk_scores", [])
+        ranked = [s for s in scores if s.get("regression_risk_score", 0) > 0][:6]
+        if ranked:
+            risk_context = "\n".join(
+                f"- {s.get('area','?')} (risk {s.get('regression_risk_score',0)}: "
+                f"{s.get('defect_count',0)} defects, {s.get('failed_tests',0)}/{s.get('total_tests',0)} runs failed)"
+                for s in ranked
+            )
+    except Exception:
+        risk_context = ""
+
+    return defect_context, nav_context, failed_nav, strategy_context, risk_context
 
 
 def build_figma_overview_context(figma_overview: list[dict]) -> str:

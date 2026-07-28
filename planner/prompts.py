@@ -212,6 +212,7 @@ def build_testcase_prompt(
     failed_nav: str = "",
     strategy_context: str = "",
     target_env: str = "",
+    risk_context: str = "",
 ) -> str:
     cmap = coverage_map or {}
     rtests = recent_tests or []
@@ -307,6 +308,16 @@ def build_testcase_prompt(
             "## Known Failed Navigation Paths",
             "(These navigation steps have repeatedly failed — do NOT rely on them.)",
             failed_nav,
+            "",
+        ]
+
+    # WP7 (REQ-306.2) — bias toward the highest regression-risk areas.
+    if risk_context:
+        parts += [
+            "## Regression Risk Assessment",
+            "(Areas most likely to regress — defect-dense, failure-prone, recently broken. Prefer "
+            "generating a test for a high-risk area unless the directive says otherwise.)",
+            risk_context,
             "",
         ]
 
