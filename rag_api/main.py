@@ -573,6 +573,17 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
                 """,
                 project=req.project,
             )
+            # Clear defect-derived caches so they don't outlive the deleted defects:
+            # p.defect_summary feeds the planner brief; fa.defect_density feeds
+            # defect-weighted retrieval and the regression-risk score (REQ-301/306).
+            session.run(
+                "MATCH (p:Project {name:$project}) REMOVE p.defect_summary",
+                project=req.project,
+            )
+            session.run(
+                "MATCH (fa:FeatureArea {project:$project}) REMOVE fa.defect_density, fa.defect_weight",
+                project=req.project,
+            )
             # SRS version history + drift flags (WP5) are derived from the SRS.
             session.run(
                 """
@@ -2203,6 +2214,14 @@ def navtree_failed_paths(project: str, limit: int = 15, authorization: str | Non
     _check_auth(authorization)
     with driver.session() as session:
         return {"project": project, "failed_paths": navtree_mod.failed_paths(session, project, limit)}
+
+
+@app.get("/navtree/stats")
+def navtree_stats(project: str, authorization: str | None = Header(default=None)):
+    """Navigation-tree size + health (nodes, avoid nodes, depth) for the dashboard."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": project, **navtree_mod.stats(session, project)}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

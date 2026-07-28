@@ -308,15 +308,19 @@ def agent_coverage(project: str, authorization: str | None) -> dict:
 def dashboard_data(project: str) -> dict:
     """Aggregate everything the operator dashboard renders (read-only, best-effort).
 
-    Combines knowledge-graph stats (requirements / validation rules / entities /
-    screens / tests) with the live coverage map, recent tests, and the active
-    model backend into a single payload the dashboard polls.
+    One payload covering the full pipeline: knowledge-graph stats, live coverage,
+    the Live App Model, executions (with self-healing outcomes), regression risk,
+    defect intelligence, error patterns, strategy memory, sessions, dimensions,
+    SRS drift / business-logic health, and navigation memory. Every source is
+    fetched independently and degrades to empty so one down component never blanks
+    the whole board.
     """
-    stats: dict = {}
-    try:
-        stats = rag_client.rag_get("/graph/stats", {"project": project})
-    except Exception:
-        stats = {}
+    def _get(endpoint: str, params: dict | None = None, key: str | None = None, default=None):
+        try:
+            data = rag_client.rag_get(endpoint, params if params is not None else {"project": project})
+            return data.get(key, default) if key else data
+        except Exception:
+            return default
 
     coverage_data: dict = {}
     try:
@@ -324,40 +328,23 @@ def dashboard_data(project: str) -> dict:
     except Exception:
         coverage_data = {}
 
-    appmodel: dict = {}
-    try:
-        appmodel = rag_client.rag_get("/appmodel/graph", {"project": project})
-    except Exception:
-        appmodel = {}
-
-    executions: list = []
-    try:
-        executions = rag_client.rag_get("/execution/logs", {"project": project, "limit": 20}).get("logs", [])
-    except Exception:
-        executions = []
-
-    # WP7 regression risk + WP2 defect-prone areas (best-effort; drive dashboard panels).
-    risk_scores: list = []
-    try:
-        risk_scores = rag_client.rag_get("/risk/scores", {"project": project}).get("risk_scores", [])
-    except Exception:
-        risk_scores = []
-
-    defects: dict = {}
-    try:
-        defects = rag_client.rag_get("/defects/summary", {"project": project})
-    except Exception:
-        defects = {}
-
     return {
         "project": project,
         "model": model_client.backend_info(),
-        "stats": stats,
+        "stats": _get("/graph/stats", default={}),
         "coverage": coverage_data,
-        "appmodel": appmodel,
-        "executions": executions,
-        "risk_scores": risk_scores,
-        "defects": defects,
+        "appmodel": _get("/appmodel/graph", default={}),
+        "executions": _get("/execution/logs", {"project": project, "limit": 25}, key="logs", default=[]),
+        "risk_scores": _get("/risk/scores", key="risk_scores", default=[]),
+        "defects": _get("/defects/summary", default={}),
+        "error_patterns": _get("/execution/error-patterns", key="error_patterns", default=[]),
+        "strategies": _get("/strategy/memory", key="strategies", default=[]),
+        "session": _get("/session/context", default={}),
+        "dimensions": _get("/dimensions/list", default={}),
+        "drift": _get("/srs/drift", default={}),
+        "business_logic": _get("/business-logic/rules", {"project": project, "needs_review": True}, default={}),
+        "navtree": _get("/navtree/stats", default={}),
+        "nav_failed": _get("/navtree/failed-paths", {"project": project, "limit": 8}, key="failed_paths", default=[]),
     }
 
 

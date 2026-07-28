@@ -10,6 +10,7 @@
     --text: #1c2024; --muted: #6b7280; --accent: #4f46e5; --accent-soft: #eef2ff;
     --pass: #16a34a; --pass-soft: #e7f6ec; --fail: #dc2626; --fail-soft: #fdecec;
     --warn: #d97706; --warn-soft: #fdf3e3; --track: #eceef1;
+    --info: #0891b2; --info-soft: #e0f4f8; --purple: #7c3aed; --purple-soft: #f1ebfd;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -17,6 +18,7 @@
       --text: #e6edf3; --muted: #9aa4b2; --accent: #818cf8; --accent-soft: #20263a;
       --pass: #3fb950; --pass-soft: #16241b; --fail: #f85149; --fail-soft: #2a1719;
       --warn: #d29922; --warn-soft: #2a2113; --track: #232a33;
+      --info: #38bdf8; --info-soft: #12242e; --purple: #a78bfa; --purple-soft: #1e1b33;
     }
   }
   * { box-sizing: border-box; }
@@ -27,78 +29,113 @@
   }
   a { color: var(--accent); }
   header {
-    position: sticky; top: 0; z-index: 10; background: var(--panel);
-    border-bottom: 1px solid var(--border); padding: 14px 22px;
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 10;
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border-bottom: 1px solid var(--border); padding: 12px 22px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   }
   header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; }
   .spacer { flex: 1; }
   .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); white-space: nowrap; }
   .pill.accent { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+  .pill.info { color: var(--info); background: var(--info-soft); border-color: transparent; }
+  .pill b { color: var(--text); font-weight: 620; }
   .live { display: inline-flex; align-items: center; gap: 7px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pass); box-shadow: 0 0 0 0 rgba(63,185,80,.5); animation: pulse 2s infinite; }
   .dot.stale { background: var(--warn); animation: none; }
   .dot.err { background: var(--fail); animation: none; }
   @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(63,185,80,.45);} 70% { box-shadow: 0 0 0 7px rgba(63,185,80,0);} 100% { box-shadow: 0 0 0 0 rgba(63,185,80,0);} }
-  input, select {
-    font: inherit; color: var(--text); background: var(--panel-2);
-    border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
-  }
-  main { padding: 20px 22px 60px; max-width: 1320px; margin: 0 auto; }
+  input, select { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+  main { padding: 20px 22px 60px; max-width: 1360px; margin: 0 auto; }
   .banner { display: none; margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: var(--fail-soft); color: var(--fail); border: 1px solid var(--fail); font-size: 13px; }
   .banner.show { display: block; }
 
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
-  .tile .label { font-size: 12px; color: var(--muted); font-weight: 500; }
-  .tile .value { font-size: 28px; font-weight: 680; margin-top: 4px; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
-  .tile .sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
-  .tile.accent { border-color: var(--accent); }
-  .tile.accent .value { color: var(--accent); }
-  .tile.fail .value { color: var(--fail); }
-  .tile.pass .value { color: var(--pass); }
+  .section-title { font-size: 12px; font-weight: 640; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 26px 2px 12px; display: flex; align-items: center; gap: 8px; }
+  .section-title::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 
-  .grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; align-items: start; }
-  @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
+  .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 13px 15px; }
+  .tile .label { font-size: 11.5px; color: var(--muted); font-weight: 500; }
+  .tile .value { font-size: 26px; font-weight: 680; margin-top: 3px; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+  .tile .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .tile.accent { border-color: var(--accent); } .tile.accent .value { color: var(--accent); }
+  .tile.fail .value { color: var(--fail); } .tile.pass .value { color: var(--pass); }
+  .tile.warn .value { color: var(--warn); } .tile.info .value { color: var(--info); }
+
+  .situation { margin-top: 14px; font-size: 13.5px; color: var(--muted); }
+  .situation b { color: var(--text); font-weight: 620; }
+
+  .grid2 { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; align-items: start; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 16px; }
-  .panel > h2 { font-size: 13px; font-weight: 620; margin: 0; padding: 13px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
-  .panel > h2 .count { color: var(--muted); font-weight: 500; }
-  .panel .body { padding: 6px 16px 14px; }
-  .empty { color: var(--muted); font-size: 13px; padding: 16px; text-align: center; }
+  .panel > h2 { font-size: 13px; font-weight: 620; margin: 0; padding: 12px 15px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .panel > h2 .count { color: var(--muted); font-weight: 500; margin-left: auto; font-size: 12px; }
+  .panel .body { padding: 8px 15px 14px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 18px; text-align: center; }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  thead th { text-align: left; color: var(--muted); font-weight: 550; font-size: 11.5px; text-transform: uppercase; letter-spacing: .4px; padding: 10px 16px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
-  tbody td { padding: 9px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { text-align: left; color: var(--muted); font-weight: 550; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; padding: 9px 15px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
+  tbody td { padding: 9px 15px; border-bottom: 1px solid var(--border); vertical-align: top; }
   tbody tr:last-child td { border-bottom: none; }
-  .tc-scroll { max-height: 460px; overflow-y: auto; }
+  .scroll { max-height: 420px; overflow-y: auto; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .chip { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .chip { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; display: inline-block; }
   .chip.pass { color: var(--pass); background: var(--pass-soft); }
   .chip.fail { color: var(--fail); background: var(--fail-soft); }
+  .chip.warn { color: var(--warn); background: var(--warn-soft); }
+  .chip.info { color: var(--info); background: var(--info-soft); }
+  .chip.purple { color: var(--purple); background: var(--purple-soft); }
+  .chip.heal { color: var(--info); background: var(--info-soft); border: 1px dashed var(--info); }
   .area-tag { font-size: 11px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+  .sev { font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 5px; text-transform: uppercase; letter-spacing: .3px; }
+  .sev.critical, .sev.blocker { color: #fff; background: var(--fail); }
+  .sev.high, .sev.major { color: var(--fail); background: var(--fail-soft); }
+  .sev.medium, .sev.normal { color: var(--warn); background: var(--warn-soft); }
+  .sev.low, .sev.minor, .sev.trivial { color: var(--muted); background: var(--panel-2); }
 
   .bar-track { height: 9px; background: var(--track); border-radius: 6px; overflow: hidden; display: flex; }
-  .bar-pass { background: var(--pass); height: 100%; }
-  .bar-fail { background: var(--fail); height: 100%; }
-  .cov-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+  .bar-pass { background: var(--pass); height: 100%; } .bar-fail { background: var(--fail); height: 100%; }
+  .cov-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
   .cov-row .name { flex: 0 0 34%; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cov-row .track-wrap { flex: 1; }
   .cov-row .nums { flex: 0 0 auto; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+  .risk-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .risk-row:last-child { border-bottom: none; }
+  .risk-row .name { flex: 0 0 32%; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .risk-meter { flex: 1; height: 10px; border-radius: 6px; background: var(--track); overflow: hidden; }
+  .risk-meter > div { height: 100%; border-radius: 6px; transition: width .5s ease; }
+  .risk-score { flex: 0 0 auto; font-weight: 680; font-variant-numeric: tabular-nums; font-size: 12.5px; width: 42px; text-align: right; }
+  .risk-why { flex: 0 0 auto; font-size: 10.5px; color: var(--muted); }
+
   .bigbar { height: 12px; border-radius: 8px; background: var(--track); overflow: hidden; margin: 8px 0 4px; }
   .bigbar > div { height: 100%; background: var(--accent); border-radius: 8px; transition: width .5s ease; }
-
-  .kv { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
   .kv:last-child { border-bottom: none; }
   .kv .v { font-weight: 620; font-variant-numeric: tabular-nums; }
   .tags { display: flex; flex-wrap: wrap; gap: 6px; }
   .tag { font-size: 11.5px; padding: 3px 9px; border-radius: 7px; background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }
   .tag.hot { color: var(--fail); background: var(--fail-soft); border-color: transparent; }
   pre.directive { margin: 0; padding: 12px 14px; background: var(--panel-2); border-radius: 10px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid var(--border); }
-  .situation { margin-top: 4px; font-size: 13.5px; color: var(--muted); }
-  .situation b { color: var(--text); font-weight: 620; }
 
-  .states { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .tl { list-style: none; margin: 0; padding: 0; }
+  .tl li { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--border); }
+  .tl li:last-child { border-bottom: none; }
+  .tl .vd { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; }
+  .tl .vd.pass { background: var(--pass); } .tl .vd.fail { background: var(--fail); }
+  .tl .main { flex: 1; min-width: 0; }
+  .tl .title { font-size: 12.5px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tl .meta { font-size: 11px; color: var(--muted); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+  .mit { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .list-item { padding: 9px 0; border-bottom: 1px dashed var(--border); }
+  .list-item:last-child { border-bottom: none; }
+  .list-item .top { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  .strat-bar { height: 7px; border-radius: 5px; background: var(--track); overflow: hidden; margin-top: 6px; }
+  .strat-bar > div { height: 100%; background: var(--purple); border-radius: 5px; }
+
+  .states { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 12px; }
   .state-card { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--panel-2); }
   .state-card .shot { width: 100%; aspect-ratio: 9/16; object-fit: cover; object-position: top; background: var(--track); display: block; }
   .state-card .noshot { width: 100%; aspect-ratio: 9/16; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px; background: var(--track); }
@@ -112,6 +149,8 @@
   <h1>🐝 QA Agent — Live Dashboard</h1>
   <span class="pill" id="projectPill">project: —</span>
   <span class="pill accent" id="modelPill">model: —</span>
+  <span class="pill info" id="sessionPill" style="display:none"></span>
+  <span class="pill" id="dimsPill" style="display:none"></span>
   <span class="spacer"></span>
   <label class="live"><span class="dot" id="statusDot"></span><span class="pill" id="updatedPill">connecting…</span></label>
   <input id="projectInput" placeholder="project name" style="width:150px" />
@@ -124,14 +163,15 @@
   <div class="banner" id="banner"></div>
 
   <section class="kpis" id="kpis"></section>
-
   <div class="situation" id="situation"></div>
 
-  <div class="grid" style="margin-top:16px">
+  <!-- EXECUTION -->
+  <div class="section-title">Execution</div>
+  <div class="grid2">
     <div>
       <div class="panel">
-        <h2>Test Cases <span class="count" id="tcCount"></span></h2>
-        <div class="tc-scroll">
+        <h2>🧪 Test Cases <span class="count" id="tcCount"></span></h2>
+        <div class="scroll">
           <table>
             <thead><tr><th>ID</th><th>Title</th><th>Area</th><th style="text-align:right">Verdict</th></tr></thead>
             <tbody id="tcBody"></tbody>
@@ -139,37 +179,85 @@
         </div>
       </div>
     </div>
-
-    <div>
-      <div class="panel">
-        <h2>🐞 Bugs Found <span class="count" id="bugCount"></span></h2>
-        <div class="body" id="bugsBody"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Coverage by Area <span class="count" id="covPct"></span></h2>
-        <div class="body">
-          <div class="bigbar"><div id="covFill" style="width:0%"></div></div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:6px" id="covSummary"></div>
-          <div id="covRows"></div>
-          <div style="margin-top:10px" class="tags" id="uncoveredTags"></div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h2>📜 SRS Knowledge — business policies</h2>
-        <div class="body" id="srsBody"></div>
-      </div>
-
-      <div class="panel">
-        <h2>🧭 Exploration Directive</h2>
-        <div class="body"><pre class="directive" id="directive">—</pre></div>
-      </div>
+    <div class="panel">
+      <h2>🧬 Execution Timeline <span class="count" id="execCount"></span></h2>
+      <div class="body scroll"><ul class="tl" id="execBody"></ul></div>
     </div>
   </div>
 
-  <div class="panel" style="margin-top:16px">
-    <h2>🗺️ Live App Model <span class="count" id="appmodelCount"></span></h2>
+  <!-- RISK & DEFECTS -->
+  <div class="section-title">Risk &amp; Defects</div>
+  <div class="grid3">
+    <div class="panel">
+      <h2>⚠️ Regression Risk <span class="count" id="riskCount"></span></h2>
+      <div class="body" id="riskBody"></div>
+    </div>
+    <div class="panel">
+      <h2>🐛 Defect Intelligence <span class="count" id="defCount"></span></h2>
+      <div class="body" id="defBody"></div>
+    </div>
+    <div class="panel">
+      <h2>🐞 Bugs Found (live) <span class="count" id="bugCount"></span></h2>
+      <div class="body scroll" id="bugsBody"></div>
+    </div>
+  </div>
+
+  <!-- LEARNING -->
+  <div class="section-title">Learning</div>
+  <div class="grid3">
+    <div class="panel">
+      <h2>🎯 Strategy Memory <span class="count" id="stratCount"></span></h2>
+      <div class="body" id="stratBody"></div>
+    </div>
+    <div class="panel">
+      <h2>🔁 Error Patterns <span class="count" id="epCount"></span></h2>
+      <div class="body" id="epBody"></div>
+    </div>
+    <div class="panel">
+      <h2>🧭 Navigation Memory <span class="count" id="navCount"></span></h2>
+      <div class="body" id="navBody"></div>
+    </div>
+  </div>
+
+  <!-- COVERAGE -->
+  <div class="section-title">Coverage</div>
+  <div class="grid2">
+    <div class="panel">
+      <h2>📊 Coverage by Area <span class="count" id="covPct"></span></h2>
+      <div class="body">
+        <div class="bigbar"><div id="covFill" style="width:0%"></div></div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px" id="covSummary"></div>
+        <div id="covRows"></div>
+        <div style="margin-top:10px" class="tags" id="uncoveredTags"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>🧭 Exploration Directive</h2>
+      <div class="body"><pre class="directive" id="directive">—</pre></div>
+    </div>
+  </div>
+
+  <!-- KNOWLEDGE -->
+  <div class="section-title">Knowledge &amp; Business Logic</div>
+  <div class="grid3">
+    <div class="panel">
+      <h2>📜 SRS Knowledge</h2>
+      <div class="body" id="srsBody"></div>
+    </div>
+    <div class="panel">
+      <h2>📐 Business-Logic Health <span class="count" id="blCount"></span></h2>
+      <div class="body" id="blBody"></div>
+    </div>
+    <div class="panel">
+      <h2>🧱 Dimensions <span class="count" id="dimCount"></span></h2>
+      <div class="body" id="dimBody"></div>
+    </div>
+  </div>
+
+  <!-- APP MODEL -->
+  <div class="section-title">Live App Model</div>
+  <div class="panel">
+    <h2>🗺️ Screens Reached <span class="count" id="appmodelCount"></span></h2>
     <div class="body">
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px" id="appmodelSummary">The self-built map of screens the agent has actually reached, deduped by structural signature.</div>
       <div class="states" id="statesGrid"></div>
@@ -187,43 +275,64 @@
   let lastOk = 0;
   const REFRESH_MS = 4000;
 
-  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
-  function num(n) { return (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString(); }
-
-  function tile(label, value, sub, cls) {
-    return `<div class="tile ${cls || ""}"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
-  }
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const num = (n) => (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString();
+  const pct = (n) => Math.round((Number(n) || 0) * 100);
+  const riskColor = (s) => s >= 0.66 ? "var(--fail)" : s >= 0.33 ? "var(--warn)" : "var(--pass)";
+  const ago = (iso) => { if (!iso) return ""; const d = (Date.now() - new Date(iso).getTime()) / 1000; if (isNaN(d)) return ""; if (d < 60) return Math.max(0, Math.round(d)) + "s"; if (d < 3600) return Math.round(d/60) + "m"; if (d < 86400) return Math.round(d/3600) + "h"; return Math.round(d/86400) + "d"; };
+  const tile = (label, value, sub, cls) => `<div class="tile ${cls || ""}"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
 
   function render(d) {
     const s = d.stats || {}, c = d.coverage || {};
     const cov = c.summary || {};
     const recent = c.recent_tests || [];
     const areas = c.area_breakdown || {};
+    const risk = d.risk_scores || [];
+    const defects = d.defects || {};
+    const execs = d.executions || [];
+    const strategies = d.strategies || [];
+    const patterns = d.error_patterns || [];
+    const session = d.session || {};
+    const dims = d.dimensions || {};
+    const drift = d.drift || {};
+    const bl = d.business_logic || {};
+    const nav = d.navtree || {};
+    const navFailed = d.nav_failed || [];
     const failed = recent.filter(t => String(t.verdict).toLowerCase() === "failed");
     const passed = recent.filter(t => String(t.verdict).toLowerCase() === "pass");
     const passRate = recent.length ? Math.round(100 * passed.length / recent.length) : 0;
+    const heals = execs.filter(e => (e.recovery_action || "").includes("RECOVERED")).length;
+    const topRisk = risk[0];
 
-    $("projectPill").textContent = "project: " + d.project;
+    $("projectPill").innerHTML = "project: <b>" + esc(d.project) + "</b>";
     $("modelPill").textContent = "model: " + ((d.model && (d.model.model || d.model.backend)) || "—");
 
-    // KPI tiles
+    // Session + dimensions header pills
+    if (session.active) {
+      $("sessionPill").style.display = "";
+      $("sessionPill").innerHTML = `● session: <b>${esc(session.focus_area || "open")}</b> · ${session.tests_generated || 0} tests · ${session.defects_found || 0} bugs`;
+    } else $("sessionPill").style.display = "none";
+    const dimVals = [...(dims.application||[]), ...(dims.platform||[]), ...(dims.profile||[])];
+    if (dimVals.length) { $("dimsPill").style.display = ""; $("dimsPill").innerHTML = "🧱 " + dimVals.map(esc).join(" · "); }
+    else $("dimsPill").style.display = "none";
+
+    // KPIs
     $("kpis").innerHTML = [
       tile("Total Tests", num(s.test_case_count), (s.test_run_count || 0) + " runs"),
       tile("Pass Rate", passRate + "%", passed.length + "/" + recent.length + " recent", "pass"),
       tile("Bugs Found", num(failed.length), "failed verdicts", "fail"),
       tile("Coverage", (cov.coverage_pct != null ? cov.coverage_pct : 0) + "%", (cov.areas_tested || 0) + "/" + (cov.areas_available || 0) + " areas"),
-      tile("Business Policies", num(s.validation_rule_count), "validation rules (SRS)", "accent"),
-      tile("Requirements", num(s.requirement_count), num(s.covered_requirement_count) + " covered"),
-      tile("Entities", num(s.entity_count), "domain entities"),
-      tile("Screens", num(s.figma_screen_count), num(s.figma_element_count) + " UI elements"),
+      tile("Top Risk", topRisk ? topRisk.regression_risk_score : "—", topRisk ? esc(topRisk.area) : "no risk data", "warn"),
+      tile("Defects (KB)", num(defects.total_defects), (defects.unresolved_defects || 0) + " unresolved", "info"),
+      tile("Self-Heals", num(heals), "recovered runs", "info"),
+      tile("Requirements", num(s.requirement_count), num(s.covered_requirement_count) + " covered", "accent"),
     ].join("");
 
-    // Situation line
     $("situation").innerHTML = recent.length
-      ? `Overall: <b>${num(s.test_case_count)}</b> test cases generated, <b>${failed.length}</b> bug(s) found across <b>${cov.areas_tested || 0}</b> of <b>${cov.areas_available || 0}</b> UI areas. The agent evaluated <b>${num(s.requirement_count)}</b> requirements and <b>${num(s.validation_rule_count)}</b> business policies extracted from the SRS.`
+      ? `Overall: <b>${num(s.test_case_count)}</b> tests, <b>${failed.length}</b> bug(s) across <b>${cov.areas_tested || 0}</b>/<b>${cov.areas_available || 0}</b> areas. Knowledge base holds <b>${num(defects.total_defects)}</b> historical defects and <b>${num(s.validation_rule_count)}</b> business rules; the agent has learned <b>${nav.nav_nodes || 0}</b> navigation nodes and <b>${strategies.length}</b> strategies.`
       : `No tests executed yet for <b>${esc(d.project)}</b>. Start the executor loop to begin exploration.`;
 
-    // Test cases table
+    // Test cases
     $("tcCount").textContent = recent.length ? `(${recent.length})` : "";
     $("tcBody").innerHTML = recent.length ? recent.map(t => {
       const v = String(t.verdict || "").toLowerCase();
@@ -231,13 +340,80 @@
       return `<tr><td class="mono">${esc(t.id)}</td><td>${esc(t.title)}</td><td><span class="area-tag">${esc(t.area || "—")}</span></td><td style="text-align:right">${chip}</td></tr>`;
     }).join("") : `<tr><td colspan="4"><div class="empty">No test cases yet.</div></td></tr>`;
 
+    // Execution timeline (WP3 + WP7 self-healing)
+    $("execCount").textContent = execs.length ? `(${execs.length})` : "";
+    $("execBody").innerHTML = execs.length ? execs.map(e => {
+      const v = String(e.verdict || "").toLowerCase();
+      const err = e.error_type ? `<span class="chip fail">${esc(e.error_type)}</span>` : "";
+      const heal = (e.recovery_action || "").includes("RECOVERED")
+        ? `<span class="chip heal">🔧 self-healed</span>`
+        : (e.recovery_action ? `<span class="chip warn" title="${esc(e.recovery_action)}">🔧 recovery tried</span>` : "");
+      const dur = e.duration_ms ? (Math.round(e.duration_ms / 100) / 10) + "s" : "";
+      const steps = (e.device_steps != null ? e.device_steps + " steps" : "");
+      const path = (e.states_visited ? e.states_visited + " states" : "");
+      return `<li><span class="vd ${v === "failed" ? "fail" : "pass"}"></span><div class="main">
+        <div class="title">${esc(e.title || e.test_case_id || "run")}</div>
+        <div class="meta">${dur ? dur + " ·" : ""} ${steps} ${path ? "· " + path : ""} ${err} ${heal} <span style="margin-left:auto">${ago(e.created_at)}</span></div>
+      </div></li>`;
+    }).join("") : `<div class="empty">No executions yet — run the executor loop.</div>`;
+
+    // Regression risk (WP7)
+    $("riskCount").textContent = risk.length ? `(${risk.length})` : "";
+    $("riskBody").innerHTML = risk.length ? risk.slice(0, 8).map(r => {
+      const sc = r.regression_risk_score || 0, w = Math.round(sc * 100);
+      return `<div class="risk-row"><div class="name" title="${esc(r.area)}">${esc(r.area)}</div>
+        <div class="risk-meter"><div style="width:${w}%;background:${riskColor(sc)}"></div></div>
+        <div class="risk-score" style="color:${riskColor(sc)}">${sc}</div>
+        <div class="risk-why">${r.defect_count || 0}🐛 ${r.failed_tests || 0}/${r.total_tests || 0}✗</div></div>`;
+    }).join("") : `<div class="empty">No risk signal yet — ingest defects or run tests.</div>`;
+
+    // Defect intelligence (WP2)
+    const sevDist = defects.severity_distribution || {};
+    const prone = defects.prone_areas || [];
+    $("defCount").textContent = defects.total_defects ? `(${defects.total_defects})` : "";
+    $("defBody").innerHTML = (defects.total_defects) ? `
+      <div class="kv"><span>Total / unresolved</span><span class="v">${num(defects.total_defects)} / ${num(defects.unresolved_defects)}</span></div>
+      <div style="margin:8px 0"><div style="font-size:11px;color:var(--muted);margin-bottom:5px">Severity</div>
+        <div class="tags">${Object.entries(sevDist).map(([k,v]) => `<span class="sev ${esc(k)}">${esc(k)} ${v}</span>`).join("") || "—"}</div></div>
+      <div style="font-size:11px;color:var(--muted);margin:8px 0 5px">Defect-prone areas</div>
+      ${prone.slice(0,5).map(a => `<div class="kv"><span>${esc(a.area)}</span><span class="v">${a.defect_count} · density ${a.density}</span></div>`).join("") || `<div class="empty">—</div>`}
+    ` : `<div class="empty">No defect history ingested (POST /defects/ingest).</div>`;
+
     // Bugs
     $("bugCount").textContent = failed.length ? `(${failed.length})` : "";
     $("bugsBody").innerHTML = failed.length ? failed.map(t =>
       `<div class="kv"><span>${esc(t.title)}</span><span class="area-tag">${esc(t.area || "—")}</span></div>`
     ).join("") : `<div class="empty">No bugs found yet ✨</div>`;
 
-    // Coverage by area
+    // Strategy memory (WP5)
+    $("stratCount").textContent = strategies.length ? `(${strategies.length})` : "";
+    $("stratBody").innerHTML = strategies.length ? strategies.slice(0, 6).map(st => {
+      const sc = st.decayed_score != null ? st.decayed_score : (st.effectiveness_score || 0);
+      return `<div class="list-item"><div class="top"><span>${esc(st.strategy_type)}</span>
+        <span class="chip purple">${sc}</span></div>
+        <div class="strat-bar"><div style="width:${Math.round(sc*100)}%"></div></div>
+        <div class="mit">found defects ${st.times_effective || 0}/${st.times_applied || 0} times</div></div>`;
+    }).join("") : `<div class="empty">No strategies learned yet.</div>`;
+
+    // Error patterns (WP5)
+    $("epCount").textContent = patterns.length ? `(${patterns.length})` : "";
+    $("epBody").innerHTML = patterns.length ? patterns.slice(0, 6).map(p =>
+      `<div class="list-item"><div class="top"><span><span class="chip fail">${esc(p.error_type)}</span> on <b>${esc(p.screen)}</b></span>
+        <span class="area-tag">×${p.frequency}</span></div>
+        <div class="mit">${esc(p.suggested_mitigation || "")}</div></div>`
+    ).join("") : `<div class="empty">No recurring error patterns.</div>`;
+
+    // Navigation memory (WP4)
+    $("navCount").textContent = nav.nav_nodes ? `(${nav.nav_nodes} nodes)` : "";
+    $("navBody").innerHTML = (nav.nav_nodes || navFailed.length) ? `
+      <div class="kv"><span>Learned nav nodes</span><span class="v">${num(nav.nav_nodes)}</span></div>
+      <div class="kv"><span>Dead-end nodes (avoid)</span><span class="v">${num(nav.avoid_nodes)}</span></div>
+      <div class="kv"><span>Max path depth</span><span class="v">${num(nav.max_depth)}</span></div>
+      ${navFailed.length ? `<div style="font-size:11px;color:var(--muted);margin:8px 0 5px">Paths to avoid</div>
+        ${navFailed.slice(0,4).map(f => `<div class="mit">✗ ${esc(f.action || "?")} → ${esc(f.screen || "?")} (${f.success_count}/${f.visit_count})</div>`).join("")}` : ""}
+    ` : `<div class="empty">No navigation paths learned yet.</div>`;
+
+    // Coverage
     $("covPct").textContent = (cov.coverage_pct != null ? cov.coverage_pct : 0) + "%";
     $("covFill").style.width = (cov.coverage_pct || 0) + "%";
     $("covSummary").textContent = `${cov.areas_tested || 0} of ${cov.areas_available || 0} known UI areas exercised`;
@@ -246,56 +422,73 @@
     $("covRows").innerHTML = areaEntries.length ? areaEntries.map(([name, st]) => {
       const tot = st.total || 0, ps = st.passed || 0, fl = st.failed || 0;
       const pw = tot ? (100 * ps / tot) : 0, fw = tot ? (100 * fl / tot) : 0;
-      const hotTag = hot.has(name) ? ' 🔥' : '';
-      return `<div class="cov-row"><div class="name" title="${esc(name)}">${esc(name)}${hotTag}</div>
+      return `<div class="cov-row"><div class="name" title="${esc(name)}">${esc(name)}${hot.has(name) ? ' 🔥' : ''}</div>
         <div class="track-wrap"><div class="bar-track"><div class="bar-pass" style="width:${pw}%"></div><div class="bar-fail" style="width:${fw}%"></div></div></div>
         <div class="nums">${ps}✓ ${fl}✗</div></div>`;
     }).join("") : `<div class="empty">No area data yet.</div>`;
-
     const unc = c.uncovered_areas || [];
     $("uncoveredTags").innerHTML = unc.length
       ? `<span style="font-size:11.5px;color:var(--muted);align-self:center">untested:</span>` + unc.map(a => `<span class="tag">${esc(a)}</span>`).join("")
       : "";
 
+    $("directive").textContent = (c.exploration_directive || "—");
+
     // SRS knowledge
     $("srsBody").innerHTML = `
       <div class="kv"><span>Requirements extracted</span><span class="v">${num(s.requirement_count)}</span></div>
-      <div class="kv"><span>Business policies (validation rules)</span><span class="v">${num(s.validation_rule_count)}</span></div>
+      <div class="kv"><span>Business rules</span><span class="v">${num(s.validation_rule_count)}</span></div>
       <div class="kv"><span>Domain entities</span><span class="v">${num(s.entity_count)}</span></div>
-      <div class="kv"><span>Requirements covered by tests</span><span class="v">${num(s.covered_requirement_count)} / ${num(s.requirement_count)}</span></div>
-      <div class="kv"><span>SRS chunks embedded</span><span class="v">${num(s.embedded_chunk_count)} / ${num(s.chunk_count)}</span></div>
-      <div style="font-size:11.5px;color:var(--muted);margin-top:8px">Extracted by the LLM from the ingested SRS.</div>`;
+      <div class="kv"><span>Requirements covered</span><span class="v">${num(s.covered_requirement_count)} / ${num(s.requirement_count)}</span></div>
+      <div class="kv"><span>SRS chunks embedded</span><span class="v">${num(s.embedded_chunk_count)} / ${num(s.chunk_count)}</span></div>`;
 
-    // Directive
-    $("directive").textContent = (c.exploration_directive || "—");
+    // Business-logic health (WP5): drift + low-confidence rules
+    const latest = drift.latest || {};
+    const retest = drift.areas_needing_retest || [];
+    const lowConf = bl.rules || [];
+    $("blCount").textContent = drift.total_versions ? `(v${drift.total_versions})` : "";
+    $("blBody").innerHTML = `
+      <div class="kv"><span>SRS versions</span><span class="v">${num(drift.total_versions)}</span></div>
+      ${latest.version ? `<div class="kv"><span>Latest drift</span><span class="v">+${latest.rules_added||0} / −${latest.rules_removed||0} rules</span></div>` : ""}
+      ${retest.length ? `<div style="margin:8px 0 4px"><span class="chip warn">${retest.length} area(s) need re-test</span></div>
+        <div class="tags">${retest.slice(0,6).map(r => `<span class="tag hot">${esc(r.area)}</span>`).join("")}</div>` : ""}
+      ${(latest.open_questions||[]).length ? `<div style="font-size:11px;color:var(--muted);margin:8px 0 4px">Open questions (deferred rules)</div>
+        ${latest.open_questions.slice(0,3).map(q => `<div class="mit">• ${esc(q)}</div>`).join("")}` : ""}
+      <div class="kv" style="margin-top:6px"><span>Low-confidence rules (review)</span><span class="v">${num(lowConf.length)}</span></div>
+      ${lowConf.slice(0,3).map(r => `<div class="mit">⚑ [${esc(r.requirement_id)}] ${esc((r.rule||"").slice(0,70))} <span style="color:var(--warn)">(${r.confidence})</span></div>`).join("")}`;
+
+    // Dimensions (WP6)
+    const allDims = [["application", dims.application], ["platform", dims.platform], ["profile", dims.profile]];
+    const dimTotal = dimVals.length;
+    $("dimCount").textContent = dimTotal ? `(${dimTotal})` : "";
+    $("dimBody").innerHTML = dimTotal ? allDims.map(([k, arr]) =>
+      (arr && arr.length) ? `<div style="margin-bottom:8px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px">${k}</div>
+        <div class="tags">${arr.map(v => `<span class="tag">${esc(v)}</span>`).join("")}</div></div>` : ""
+    ).join("") : `<div class="empty">Single-dimension project (no profile/platform/application tags).</div>`;
 
     // Live App Model
     const am = d.appmodel || {};
     const states = am.nodes || [], trans = am.edges || [];
-    $("appmodelCount").textContent = states.length ? `(${states.length} states · ${trans.length} transitions)` : "";
+    const stale = states.filter(n => n.stale).length;
+    $("appmodelCount").textContent = states.length ? `(${states.length} states · ${trans.length} transitions${stale ? " · " + stale + " stale" : ""})` : "";
     $("appmodelSummary").textContent = states.length
-      ? `${states.length} distinct screens reached, ${trans.length} transitions learned. Built live from the executor's real navigation — scrolling/theme don't create duplicates.`
-      : `No states observed yet. Run the executor loop — the map builds itself as the agent explores the app.`;
+      ? `${states.length} distinct screens reached, ${trans.length} transitions learned. Built live from the executor's real navigation${stale ? `; ${stale} state(s) fading (knowledge decay)` : ""}.`
+      : `No states observed yet. Run the executor loop — the map builds itself as the agent explores.`;
     $("statesGrid").innerHTML = states.length ? states.slice(0, 24).map(n => {
       const shot = n.has_shot
         ? `<img class="shot" loading="lazy" src="/dashboard/screenshot?project=${encodeURIComponent(d.project)}&state_id=${encodeURIComponent(n.id)}" alt="">`
         : `<div class="noshot">no screenshot</div>`;
-      const dlg = n.has_dialog ? " · dialog" : "";
-      return `<div class="state-card">${shot}<div class="meta"><div class="name" title="${esc(n.label)}">${esc(n.label || "?")}</div><div class="sub">${n.visits || 0} visits · ${n.elements || 0} controls${dlg}</div></div></div>`;
+      const flags = (n.has_dialog ? " · dialog" : "") + (n.stale ? " · stale" : "");
+      return `<div class="state-card" style="${n.stale ? "opacity:.6" : ""}">${shot}<div class="meta"><div class="name" title="${esc(n.label)}">${esc(n.label || "?")}</div><div class="sub">${n.visits || 0} visits · ${n.elements || 0} controls${flags}</div></div></div>`;
     }).join("") : `<div class="empty">No app-model states yet.</div>`;
   }
 
-  function setStatus(state) {
-    const dot = $("statusDot");
-    dot.className = "dot" + (state === "ok" ? "" : state === "stale" ? " stale" : " err");
-  }
+  function setStatus(state) { $("statusDot").className = "dot" + (state === "ok" ? "" : state === "stale" ? " stale" : " err"); }
 
   async function poll() {
     try {
       const r = await fetch(`/dashboard/data?project=${encodeURIComponent(project)}`, { cache: "no-store" });
       if (!r.ok) throw new Error("HTTP " + r.status);
-      const d = await r.json();
-      render(d);
+      render(await r.json());
       lastOk = Date.now();
       $("banner").classList.remove("show");
       setStatus("ok");

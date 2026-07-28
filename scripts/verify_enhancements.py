@@ -256,6 +256,12 @@ def main() -> int:
     print("\nWP6 multi-dimensional KG")
     # Reset just the SRS slice so all chunks carry one platform tag (clean filter demo).
     post("/project/reset", {"project": PROJECT, "delete_tests": False, "delete_srs": True, "delete_figma": False})
+    # Reset (delete_srs) also deletes the knowledge-base defect slice — the cached
+    # p.defect_summary text and fa.defect_density must not outlive the deleted defects,
+    # or the brief/risk score would report phantom defects.
+    dsum_after_reset = get("/defects/summary", {"project": PROJECT})
+    check("reset clears live defect totals", dsum_after_reset.get("total_defects", -1) == 0, str(dsum_after_reset.get("total_defects")))
+    check("reset clears cached defect summary text", "defects" not in (dsum_after_reset.get("summary_text") or ""), repr(dsum_after_reset.get("summary_text"))[:80])
     srs_dim = ("FR-1: The contact list shall display saved contacts alphabetically.\n"
                "FR-2: The user shall refresh the contact list by pulling down.\n")
     extraction, _ = extractor.extract(srs_dim, model_call=None)
