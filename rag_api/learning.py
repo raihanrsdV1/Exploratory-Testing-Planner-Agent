@@ -273,6 +273,67 @@ def session_context(session, project, recent_limit: int = 10) -> dict:
     }
 
 
+def _age_seconds(iso_timestamp: str) -> float | None:
+    """Seconds between now and an ISO timestamp; None if unparseable."""
+    if not iso_timestamp:
+        return None
+    try:
+        ts = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - ts).total_seconds()
+
+
+# ── Live execution status (WP9 / operator dashboard) ─────────────────────────
+
+def session_live(session, project, running_window_s: int = 120, stream: int = 15) -> dict:
+    """What the agent is doing *right now*: the current/most-recent execution, a
+    live verdict stream, and the active session. 'executing' is inferred from the
+    recency of the latest ExecutionLog (the executor writes one per completed run)."""
+    latest = session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)
+        RETURN e.test_case_id AS test_case_id, e.title AS title, e.verdict AS verdict,
+               e.error_type AS error_type, e.recovery_action AS recovery_action,
+               e.duration_ms AS duration_ms, e.device_steps AS device_steps,
+               e.created_at AS created_at
+        ORDER BY e.created_at DESC LIMIT 1
+        """,
+        project=project,
+    ).single()
+    recent = [dict(r) for r in session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)
+        RETURN e.test_case_id AS test_case_id, e.title AS title, e.verdict AS verdict,
+               e.error_type AS error_type, e.created_at AS created_at
+        ORDER BY e.created_at DESC LIMIT $stream
+        """,
+        project=project, stream=stream,
+    )]
+
+    current = dict(latest) if latest else {}
+    age = _age_seconds(current.get("created_at")) if current else None
+    executing = bool(current) and age is not None and age <= running_window_s
+
+    sess = _active_session(session, project)
+    ctx = session_context(session, project) if sess else {"tests_generated": 0, "defects_found": 0}
+
+    return {
+        "project": project,
+        "executing": executing,
+        "status": "executing" if executing else "idle",
+        "current": {**current, "age_seconds": round(age) if age is not None else None} if current else {},
+        "recent_verdicts": recent,
+        "session_active": bool(sess),
+        "session_id": (sess or {}).get("id", ""),
+        "focus_area": (sess or {}).get("focus_area", ""),
+        "tests_run": ctx.get("tests_generated", 0),
+        "bugs_found": ctx.get("defects_found", 0),
+    }
+
+
 def session_end(session, project, session_id, now) -> dict:
     ctx = session_context(session, project)
     target = session_id or ctx.get("session_id", "")

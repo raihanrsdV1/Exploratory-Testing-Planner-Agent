@@ -142,6 +142,44 @@
   .state-card .meta { padding: 8px 10px; }
   .state-card .meta .name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .state-card .meta .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* WP9 — live activity */
+  .live-pill { border-color: transparent; font-weight: 600; }
+  .live-pill.idle { color: var(--muted); background: var(--panel-2); }
+  .live-pill.executing { color: #fff; background: var(--pass); animation: livepulse 1.4s ease-in-out infinite; }
+  @keyframes livepulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+  .livebar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 6px; }
+  .live-now { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .live-now .lbl { color: var(--muted); font-weight: 500; }
+  .live-now .rundot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .live-now .rundot.on { background: var(--pass); box-shadow: 0 0 0 0 rgba(22,163,74,.5); animation: ring 1.4s infinite; }
+  @keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.5); } 70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } }
+  .verdict-stream { display: flex; gap: 5px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+  .verdict-stream .lbl { font-size: 11px; color: var(--muted); margin-right: 4px; }
+  .vchip { width: 15px; height: 15px; border-radius: 4px; background: var(--track); display: inline-block; }
+  .vchip.pass { background: var(--pass); } .vchip.fail { background: var(--fail); } .vchip.other { background: var(--warn); }
+
+  /* WP9 — app model graph */
+  .graph-wrap { position: relative; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2); overflow: hidden; }
+  .app-graph { width: 100%; height: 420px; display: block; }
+  .app-graph .edge { stroke: var(--border); stroke-width: 1.5; }
+  .app-graph .edge.hot { stroke: var(--accent); stroke-width: 2.5; }
+  .app-graph .node { cursor: pointer; }
+  .app-graph .node circle { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; transition: fill .15s; }
+  .app-graph .node.stale circle { stroke: var(--muted); fill: var(--track); opacity: .6; }
+  .app-graph .node:hover circle { fill: var(--accent); }
+  .app-graph .node text { font-size: 10px; fill: var(--text); pointer-events: none; }
+  .graph-tip { position: absolute; pointer-events: none; display: none; z-index: 5; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.18); width: 132px; }
+  .graph-tip img { width: 120px; aspect-ratio: 9/16; object-fit: cover; object-position: top; border-radius: 5px; display: block; background: var(--track); }
+  .graph-tip .cap { font-size: 11px; margin-top: 4px; font-weight: 600; }
+  .graph-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+
+  /* WP9 — trend charts */
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+  .chart { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--panel-2); }
+  .chart .ct { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .chart .ct b { color: var(--text); font-size: 13px; }
+  .chart svg { width: 100%; height: 54px; display: block; }
 </style>
 </head>
 <body>
@@ -149,6 +187,7 @@
   <h1>🐝 QA Agent — Live Dashboard</h1>
   <span class="pill" id="projectPill">project: —</span>
   <span class="pill accent" id="modelPill">model: —</span>
+  <span class="pill live-pill idle" id="livePill">● idle</span>
   <span class="pill info" id="sessionPill" style="display:none"></span>
   <span class="pill" id="dimsPill" style="display:none"></span>
   <span class="spacer"></span>
@@ -164,6 +203,12 @@
 
   <section class="kpis" id="kpis"></section>
   <div class="situation" id="situation"></div>
+
+  <!-- LIVE ACTIVITY (WP9) -->
+  <div class="livebar" id="livebar">
+    <div class="live-now" id="liveNow"></div>
+    <div class="verdict-stream" id="verdictStream"></div>
+  </div>
 
   <!-- EXECUTION -->
   <div class="section-title">Execution</div>
@@ -267,12 +312,28 @@
     </div>
   </div>
 
-  <!-- APP MODEL -->
+  <!-- GETS-SMARTER TRENDS (WP9 / Part F) -->
+  <div class="section-title">Getting Smarter — Trends</div>
+  <div class="panel">
+    <h2>📈 Learning Trends <span class="count" id="trendRuns"></span></h2>
+    <div class="body">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px" id="trendSummary">Per-run signals across the project's execution history — proof the agent improves as it learns.</div>
+      <div class="charts" id="chartsGrid"></div>
+    </div>
+  </div>
+
+  <!-- APP MODEL (WP9 graph) -->
   <div class="section-title">Live App Model</div>
   <div class="panel">
-    <h2>🗺️ Screens Reached <span class="count" id="appmodelCount"></span></h2>
+    <h2>🗺️ App Model Graph <span class="count" id="appmodelCount"></span></h2>
     <div class="body">
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px" id="appmodelSummary">The self-built map of screens the agent has actually reached, deduped by structural signature.</div>
+      <div class="graph-wrap">
+        <svg id="appGraph" class="app-graph" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="graph-tip" id="graphTip"></div>
+        <div class="graph-empty empty" id="graphEmpty">No app-model states yet. Run the executor loop — the map builds itself as the agent explores.</div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin:12px 0 6px">Screens reached (hover a node above for its screenshot)</div>
       <div class="states" id="statesGrid"></div>
     </div>
   </div>
@@ -294,6 +355,78 @@
   const riskColor = (s) => s >= 0.66 ? "var(--fail)" : s >= 0.33 ? "var(--warn)" : "var(--pass)";
   const ago = (iso) => { if (!iso) return ""; const d = (Date.now() - new Date(iso).getTime()) / 1000; if (isNaN(d)) return ""; if (d < 60) return Math.max(0, Math.round(d)) + "s"; if (d < 3600) return Math.round(d/60) + "m"; if (d < 86400) return Math.round(d/3600) + "h"; return Math.round(d/86400) + "d"; };
   const tile = (label, value, sub, cls) => `<div class="tile ${cls || ""}"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+
+  // WP9 — inline SVG sparkline (self-contained, no external chart lib).
+  function sparkline(values, color, area) {
+    const w = 100, h = 30, n = (values || []).length;
+    if (!n) return `<svg viewBox="0 0 ${w} ${h}"></svg>`;
+    const min = Math.min(...values), max = Math.max(...values), span = (max - min) || 1;
+    const pts = values.map((v, i) => {
+      const x = n === 1 ? w / 2 : (i / (n - 1)) * w;
+      const y = h - ((v - min) / span) * (h - 4) - 2;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    const fill = area ? `<polygon points="0,${h} ${pts.join(" ")} ${w},${h}" fill="${color}" opacity="0.13"/>` : "";
+    return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${fill}<polyline fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke" points="${pts.join(" ")}"/></svg>`;
+  }
+  function chartCard(title, values, unit, color, area) {
+    const last = (values && values.length) ? values[values.length - 1] : 0;
+    return `<div class="chart"><div class="ct"><span>${title}</span><b>${last}${unit || ""}</b></div>${sparkline(values, color, area)}</div>`;
+  }
+
+  // WP9 — App Model as a force-directed graph. Only re-laid-out when the state/
+  // transition set changes, so the map visibly "grows" instead of jittering.
+  let _graphSig = "";
+  function drawGraph(svg, tipEl, wrapEl, project, nodes, edges) {
+    const sig = nodes.map(n => n.id).join(",") + "|" + edges.length;
+    if (sig === _graphSig) return;
+    _graphSig = sig;
+    const W = 800, H = 420, pad = 42, N = nodes.length;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    if (!N) { svg.innerHTML = ""; return; }
+    const idx = {}; nodes.forEach((n, i) => idx[n.id] = i);
+    const pos = nodes.map((n, i) => { const a = (i / N) * 2 * Math.PI; return { x: W / 2 + Math.cos(a) * W * 0.3, y: H / 2 + Math.sin(a) * H * 0.32, vx: 0, vy: 0 }; });
+    const links = edges.map(e => ({ s: idx[e.source], t: idx[e.target], hot: (e.visits || 0) > 1 })).filter(l => l.s != null && l.t != null);
+    const k = 170;
+    for (let it = 0; it < (N > 1 ? 150 : 0); it++) {
+      for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+        let dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y, d2 = dx * dx + dy * dy || 1, d = Math.sqrt(d2);
+        const rep = 9500 / d2, fx = (dx / d) * rep, fy = (dy / d) * rep;
+        pos[i].vx += fx; pos[i].vy += fy; pos[j].vx -= fx; pos[j].vy -= fy;
+      }
+      for (const l of links) {
+        let dx = pos[l.t].x - pos[l.s].x, dy = pos[l.t].y - pos[l.s].y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const f = (d - k) * 0.02, fx = (dx / d) * f, fy = (dy / d) * f;
+        pos[l.s].vx += fx; pos[l.s].vy += fy; pos[l.t].vx -= fx; pos[l.t].vy -= fy;
+      }
+      for (let i = 0; i < N; i++) {
+        pos[i].vx += (W / 2 - pos[i].x) * 0.005; pos[i].vy += (H / 2 - pos[i].y) * 0.005;
+        pos[i].x += Math.max(-22, Math.min(22, pos[i].vx)); pos[i].y += Math.max(-22, Math.min(22, pos[i].vy));
+        pos[i].vx *= 0.85; pos[i].vy *= 0.85;
+        pos[i].x = Math.max(pad, Math.min(W - pad, pos[i].x)); pos[i].y = Math.max(pad, Math.min(H - pad, pos[i].y));
+      }
+    }
+    const maxV = Math.max(1, ...nodes.map(n => n.visits || 0));
+    let s = `<defs><marker id="arw" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--border)"/></marker></defs>`;
+    for (const l of links) { const a = pos[l.s], b = pos[l.t]; s += `<line class="edge${l.hot ? " hot" : ""}" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" marker-end="url(#arw)"/>`; }
+    nodes.forEach((n, i) => {
+      const r = 8 + 10 * ((n.visits || 0) / maxV);
+      s += `<g class="node${n.stale ? " stale" : ""}" data-id="${esc(n.id)}" data-shot="${n.has_shot ? 1 : 0}" data-label="${esc(n.label || "?")}" transform="translate(${pos[i].x.toFixed(1)},${pos[i].y.toFixed(1)})"><circle r="${r.toFixed(1)}"></circle><text text-anchor="middle" dy="${(r + 11).toFixed(1)}">${esc((n.label || "?").slice(0, 16))}</text></g>`;
+    });
+    svg.innerHTML = s;
+    svg.querySelectorAll(".node").forEach(g => {
+      g.addEventListener("mousemove", (ev) => {
+        const rect = wrapEl.getBoundingClientRect();
+        tipEl.style.left = Math.min(ev.clientX - rect.left + 14, rect.width - 140) + "px";
+        tipEl.style.top = Math.min(ev.clientY - rect.top + 14, rect.height - 200) + "px";
+        const id = g.getAttribute("data-id"), hasShot = g.getAttribute("data-shot") === "1";
+        const img = hasShot ? `<img src="/dashboard/screenshot?project=${encodeURIComponent(project)}&state_id=${encodeURIComponent(id)}" alt="">` : `<div style="font-size:11px;color:var(--muted);padding:16px 4px;text-align:center">no screenshot</div>`;
+        tipEl.innerHTML = img + `<div class="cap">${g.getAttribute("data-label")}</div>`;
+        tipEl.style.display = "block";
+      });
+      g.addEventListener("mouseleave", () => { tipEl.style.display = "none"; });
+    });
+  }
 
   function render(d) {
     const s = d.stats || {}, c = d.coverage || {};
@@ -516,6 +649,46 @@
       const flags = (n.has_dialog ? " · dialog" : "") + (n.stale ? " · stale" : "");
       return `<div class="state-card" style="${n.stale ? "opacity:.6" : ""}">${shot}<div class="meta"><div class="name" title="${esc(n.label)}">${esc(n.label || "?")}</div><div class="sub">${n.visits || 0} visits · ${n.elements || 0} controls${flags}</div></div></div>`;
     }).join("") : `<div class="empty">No app-model states yet.</div>`;
+    $("graphEmpty").style.display = states.length ? "none" : "flex";
+    drawGraph($("appGraph"), $("graphTip"), $("appGraph").parentElement, d.project, states, trans);
+
+    // Live activity (WP9): current execution + verdict stream + header pill.
+    const live = d.live || {};
+    const cur = live.current || {};
+    const executing = !!live.executing;
+    $("livePill").className = "pill live-pill " + (executing ? "executing" : "idle");
+    $("livePill").textContent = executing ? "▶ executing" : "● idle";
+    if (cur.test_case_id || cur.title) {
+      const vcls = String(cur.verdict).toLowerCase() === "pass" ? "pass" : cur.verdict === "failed" ? "fail" : "other";
+      const when = cur.age_seconds != null ? `${cur.age_seconds}s ago` : "";
+      $("liveNow").innerHTML = `<span class="rundot ${executing ? "on" : ""}"></span>`
+        + (executing ? `<span class="lbl">running</span> ` : `<span class="lbl">last run</span> `)
+        + `<b>${esc(cur.test_case_id || cur.title)}</b>`
+        + ` <span class="chip ${vcls}">${esc(cur.verdict || "?")}</span>`
+        + (cur.error_type ? ` <span class="lbl">${esc(cur.error_type)}</span>` : "")
+        + (when ? ` <span class="lbl">· ${when}</span>` : "")
+        + `<span class="lbl"> · ${live.tests_run || 0} tests · ${live.bugs_found || 0} bugs this session</span>`;
+    } else {
+      $("liveNow").innerHTML = `<span class="rundot"></span><span class="lbl">idle — no executions yet. Start the executor loop.</span>`;
+    }
+    const vstream = (live.recent_verdicts || []).slice().reverse();
+    $("verdictStream").innerHTML = `<span class="lbl">verdict stream</span>` + (vstream.length
+      ? vstream.map(v => { const c = String(v.verdict).toLowerCase() === "pass" ? "pass" : v.verdict === "failed" ? "fail" : "other"; return `<span class="vchip ${c}" title="${esc(v.test_case_id || "")} · ${esc(v.verdict || "")}"></span>`; }).join("")
+      : `<span class="vchip"></span><span class="vchip"></span><span class="vchip"></span>`);
+
+    // Getting-smarter trends (WP9 / Part F).
+    const tr = d.trends || {}, ser = tr.series || {};
+    $("trendRuns").textContent = tr.runs ? `(${tr.runs} runs)` : "";
+    $("trendSummary").textContent = tr.runs
+      ? `Across ${tr.runs} execution(s): the agent discovers more of the app and (ideally) needs fewer steps per run as its navigation memory fills.`
+      : `No execution history yet — trends populate as the executor loop runs.`;
+    $("chartsGrid").innerHTML = tr.runs ? [
+      chartCard("Cumulative bugs", ser.cumulative_bugs, "", "var(--fail)", true),
+      chartCard("States discovered", ser.states_discovered, "", "var(--accent)", true),
+      chartCard("Steps / run", ser.steps, "", "var(--info)", false),
+      chartCard("Pass rate", (ser.pass_rate || []).map(v => Math.round(v * 100)), "%", "var(--pass)", true),
+      chartCard("Tests exercised", ser.cumulative_tests, "", "var(--purple)", true),
+    ].join("") : `<div class="empty">No trend data yet.</div>`;
   }
 
   function setStatus(state) { $("statusDot").className = "dot" + (state === "ok" ? "" : state === "stale" ? " stale" : " err"); }

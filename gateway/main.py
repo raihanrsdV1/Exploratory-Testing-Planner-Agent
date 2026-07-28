@@ -245,6 +245,16 @@ def session_context(project: str, authorization: str | None = Header(default=Non
     return pipeline.session_context(project, authorization)
 
 
+@app.get("/session/live", tags=["agent"], summary="Live execution status (WP9)")
+def session_live(project: str, authorization: str | None = Header(default=None)):
+    return pipeline.session_live(project, authorization)
+
+
+@app.get("/metrics/trends", tags=["system"], summary="Gets-smarter trend series (WP9)")
+def metrics_trends(project: str, authorization: str | None = Header(default=None)):
+    return pipeline.metrics_trends(project, authorization)
+
+
 @app.post("/session/end", tags=["agent"], summary="End an exploratory session")
 def session_end(req: SessionEndRequest, authorization: str | None = Header(default=None)):
     return pipeline.session_end(req, authorization)

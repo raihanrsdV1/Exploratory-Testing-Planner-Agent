@@ -425,6 +425,54 @@ def main() -> int:
     check("generation prompt surfaces the Emerging Anomalies block", "## Emerging Anomalies" in _prompt)
     check("anomaly detail is injected into the prompt", "Checkout" in _prompt and "80%" in _prompt)
 
+    # ── WP9: operator dashboard live observability ───────────────────────────
+    print("\nWP9 gets-smarter trends (/metrics/trends)")
+    WL = PROJECT + "-live"
+    post("/project/reset", {"project": WL, "delete_tests": True, "delete_srs": True, "delete_figma": True})
+    runs = [  # (test_case_id, verdict, steps, path) — steps fall, states grow, 2 bugs
+        ("TC-R1", "pass", 12, ["S1"]),
+        ("TC-R2", "failed", 10, ["S1", "S2"]),
+        ("TC-R3", "pass", 8, ["S1", "S2"]),
+        ("TC-R4", "pass", 6, ["S1", "S2", "S3"]),
+        ("TC-R5", "failed", 5, ["S1", "S2", "S3", "S4"]),
+    ]
+    for tcid, verdict, steps, path in runs:
+        post("/execution/log", {"project": WL, "test_case_id": tcid, "title": f"Flow {tcid}",
+                                "verdict": verdict, "device_steps": steps, "path": path})
+    tr = get("/metrics/trends", {"project": WL})
+    ser = tr.get("series", {})
+    def _nondec(xs): return all(b >= a for a, b in zip(xs, xs[1:]))
+    check("trends cover every run", tr.get("runs") == 5 and len(ser.get("cumulative_bugs", [])) == 5, str(tr.get("runs")))
+    check("cumulative bugs is monotonic and totals the failures",
+          _nondec(ser.get("cumulative_bugs", [])) and ser.get("cumulative_bugs", [])[-1] == 2, str(ser.get("cumulative_bugs")))
+    check("states-discovered curve grows monotonically",
+          _nondec(ser.get("states_discovered", [])) and ser.get("states_discovered", [])[-1] == 4, str(ser.get("states_discovered")))
+    check("steps-per-run falls as the agent learns (gets smarter)",
+          ser.get("steps", [0])[0] > ser.get("steps", [0])[-1], str(ser.get("steps")))
+    check("pass_rate series stays within [0,1]", all(0 <= v <= 1 for v in ser.get("pass_rate", [])), str(ser.get("pass_rate")))
+
+    print("\nWP9 live execution status (/session/live)")
+    live = get("/session/live", {"project": WL})
+    check("live status reports the most-recent execution", live.get("current", {}).get("test_case_id") == "TC-R5", str(live.get("current")))
+    check("live status marks a just-run test as executing", live.get("executing") is True, str(live.get("status")))
+    check("live verdict stream carries recent runs", len(live.get("recent_verdicts", [])) == 5, str(len(live.get("recent_verdicts", []))))
+    check("live status exposes session tallies", "tests_run" in live and "bugs_found" in live, str(list(live.keys())))
+
+    print("\nWP9 app-model graph payload (/appmodel/graph)")
+    amg = get("/appmodel/graph", {"project": PROJECT})
+    gnodes, gedges = amg.get("nodes", []), amg.get("edges", [])
+    check("app-model graph exposes states as nodes", len(gnodes) >= 3, str(len(gnodes)))
+    check("app-model graph exposes transitions as edges", len(gedges) >= 2, str(len(gedges)))
+    check("graph nodes carry render fields (label, has_shot, visits)",
+          bool(gnodes) and all(k in gnodes[0] for k in ("id", "label", "has_shot", "visits")), str(list((gnodes or [{}])[0].keys())))
+    check("graph edges carry source/target/action", bool(gedges) and all(k in gedges[0] for k in ("source", "target", "action")), str(list((gedges or [{}])[0].keys())))
+
+    print("\nWP9 dashboard wiring (single-poll aggregation + render surface)")
+    _dash = Path(__file__).resolve().parent.parent / "dashboard" / "index.html"
+    _html = _dash.read_text(encoding="utf-8")
+    for marker in ("App Model Graph", "Learning Trends", "verdict-stream", "function drawGraph", "function sparkline", "livePill"):
+        check(f"dashboard renders '{marker}'", marker in _html)
+
     print(f"\n{'='*60}\nRESULT: {_passed} passed, {_failed} failed\n{'='*60}")
     return 1 if _failed else 0
 

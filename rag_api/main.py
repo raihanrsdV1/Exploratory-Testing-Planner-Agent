@@ -2336,6 +2336,27 @@ def session_end(req: SessionEndRequest, authorization: str | None = Header(defau
         return learning_mod.session_end(session, req.project, req.session_id, now)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# WP9 — Operator dashboard live observability
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.get("/session/live")
+def session_live(project: str, authorization: str | None = Header(default=None)):
+    """Current execution status: the test running now (inferred from log recency),
+    a live verdict stream, and the active session — polled by the dashboard."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return learning_mod.session_live(session, project)
+
+
+@app.get("/metrics/trends")
+def metrics_trends(project: str, authorization: str | None = Header(default=None)):
+    """'Gets smarter' trend series derived from execution history (WP9 / Part F)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return metrics_mod.execution_trends(session, project)
+
+
 @app.get("/liveui/screenshot")
 def liveui_screenshot(project: str, state_id: str, authorization: str | None = Header(default=None)):
     """Serve a stored state screenshot (referenced by UIState.screenshot_ref)."""

@@ -70,6 +70,62 @@ def compute_test_effectiveness(session, project, now) -> list[dict]:
     return out
 
 
+# ── Gets-smarter trend series (WP9 dashboard / Part F) ───────────────────────
+
+def execution_trends(session, project) -> dict:
+    """Time-ordered 'is the agent getting smarter?' series, derived purely from
+    ExecutionLog history (no LLM, deterministic):
+
+      * cumulative_tests      — distinct test cases exercised over time
+      * cumulative_bugs       — running total of defect-finding runs
+      * pass_rate             — cumulative pass ratio (stabilises as it learns)
+      * steps                 — device steps per run (should fall as NavTree fills)
+      * states_discovered     — cumulative distinct UIStates walked (map growth)
+    """
+    rows = session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)
+        RETURN e.test_case_id AS test_case_id, e.verdict AS verdict,
+               e.device_steps AS steps, e.path AS path, e.created_at AS created_at
+        ORDER BY e.created_at ASC
+        """,
+        project=project,
+    )
+    timestamps: list[str] = []
+    cum_tests, cum_bugs, pass_rate, steps_series, states_disc = [], [], [], [], []
+    seen_tests: set[str] = set()
+    seen_states: set[str] = set()
+    total = passed = bugs = 0
+    for r in rows:
+        total += 1
+        if r["verdict"] == "failed":
+            bugs += 1
+        elif r["verdict"] in ("pass", "passed"):
+            passed += 1
+        if r["test_case_id"]:
+            seen_tests.add(r["test_case_id"])
+        for sid in (r["path"] or []):
+            seen_states.add(sid)
+        timestamps.append(r["created_at"])
+        cum_tests.append(len(seen_tests))
+        cum_bugs.append(bugs)
+        pass_rate.append(round(passed / total, 3))
+        steps_series.append(int(r["steps"] or 0))
+        states_disc.append(len(seen_states))
+    return {
+        "project": project,
+        "runs": total,
+        "timestamps": timestamps,
+        "series": {
+            "cumulative_tests": cum_tests,
+            "cumulative_bugs": cum_bugs,
+            "pass_rate": pass_rate,
+            "steps": steps_series,
+            "states_discovered": states_disc,
+        },
+    }
+
+
 # ── 307.3 semantic duplicate detection ──────────────────────────────────────
 
 def _cosine(a: list[float], b: list[float]) -> float:

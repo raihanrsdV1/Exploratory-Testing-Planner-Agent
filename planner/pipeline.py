@@ -190,6 +190,16 @@ def session_context(project: str, authorization: str | None) -> dict:
     return rag_client.rag_get("/session/context", {"project": project})
 
 
+def session_live(project: str, authorization: str | None) -> dict:
+    config.check_gateway_auth(authorization)
+    return rag_client.rag_get("/session/live", {"project": project})
+
+
+def metrics_trends(project: str, authorization: str | None) -> dict:
+    config.check_gateway_auth(authorization)
+    return rag_client.rag_get("/metrics/trends", {"project": project})
+
+
 def session_end(req, authorization: str | None) -> dict:
     config.check_gateway_auth(authorization)
     return rag_client.rag_post("/session/end", req.model_dump())
@@ -354,6 +364,8 @@ def dashboard_data(project: str) -> dict:
         "nav_failed": _get("/navtree/failed-paths", {"project": project, "limit": 8}, key="failed_paths", default=[]),
         "anomalies": anomalies,
         "effectiveness": _get("/tests/effectiveness", key="metrics", default=[]),
+        "live": _get("/session/live", default={}),
+        "trends": _get("/metrics/trends", default={}),
     }
 
 
