@@ -60,13 +60,13 @@ def build_learned_context(
     selected_screens: list[str],
     defect_blocks: list[str],
     nav_blocks: list[str],
-) -> tuple[str, str, str, str, str]:
-    """Assemble defect / navigation / failed-path / strategy / risk context for generation.
+) -> tuple[str, str, str, str, str, str]:
+    """Assemble defect / navigation / failed-path / strategy / risk / anomaly context.
 
     Uses whatever the retrieval loop already gathered, and best-effort fills the
     gaps from dedicated endpoints. All app-agnostic — nothing is fetched unless the
     source is available for this project. Returns (defect_context, nav_context,
-    failed_nav, strategy_context, risk_context)."""
+    failed_nav, strategy_context, risk_context, anomaly_context)."""
     from .sources.navtree import format_path
 
     # Defects (REQ-301.5): prefer gathered blocks, else fetch a focused block.
@@ -132,7 +132,18 @@ def build_learned_context(
     except Exception:
         risk_context = ""
 
-    return defect_context, nav_context, failed_nav, strategy_context, risk_context
+    # WP8 (REQ-308.2): surface emerging anomalies so generation targets investigation.
+    anomaly_context = ""
+    try:
+        alerts = rag_client.rag_get("/anomalies", {"project": project, "limit": 5}).get("anomalies", [])
+        if alerts:
+            anomaly_context = "\n".join(
+                f"- [{a.get('severity','?')}] {a.get('description','')}" for a in alerts[:5]
+            )
+    except Exception:
+        anomaly_context = ""
+
+    return defect_context, nav_context, failed_nav, strategy_context, risk_context, anomaly_context
 
 
 def build_figma_overview_context(figma_overview: list[dict]) -> str:

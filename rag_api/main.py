@@ -24,6 +24,8 @@ from . import navtree as navtree_mod
 from . import learning as learning_mod
 from . import dimensions as dimensions_mod
 from . import risk as risk_mod
+from . import metrics as metrics_mod
+from . import anomalies as anomalies_mod
 from ingestion import ui_normalizer, app_state, defect_loader
 
 # `or default` (not just getenv default) so an empty value in .env doesn't crash startup.
@@ -96,6 +98,8 @@ async def lifespan(_: FastAPI):
         session.run("CREATE CONSTRAINT profile_name IF NOT EXISTS FOR (d:Profile) REQUIRE d.name IS UNIQUE")
         session.run("CREATE CONSTRAINT platform_name IF NOT EXISTS FOR (d:Platform) REQUIRE d.name IS UNIQUE")
         session.run("CREATE CONSTRAINT application_name IF NOT EXISTS FOR (d:Application) REQUIRE d.name IS UNIQUE")
+        # Anomaly alerts (ETA-REQ-308 / WP8).
+        session.run("CREATE CONSTRAINT anomaly_id IF NOT EXISTS FOR (a:AnomalyAlert) REQUIRE a.id IS UNIQUE")
         _ensure_vector_indexes(session)
     yield
 
@@ -537,6 +541,7 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
                 MATCH (n {project:$project})
                 WHERE n:ExecutionLog OR n:NavTreeNode OR n:ErrorPattern
                    OR n:StrategyMemory OR n:Session OR n:CoverageHeatmap
+                   OR n:AnomalyAlert
                 DETACH DELETE n
                 """,
                 project=req.project,
@@ -1494,6 +1499,14 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             dimensions_mod.register(session, req.project, dims, now)
             session.run("MATCH (t:TestCase {id:$id}) SET t += $dims", id=internal_test_id, dims=dims)
 
+        # WP8 (307.3): embed the title so semantic dedup can catch reworded duplicates.
+        title_vec = _embed_texts([req.title])[0] if req.title else None
+        if title_vec is not None:
+            session.run(
+                "MATCH (t:TestCase {id:$id}) SET t.embedding=$vec",
+                id=internal_test_id, vec=title_vec,
+            )
+
     return {
         "status": "ok",
         "project": req.project,
@@ -2180,6 +2193,49 @@ def dimensions_transfer(project: str, profile: str = "", platform: str = "", app
     with driver.session() as session:
         suggestions = dimensions_mod.transfer_suggestions(session, project, target, limit=limit, now=now)
     return {"project": project, "target_env": target, "count": len(suggestions), "suggestions": suggestions}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# WP8 — Quality metrics, semantic dedup, anomaly detection (ETA-REQ-307, 308)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.post("/tests/dedup-check")
+def tests_dedup_check(req: DedupCheckRequest, authorization: str | None = Header(default=None)):
+    """Semantic duplicate check (307.3): is this candidate title an embedding-cosine
+    near-duplicate of an already-generated test? Complements the planner's Jaccard pre-filter."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": req.project, **metrics_mod.dedup_check(
+            session, req.project, req.title, threshold=req.threshold)}
+
+
+@app.get("/tests/effectiveness")
+def tests_effectiveness(project: str, authorization: str | None = Header(default=None)):
+    """Compute + persist per-test effectiveness metrics (307.1) and return them ranked."""
+    _check_auth(authorization)
+    now = _utc_now()
+    with driver.session() as session:
+        metrics = metrics_mod.compute_test_effectiveness(session, project, now)
+    return {"project": project, "count": len(metrics), "metrics": metrics}
+
+
+@app.post("/anomalies/detect")
+def anomalies_detect(req: AnomaliesDetectRequest, authorization: str | None = Header(default=None)):
+    """Run the anomaly-detection engine over execution logs and persist AnomalyAlerts (308.1)."""
+    _check_auth(authorization)
+    now = _utc_now()
+    with driver.session() as session:
+        alerts = anomalies_mod.detect_anomalies(session, req.project, now)
+    return {"project": req.project, "count": len(alerts), "anomalies": alerts}
+
+
+@app.get("/anomalies")
+def anomalies_list(project: str, limit: int = 20, authorization: str | None = Header(default=None)):
+    """Persisted anomaly alerts, surfaced to generation as investigation prompts (308.2)."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        alerts = anomalies_mod.list_anomalies(session, project, limit=limit)
+    return {"project": project, "count": len(alerts), "anomalies": alerts}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

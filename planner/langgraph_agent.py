@@ -292,10 +292,11 @@ def generate_testcase(state: AgentState) -> AgentState:
 
     # REQ-301.5 / 302.4 / 303: learned-intelligence context, injected when available.
     available_names = {s["name"] for s in state.get("available_sources", [])}
-    defect_context, nav_context, failed_nav, strategy_context, risk_context = context_builders.build_learned_context(
-        state["project"], available_names, state["objective"],
-        state["selected_screens"], state["defect_blocks"], state["nav_blocks"],
-    )
+    defect_context, nav_context, failed_nav, strategy_context, risk_context, anomaly_context = \
+        context_builders.build_learned_context(
+            state["project"], available_names, state["objective"],
+            state["selected_screens"], state["defect_blocks"], state["nav_blocks"],
+        )
 
     target_env = context_builders.target_environment_text(state.get("dimensions") or {})
 
@@ -316,8 +317,9 @@ def generate_testcase(state: AgentState) -> AgentState:
         strategy_context=strategy_context,
         target_env=target_env,
         risk_context=risk_context,
+        anomaly_context=anomaly_context,
     )
-    
+
     model_data = model_client.call_model(prompt, state["max_new_tokens"], state["enable_thinking"])
     raw_answer = model_data.get("answer", "")
     parsed = textutil.parse_testcase(raw_answer)
@@ -350,9 +352,18 @@ def duplicate_check(state: AgentState) -> AgentState:
     parsed = state["next_testcase"]
     candidate_title = str(parsed.get("title", "")) if isinstance(parsed, dict) else ""
     blocked_titles = list(dict.fromkeys((state["done_titles"] or []) + (state["failed_titles"] or [])))
-    
+
+    # WP8 (307.3): Jaccard is a cheap local pre-filter; the embedding-cosine check
+    # (server-side) catches semantically identical tests phrased differently.
+    jaccard_dupe = bool(candidate_title) and textutil.is_similar_to_existing(
+        candidate_title, blocked_titles, threshold=0.60)
+    semantic = (rag_client.semantic_dedup_check(state["project"], candidate_title)
+                if candidate_title else {"is_duplicate": False})
+    if state["debug_trace"]:
+        state["debug_trace_data"]["dedup"] = {"jaccard_duplicate": jaccard_dupe, "semantic": semantic}
+
     # We do a single retry here if similar
-    if candidate_title and textutil.is_similar_to_existing(candidate_title, blocked_titles, threshold=0.60):
+    if candidate_title and (jaccard_dupe or semantic.get("is_duplicate")):
         # We re-generate but with different screens (similar to pipeline logic)
         already_picked = set(state["selected_screens"])
         alt_screens = [s["screen_name"] for s in state["figma_screens"] if s["screen_name"] not in already_picked][:2]

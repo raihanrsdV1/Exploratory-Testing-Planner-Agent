@@ -142,3 +142,15 @@ class SeedDemoTestsRequest(BaseModel):
     verdict_pattern: Literal["alternating", "all_pass", "all_failed"] = "alternating"
 
 
+class DedupCheckRequest(BaseModel):
+    """Semantic duplicate check for a candidate test (ETA-REQ-307.3)."""
+    project: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1)
+    threshold: float = 0.9
+
+
+class AnomaliesDetectRequest(BaseModel):
+    """Trigger anomaly detection over execution logs (ETA-REQ-308.1)."""
+    project: str = Field(..., min_length=1)
+
+

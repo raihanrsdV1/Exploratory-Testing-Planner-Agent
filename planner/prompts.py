@@ -213,6 +213,7 @@ def build_testcase_prompt(
     strategy_context: str = "",
     target_env: str = "",
     risk_context: str = "",
+    anomaly_context: str = "",
 ) -> str:
     cmap = coverage_map or {}
     rtests = recent_tests or []
@@ -318,6 +319,16 @@ def build_testcase_prompt(
             "(Areas most likely to regress — defect-dense, failure-prone, recently broken. Prefer "
             "generating a test for a high-risk area unless the directive says otherwise.)",
             risk_context,
+            "",
+        ]
+
+    # WP8 (REQ-308.2) — emerging anomalies from execution logs; steer to investigation.
+    if anomaly_context:
+        parts += [
+            "## Emerging Anomalies (Investigate)",
+            "(These patterns surfaced from recent execution logs and are NOT yet formal defects. "
+            "Strongly prefer generating a targeted test that investigates one of them.)",
+            anomaly_context,
             "",
         ]
 

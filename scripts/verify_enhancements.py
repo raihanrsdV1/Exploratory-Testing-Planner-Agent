@@ -333,6 +333,98 @@ def main() -> int:
     risk2 = get("/risk/scores", {"project": RP}).get("risk_scores", [])
     check("risk scores persist on FeatureArea nodes", risk2 and risk2[0].get("area") == top.get("area"))
 
+    # ── WP8: quality metrics, semantic dedup, anomaly detection ──────────────
+    print("\nWP8 semantic dedup (307.3, embeddings)")
+    DP = PROJECT + "-dedup"
+    post("/project/reset", {"project": DP, "delete_tests": True, "delete_srs": True, "delete_figma": True})
+    post("/tests/log", {"project": DP, "test_case_id": "TC-D1",
+                        "title": "Verify the user can delete a saved contact", "verdict": "pass", "area": "contacts"})
+    reworded = post("/tests/dedup-check", {"project": DP,
+                    "title": "Verify a user is able to delete a contact they saved", "threshold": 0.8})
+    unrelated = post("/tests/dedup-check", {"project": DP,
+                    "title": "Check screen rotation during audio playback", "threshold": 0.8})
+    check("semantic dedup is embedding-enabled", reworded.get("enabled") is True, str(reworded))
+    check("reworded duplicate flagged by embedding cosine", reworded.get("is_duplicate") is True,
+          f"sim={reworded.get('similarity')}")
+    check("unrelated test not flagged as duplicate", unrelated.get("is_duplicate") is False,
+          f"sim={unrelated.get('similarity')}")
+    check("semantic ranking: reworded >> unrelated similarity",
+          reworded.get("similarity", 0) > unrelated.get("similarity", 1),
+          f"{reworded.get('similarity')} vs {unrelated.get('similarity')}")
+
+    print("\nWP8 test-effectiveness metrics (307.1)")
+    post("/execution/log", {"project": RP, "test_case_id": "TC-PAY", "title": "Verify payment declines gracefully",
+                            "verdict": "failed", "error_type": "ASSERTION_FAILURE", "path_labels": ["Payment"]})
+    post("/execution/log", {"project": RP, "test_case_id": "TC-HELP", "title": "Verify help page opens",
+                            "verdict": "pass", "path_labels": ["Help"]})
+    eff = get("/tests/effectiveness", {"project": RP}).get("metrics", [])
+    pay = next((m for m in eff if m.get("test_case_id") == "TC-PAY"), {})
+    helpm = next((m for m in eff if m.get("test_case_id") == "TC-HELP"), {})
+    check("effectiveness metrics computed for every test", len(eff) >= 2, str(len(eff)))
+    check("defect-finding test scores discovery_rate 1.0", pay.get("defect_discovery_rate") == 1.0, str(pay))
+    check("passing test scores discovery_rate 0.0", helpm.get("defect_discovery_rate") == 0.0, str(helpm))
+    check("execution_stability 1.0 for a consistently-failing test", pay.get("execution_stability") == 1.0, str(pay))
+    check("execution_stability 1.0 for a consistently-passing test", helpm.get("execution_stability") == 1.0, str(helpm))
+    check("coverage_contribution counts exercised areas", (pay.get("coverage_contribution") or 0) >= 1, str(pay))
+    # A test that both passes and fails across runs is flaky (stability < 1.0).
+    post("/tests/log", {"project": RP, "test_case_id": "TC-FLK", "title": "Flaky checkout total", "verdict": "pass", "area": "checkout"})
+    post("/execution/log", {"project": RP, "test_case_id": "TC-FLK", "title": "Flaky checkout total", "verdict": "pass", "path_labels": ["Checkout"]})
+    post("/execution/log", {"project": RP, "test_case_id": "TC-FLK", "title": "Flaky checkout total", "verdict": "failed", "path_labels": ["Checkout"]})
+    eff2 = get("/tests/effectiveness", {"project": RP}).get("metrics", [])
+    flk = next((m for m in eff2 if m.get("test_case_id") == "TC-FLK"), {})
+    check("flaky test scores execution_stability 0.5", flk.get("execution_stability") == 0.5, str(flk))
+    # 307.2: the defect-finding run reinforced its strategy's effectiveness.
+    strat_rp = get("/strategy/memory", {"project": RP}).get("strategies", [])
+    check("strategy score reinforced by defect-finding run (307.2)",
+          any((s.get("times_effective") or 0) >= 1 for s in strat_rp), str(strat_rp))
+
+    print("\nWP8 anomaly detection (308)")
+    AP = PROJECT + "-anom"
+    post("/project/reset", {"project": AP, "delete_tests": True, "delete_srs": True, "delete_figma": True})
+    # Failure-rate spike (+ new error type) on 'Checkout': 3 clean runs, then 4 failing ones.
+    for _ in range(3):
+        post("/execution/log", {"project": AP, "test_case_id": "TC-CHK", "title": "Checkout flow",
+                                "verdict": "pass", "path_labels": ["Checkout"]})
+    for _ in range(4):
+        post("/execution/log", {"project": AP, "test_case_id": "TC-CHK", "title": "Checkout flow",
+                                "verdict": "failed", "error_type": "TIMEOUT", "path_labels": ["Checkout"]})
+    # Execution-time regression on 'Sync': 2 fast baseline runs, then 5 slow ones.
+    for ms in [100, 100]:
+        post("/execution/log", {"project": AP, "test_case_id": "TC-SYNC", "title": "Sync flow",
+                                "verdict": "pass", "duration_ms": ms, "path_labels": ["Sync"]})
+    for _ in range(5):
+        post("/execution/log", {"project": AP, "test_case_id": "TC-SYNC", "title": "Sync flow",
+                                "verdict": "pass", "duration_ms": 1200, "path_labels": ["Sync"]})
+    # Navigation-path instability: one test reaches success via 3 different paths.
+    for pth in (["Home", "A"], ["Home", "B", "A"], ["Home", "C", "D", "A"]):
+        post("/execution/log", {"project": AP, "test_case_id": "TC-FLAKY", "title": "Flaky nav",
+                                "verdict": "pass", "path_labels": pth})
+    detected = post("/anomalies/detect", {"project": AP}).get("anomalies", [])
+    types = {a.get("anomaly_type") for a in detected}
+    spike = next((a for a in detected if a.get("anomaly_type") == "failure_rate_spike"), {})
+    check("failure-rate spike detected on the failing area", spike.get("area") == "Checkout", str(spike))
+    check("spike is high severity", spike.get("severity") == "high", str(spike.get("severity")))
+    check("execution-time regression detected", "execution_time_regression" in types, str(types))
+    check("new error type detected", "new_error_type" in types, str(types))
+    check("navigation-path instability detected", "nav_path_instability" in types, str(types))
+    # 308.2: anomalies persist and are retrievable to surface into generation.
+    listed = get("/anomalies", {"project": AP}).get("anomalies", [])
+    check("anomalies persist as AnomalyAlert nodes", len(listed) >= 4, str(len(listed)))
+    # Detection is idempotent — re-running MERGEs rather than duplicating alerts.
+    redetect = post("/anomalies/detect", {"project": AP}).get("anomalies", [])
+    check("re-detection is idempotent (no duplicate alerts)", len(redetect) == len(detected),
+          f"{len(detected)} -> {len(redetect)}")
+
+    print("\nWP8 anomaly-driven generation (308.2 prompt injection)")
+    from planner import prompts as _prompts
+    _prompt = _prompts.build_testcase_prompt(
+        app_name="App", objective="probe", srs_context="", figma_overview_context="",
+        figma_context="", figma_flow_context="", done_titles=[], failed_titles=[],
+        anomaly_context="- [high] Failure rate on 'Checkout' jumped to 80%",
+    )
+    check("generation prompt surfaces the Emerging Anomalies block", "## Emerging Anomalies" in _prompt)
+    check("anomaly detail is injected into the prompt", "Checkout" in _prompt and "80%" in _prompt)
+
     print(f"\n{'='*60}\nRESULT: {_passed} passed, {_failed} failed\n{'='*60}")
     return 1 if _failed else 0
 

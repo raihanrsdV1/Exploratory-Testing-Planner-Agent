@@ -90,3 +90,14 @@ def get_figma_transitions(project: str, screen_name: str | None = None) -> list[
 
 def get_brief_context(project: str) -> dict:
     return rag_post("/context/brief", {"project": project, "recent_limit": 100})
+
+
+def semantic_dedup_check(project: str, title: str, threshold: float = 0.9) -> dict:
+    """WP8 (307.3): server-side embedding-cosine duplicate check for a candidate title.
+
+    Returns {enabled, is_duplicate, similarity, most_similar_title}. Best-effort — a
+    failed/disabled backend degrades to a non-duplicate so generation never blocks."""
+    try:
+        return rag_post("/tests/dedup-check", {"project": project, "title": title, "threshold": threshold})
+    except Exception:
+        return {"enabled": False, "is_duplicate": False, "similarity": 0.0, "most_similar_title": ""}

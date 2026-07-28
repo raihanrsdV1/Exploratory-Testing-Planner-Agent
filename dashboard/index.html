@@ -219,6 +219,19 @@
     </div>
   </div>
 
+  <!-- QUALITY & ANOMALIES (WP8) -->
+  <div class="section-title">Quality &amp; Anomalies</div>
+  <div class="grid2">
+    <div class="panel">
+      <h2>🚨 Anomaly Alerts <span class="count" id="anomCount"></span></h2>
+      <div class="body" id="anomBody"></div>
+    </div>
+    <div class="panel">
+      <h2>📈 Test Effectiveness <span class="count" id="effCount"></span></h2>
+      <div class="body" id="effBody"></div>
+    </div>
+  </div>
+
   <!-- COVERAGE -->
   <div class="section-title">Coverage</div>
   <div class="grid2">
@@ -298,6 +311,8 @@
     const bl = d.business_logic || {};
     const nav = d.navtree || {};
     const navFailed = d.nav_failed || [];
+    const anomalies = d.anomalies || [];
+    const effectiveness = d.effectiveness || [];
     const failed = recent.filter(t => String(t.verdict).toLowerCase() === "failed");
     const passed = recent.filter(t => String(t.verdict).toLowerCase() === "pass");
     const passRate = recent.length ? Math.round(100 * passed.length / recent.length) : 0;
@@ -325,6 +340,7 @@
       tile("Top Risk", topRisk ? topRisk.regression_risk_score : "—", topRisk ? esc(topRisk.area) : "no risk data", "warn"),
       tile("Defects (KB)", num(defects.total_defects), (defects.unresolved_defects || 0) + " unresolved", "info"),
       tile("Self-Heals", num(heals), "recovered runs", "info"),
+      tile("Anomalies", num(anomalies.length), (anomalies.filter(a => a.severity === "high").length) + " high", anomalies.length ? "fail" : "info"),
       tile("Requirements", num(s.requirement_count), num(s.covered_requirement_count) + " covered", "accent"),
     ].join("");
 
@@ -412,6 +428,26 @@
       ${navFailed.length ? `<div style="font-size:11px;color:var(--muted);margin:8px 0 5px">Paths to avoid</div>
         ${navFailed.slice(0,4).map(f => `<div class="mit">✗ ${esc(f.action || "?")} → ${esc(f.screen || "?")} (${f.success_count}/${f.visit_count})</div>`).join("")}` : ""}
     ` : `<div class="empty">No navigation paths learned yet.</div>`;
+
+    // Anomaly alerts (WP8 / 308)
+    $("anomCount").textContent = anomalies.length ? `(${anomalies.length})` : "";
+    $("anomBody").innerHTML = anomalies.length ? anomalies.slice(0, 8).map(a =>
+      `<div class="list-item"><div class="top">
+        <span><span class="sev ${esc(a.severity)}">${esc(a.severity)}</span> ${esc((a.anomaly_type || "").replace(/_/g, " "))}</span>
+        <span class="area-tag">${esc(a.area || "")}</span></div>
+        <div class="mit">${esc(a.description || "")}</div></div>`
+    ).join("") : `<div class="empty">No anomalies detected — execution patterns look stable.</div>`;
+
+    // Test effectiveness (WP8 / 307.1)
+    const effRanked = effectiveness.filter(e => e.runs > 0);
+    $("effCount").textContent = effRanked.length ? `(${effRanked.length})` : "";
+    $("effBody").innerHTML = effRanked.length ? effRanked.slice(0, 8).map(e => {
+      const disc = Math.round((e.defect_discovery_rate || 0) * 100);
+      const stab = Math.round((e.execution_stability || 0) * 100);
+      return `<div class="list-item"><div class="top"><span title="${esc(e.title || "")}"><b>${esc(e.test_case_id || "")}</b> ${esc((e.title || "").slice(0, 40))}</span>
+        <span class="area-tag">${e.coverage_contribution || 0} cov</span></div>
+        <div class="mit">defect-discovery ${disc}% · stability ${stab}% · ${e.runs} run(s)</div></div>`;
+    }).join("") : `<div class="empty">No execution history yet — metrics appear after runs.</div>`;
 
     // Coverage
     $("covPct").textContent = (cov.coverage_pct != null ? cov.coverage_pct : 0) + "%";
