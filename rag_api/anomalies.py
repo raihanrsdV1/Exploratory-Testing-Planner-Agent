@@ -170,9 +170,19 @@ def _detect(logs: list[dict]) -> list[dict]:
 
 
 def detect_anomalies(session, project, now) -> list[dict]:
-    """Detect + persist AnomalyAlert nodes; return them ranked by severity."""
+    """Detect + persist AnomalyAlert nodes; return them ranked by severity.
+
+    Replace-semantics: the persisted set is rebuilt to reflect the *current*
+    execution history, so anomalies that have since resolved don't linger as
+    stale alerts (they would otherwise MERGE-persist forever)."""
     logs = _fetch_logs(session, project)
     anomalies = _detect(logs)
+
+    # Clear the project's previous alerts so the set mirrors current reality.
+    session.run(
+        "MATCH (p:Project {name:$project})-[:HAS_ANOMALY]->(al:AnomalyAlert) DETACH DELETE al",
+        project=project,
+    )
 
     sev_rank = {"high": 3, "medium": 2, "low": 1}
     out = []

@@ -132,10 +132,12 @@ def build_learned_context(
     except Exception:
         risk_context = ""
 
-    # WP8 (REQ-308.2): surface emerging anomalies so generation targets investigation.
+    # WP8 (REQ-308.2): detect + surface emerging anomalies so generation targets
+    # investigation. Detection is triggered here (not only by the dashboard) so a
+    # headless agent run still gets fresh anomalies from the latest execution logs.
     anomaly_context = ""
     try:
-        alerts = rag_client.rag_get("/anomalies", {"project": project, "limit": 5}).get("anomalies", [])
+        alerts = rag_client.rag_post("/anomalies/detect", {"project": project}).get("anomalies", [])
         if alerts:
             anomaly_context = "\n".join(
                 f"- [{a.get('severity','?')}] {a.get('description','')}" for a in alerts[:5]

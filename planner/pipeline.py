@@ -338,13 +338,6 @@ def dashboard_data(project: str) -> dict:
     except Exception:
         coverage_data = {}
 
-    # WP8: refresh anomaly alerts from the latest execution logs (detect = compute+persist).
-    anomalies: list = []
-    try:
-        anomalies = rag_client.rag_post("/anomalies/detect", {"project": project}).get("anomalies", [])
-    except Exception:
-        anomalies = []
-
     return {
         "project": project,
         "model": model_client.backend_info(),
@@ -362,7 +355,9 @@ def dashboard_data(project: str) -> dict:
         "business_logic": _get("/business-logic/rules", {"project": project, "needs_review": True}, default={}),
         "navtree": _get("/navtree/stats", default={}),
         "nav_failed": _get("/navtree/failed-paths", {"project": project, "limit": 8}, key="failed_paths", default=[]),
-        "anomalies": anomalies,
+        # Read-only: the agent loop (build_learned_context) triggers detection; the
+        # dashboard just reads the current alert set — no write-on-poll side effects.
+        "anomalies": _get("/anomalies", {"project": project, "limit": 20}, key="anomalies", default=[]),
         "effectiveness": _get("/tests/effectiveness", key="metrics", default=[]),
         "live": _get("/session/live", default={}),
         "trends": _get("/metrics/trends", default={}),
