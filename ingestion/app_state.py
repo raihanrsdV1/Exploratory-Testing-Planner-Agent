@@ -179,7 +179,8 @@ def is_same_state(
 
 # Resource-id substrings that mark a screen-defining container (strong first),
 # element-level noise to skip, and id-part words to drop when humanizing.
-_STRONG_HINTS = ("fragment", "activity", "editor", "container", "screen", "main", "home", "page")
+_STRONG_HINTS = ("fragment", "activity", "editor", "container", "screen", "main", "home", "page",
+                 "dialog", "sheet", "permission", "grant")
 _WEAK_HINTS = ("list", "detail", "picker", "settings", "search", "directory", "view")
 _NOISE_WORDS = ("divider", "separator", "spacer", "icon", "button", "label", "title",
                 "header", "footer", "chip", "item", "row", "text", "image", "box", "bar")
@@ -195,28 +196,55 @@ def _label_from_resource_ids(resource_ids: list[str]) -> str:
     """
     def humanize(idpart: str) -> str:
         words = [w for w in re.split(r"[_\-]", idpart) if w and w.lower() not in _ID_STRIP]
-        return " ".join(w.capitalize() for w in words) if words else ""
+        # Keep it short enough to read on a graph node.
+        return " ".join(w.capitalize() for w in words[:3]) if words else ""
 
+    # Rank candidates instead of taking the first match: a screen usually contains
+    # several screen-ish ids (e.g. a generic 'container' plus a specific
+    # 'contact_editor_fragment'), and the most SPECIFIC one names it best.
     for hints in (_STRONG_HINTS, _WEAK_HINTS):
+        best, best_score = "", -1
         for rid in resource_ids:
             idpart = rid.split(":id/")[-1].split("/")[-1].lower()
             if not idpart or any(n in idpart for n in _NOISE_WORDS):
                 continue
-            if any(h in idpart for h in hints):
-                lbl = humanize(idpart)
-                if lbl:
-                    return lbl
+            if not any(h in idpart for h in hints):
+                continue
+            lbl = humanize(idpart)
+            if not lbl:
+                continue
+            # More surviving words = more specific. Prefer app-owned ids over the
+            # framework's generic 'android:' ones, which are identical everywhere.
+            score = len(lbl.split()) * 2
+            if not rid.startswith("android:"):
+                score += 3
+            if score > best_score:
+                best, best_score = lbl, score
+        if best:
+            return best
     return ""
+
+
+def _looks_like_resource_id(text: str) -> bool:
+    """True for strings that are really view ids, not human labels.
+
+    Some UI dumps report a resource-id (e.g. 'android:id/content') as a node's
+    text/content-description. Such a value is identical on nearly every screen,
+    so treating it as a label collapses every state to the same name.
+    """
+    t = (text or "").strip()
+    return ":id/" in t or t.startswith("android:") or ("/" in t and " " not in t)
 
 
 def _derive_label(activity: str, texts: list[str], resource_ids: list[str] | None = None) -> str:
     """A short, human-readable name for the state (for the graph + dashboard).
 
-    Prefers a text/content-description hint; falls back to a humanized
+    Prefers a genuine text/content-description hint; falls back to a humanized
     screen-defining resource-id (mobilerun's recorded elements often carry only
-    ids), then the activity name, then a generic default.
+    ids), then the activity name, then a generic default. Id-shaped "text" is
+    ignored so it can't outrank the far more descriptive resource-id path.
     """
-    hint = next((t for t in texts if 1 < len(t) <= 24), "")
+    hint = next((t for t in texts if 1 < len(t) <= 24 and not _looks_like_resource_id(t)), "")
     if hint:
         base = activity.rsplit(".", 1)[-1].rsplit("/", 1)[-1] if activity else ""
         base = base.replace("Activity", "").replace("Fragment", "").strip()

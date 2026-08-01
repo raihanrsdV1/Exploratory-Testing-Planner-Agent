@@ -1871,9 +1871,33 @@ def liveui_observe(req: ObserveStateRequest, authorization: str | None = Header(
                     pass
             screenshot_ref = str(fpath.relative_to(_APPMODEL_DIR.parent))
 
+        # Distinct screens can still humanize to the same name (e.g. two screens
+        # whose most-specific id is 'contact_list_fragment'). Qualify the label so
+        # the dashboard graph never shows several identically-named nodes.
+        label = ab["label"]
+        if is_new:
+            taken = {
+                r["label"] for r in session.run(
+                    """
+                    MATCH (p:Project {name:$project})-[:HAS_STATE]->(s:UIState)
+                    WHERE s.id <> $state_id AND s.label IS NOT NULL
+                    RETURN s.label AS label
+                    """,
+                    project=req.project, state_id=state_id,
+                )
+            }
+            if label in taken:
+                if ab.get("has_dialog") and f"{label} (dialog)" not in taken:
+                    label = f"{label} (dialog)"
+                else:
+                    n = 2
+                    while f"{label} #{n}" in taken:
+                        n += 1
+                    label = f"{label} #{n}"
+
         embedding = None
         if is_new and embeddings.is_enabled():
-            vecs = _embed_texts([f"{ab['label']} {' '.join(ab['key_set'][:20])}"])
+            vecs = _embed_texts([f"{label} {' '.join(ab['key_set'][:20])}"])
             embedding = vecs[0] if vecs else None
 
         session.run(
@@ -1882,11 +1906,12 @@ def liveui_observe(req: ObserveStateRequest, authorization: str | None = Header(
             ON CREATE SET p.created_at = $now
             SET p.updated_at = $now
             MERGE (s:UIState {id:$state_id})
-            ON CREATE SET s.first_seen = $now, s.visit_count = 0
+            ON CREATE SET s.first_seen = $now, s.visit_count = 0, s.label = $label
             SET s.project = $project, s.signature = $sig, s.package = $package,
-                s.activity = $activity, s.label = $label, s.key_set = $key_set,
+                s.activity = $activity, s.key_set = $key_set,
                 s.has_dialog = $has_dialog, s.element_count = $element_count,
-                s.last_seen = $now, s.visit_count = coalesce(s.visit_count,0) + 1
+                s.last_seen = $now, s.visit_count = coalesce(s.visit_count,0) + 1,
+                s.label = coalesce(s.label, $label)
             """
             + ("SET s.screenshot_ref = $screenshot_ref\n" if screenshot_ref else "")
             + ("SET s.phash = $phash\n" if phash else "")
@@ -1894,7 +1919,7 @@ def liveui_observe(req: ObserveStateRequest, authorization: str | None = Header(
             + "MERGE (p)-[:HAS_STATE]->(s)",
             project=req.project, state_id=state_id, now=now,
             sig=ab["signature"], package=ab["package"], activity=ab["activity"],
-            label=ab["label"], key_set=ab["key_set"], has_dialog=ab["has_dialog"],
+            label=label, key_set=ab["key_set"], has_dialog=ab["has_dialog"],
             element_count=ab["element_count"],
             screenshot_ref=screenshot_ref, phash=phash, embedding=embedding,
         )
@@ -1914,7 +1939,7 @@ def liveui_observe(req: ObserveStateRequest, authorization: str | None = Header(
             )
 
     return {"status": "ok", "project": req.project, "state_id": state_id,
-            "signature": ab["signature"], "is_new": is_new, "label": ab["label"]}
+            "signature": ab["signature"], "is_new": is_new, "label": label}
 
 
 @app.get("/appmodel/graph")
