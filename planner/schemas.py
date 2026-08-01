@@ -160,9 +160,11 @@ class ResetProjectRequest(BaseModel):
         "delete_tests": True,
         "delete_srs": False,
         "delete_figma": False,
+        "delete_appmodel": False,
     }})
 
     project: str = Field(..., min_length=1, description="Project to reset.")
     delete_tests: bool = Field(default=True, description="Delete all logged test cases and test runs. The next test generation starts from scratch with no history.")
     delete_srs: bool = Field(default=False, description="Delete ingested SRS chunks, summary, and requirement entity graph. Re-ingest via `/srs/ingest` before the next test generation.")
     delete_figma: bool = Field(default=False, description="Delete ingested Figma screens and UI elements. Re-ingest via `/figma/ingest` before the next test generation.")
+    delete_appmodel: bool = Field(default=False, description="Delete the Live App Model: observed UIState screens, their transitions, and stored screenshots. Rebuilt only by re-running the crawler/executor against a device.")

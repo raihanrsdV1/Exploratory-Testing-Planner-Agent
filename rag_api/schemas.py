@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 
 class DimensionMixin(BaseModel):
@@ -54,6 +54,11 @@ class LogTestRequest(DimensionMixin):
 
 
 class ResetProjectRequest(BaseModel):
+    # Reject unknown keys: a mistyped flag on a DESTRUCTIVE call must fail loudly
+    # (422) instead of silently falling back to the default and deleting nothing
+    # — or, worse, something the caller did not intend.
+    model_config = ConfigDict(extra="forbid")
+
     project: str = Field(..., min_length=1)
     delete_tests: bool = True
     delete_srs: bool = True
