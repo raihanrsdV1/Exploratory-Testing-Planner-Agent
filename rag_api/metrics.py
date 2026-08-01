@@ -30,6 +30,9 @@ def compute_test_effectiveness(session, project, now) -> list[dict]:
         """
         MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
         OPTIONAL MATCH (t)<-[:FOR_TEST]-(e:ExecutionLog)
+        // A run blocked on missing test data never exercised the app, so it is
+        // neither a defect discovery nor evidence of instability — drop it.
+        WHERE e IS NULL OR coalesce(e.error_type,'') <> 'PRECONDITION_NOT_MET'
         WITH t, collect(e.verdict) AS verdicts
         OPTIONAL MATCH (t)-[:COVERS]->(req:Requirement)
         WITH t, verdicts, count(DISTINCT req) AS reqs

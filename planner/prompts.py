@@ -370,6 +370,11 @@ def build_testcase_prompt(
         "6. The 'area' field MUST align with the Exploration Directive — do not default to the easiest area.",
         "7. 'requirement_ids' MUST list the requirement IDs (e.g. FR-5) this test verifies, taken from the "
         "requirements context above. Use [] only if none apply.",
+        "8. SELF-CONTAINED: assume the app starts EMPTY with no pre-existing data. If the test needs data "
+        "(an existing record, a populated list), the FIRST steps MUST create it through the UI. Never write "
+        "a precondition that merely asserts data already exists — the executor cannot conjure it and the run "
+        "will abort without testing anything. 'preconditions' is for app state you can reach by navigating "
+        "(e.g. 'app is open'), not for data you did not create.",
         "",
         "## Output — STRICT JSON only. No markdown fences, no text outside the JSON object.",
         '{"test_case_id":"...","title":"...","screen":"...","preconditions":[...],"steps":[...],'

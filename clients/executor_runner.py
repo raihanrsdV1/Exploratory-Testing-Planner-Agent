@@ -94,7 +94,10 @@ def _attach_mobilerun_file_log():
     if _mobilerun_file_attached:
         return
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s | %(message)s", "%H:%M:%S")
-    fh = logging.FileHandler(MOBILERUN_LOG)
+    # UTF-8 explicitly: mobilerun logs emoji (📁 🚀 🔄 💡) and on Windows a
+    # FileHandler defaults to the locale encoding (cp1252), which raises
+    # UnicodeEncodeError on every such line ("--- Logging error ---" spam).
+    fh = logging.FileHandler(MOBILERUN_LOG, encoding="utf-8", errors="replace")
     fh.setFormatter(fmt)
     for name in ("mobilerun", "executor"):
         lg = logging.getLogger(name)
@@ -321,6 +324,12 @@ def classify_failure(reason: str, success: bool = False) -> str:
     if success:
         return ""
     r = (reason or "").lower()
+    # Checked FIRST: the run never exercised the app, so this is a test-data /
+    # environment problem, NOT app misbehaviour. Keeping it out of the defect
+    # categories stops it from inflating defect-discovery and strategy scores.
+    if any(k in r for k in ("precondition not met", "preconditions not met",
+                            "precondition failed", "preconditions are not met")):
+        return "PRECONDITION_NOT_MET"
     if any(k in r for k in ("permission", "denied", "not granted")):
         return "PERMISSION_DENIED"
     if any(k in r for k in ("crash", "terminated", "closed unexpectedly", "anr", "has stopped", "force close")):

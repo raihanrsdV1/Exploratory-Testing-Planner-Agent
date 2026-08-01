@@ -2033,14 +2033,18 @@ def execution_log(req: ExecutionLogRequest, authorization: str | None = Header(d
 
         # REQ-303.3: reinforce strategy memory. In this system a 'failed' verdict
         # means the test exposed a defect, i.e. the strategy was effective.
+        # PRECONDITION_NOT_MET is excluded: the run aborted before touching the app,
+        # so it says nothing about the strategy — counting it would teach the agent
+        # to favour strategies that merely fail to set up.
         strat = {}
         if internal_tc:
             row = session.run(
                 "MATCH (t:TestCase {id:$tc}) RETURN t.test_type AS tt, t.area AS area", tc=internal_tc
             ).single()
             strategy_type = (row["tt"] if row and row["tt"] else (row["area"] if row else "")) or "unspecified"
+            found_defect = req.verdict == "failed" and req.error_type != "PRECONDITION_NOT_MET"
             strat = learning_mod.record_strategy(
-                session, req.project, strategy_type, effective=(req.verdict == "failed"), now=now,
+                session, req.project, strategy_type, effective=found_defect, now=now,
             )
     return {"status": "ok", "log_id": log_id, "navtree": nav, "strategy": strat}
 
