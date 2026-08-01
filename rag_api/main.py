@@ -632,6 +632,21 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
                 project=req.project,
             )
 
+        if req.delete_appmodel:
+            # Live App Model (WP1): observed UIStates + their TRANSITIONS_TO edges.
+            # Stored screenshots are removed too so the map rebuilds from scratch.
+            session.run(
+                "MATCH (p:Project {name:$project})-[:HAS_STATE]->(s:UIState) DETACH DELETE s",
+                project=req.project,
+            )
+            shot_dir = _APPMODEL_DIR / _slug(req.project)
+            if shot_dir.exists():
+                for shot in shot_dir.glob("*.png"):
+                    try:
+                        shot.unlink()
+                    except OSError:
+                        pass
+
         # remove orphan feature nodes belonging to this project
         session.run(
             """
@@ -659,6 +674,7 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
             "tests": req.delete_tests,
             "srs": req.delete_srs,
             "figma": req.delete_figma,
+            "appmodel": req.delete_appmodel,
         },
     }
 

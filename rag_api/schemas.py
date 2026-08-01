@@ -58,6 +58,10 @@ class ResetProjectRequest(BaseModel):
     delete_tests: bool = True
     delete_srs: bool = True
     delete_figma: bool = True
+    # Live App Model (WP1): the self-built UIState map. Opt-in (default False) so
+    # existing callers keep today's behaviour — the map is expensive to rebuild
+    # (it needs a real device crawl) and normally survives a knowledge reset.
+    delete_appmodel: bool = False
 
 
 class GraphSubgraphRequest(BaseModel):
