@@ -1,3 +1,4 @@
+%%{ init: { "flowchart": { "nodeSpacing": 36, "rankSpacing": 48, "padding": 6 } } }%%
 flowchart TB
     subgraph SRC["Knowledge Sources — pluggable, none required"]
         SRS["Software Requirement<br/>Specification (any format)"]
@@ -6,11 +7,9 @@ flowchart TB
         LIVE["Live Android App<br/>on emulator"]
     end
 
-    subgraph RAGP["RAG API :9010 — Ingestion &amp; Retrieval"]
-        EXT["Multi-pass extraction +<br/>self-critique + SRS drift"]
-        OBS["Live-UI observe<br/>new-vs-known state dedup"]
-        RET["Hybrid retrieval<br/>vector + keyword + graph-hop"]
-    end
+    EXT["RAG · Multi-pass extraction<br/>+ self-critique + SRS drift"]
+    OBS["RAG · Live-UI observe<br/>new-vs-known state dedup"]
+    RET["RAG · Hybrid retrieval<br/>vector + keyword + graph-hop"]
 
     KG[("Neo4j Knowledge Graph<br/>requirements · rules · Live App Model<br/>defects · nav tree · execution logs<br/>strategies · coverage · risk · anomalies<br/>profile / platform / application")]
 
@@ -54,7 +53,6 @@ flowchart TB
 
     %% ---- Subgraph backgrounds ----
     style SRC  fill:#eafaf1,stroke:#1e8449,color:#0b3d24;
-    style RAGP fill:#eef1fe,stroke:#3b4fd6,color:#1a2a7a;
     style LOOP fill:#f4effc,stroke:#7c3aed,color:#3d1a66;
     style EXE  fill:#fdeeee,stroke:#dc2626,color:#7a1515;
 
@@ -64,7 +62,7 @@ flowchart TB
     style DEF  fill:#d1f2e0,stroke:#1e8449,stroke-width:1.5px,color:#0b3d24;
     style LIVE fill:#d1f2e0,stroke:#1e8449,stroke-width:1.5px,color:#0b3d24;
 
-    %% ---- RAG API (blue) ----
+    %% ---- RAG API layer (blue) ----
     style EXT fill:#dfe7fd,stroke:#3b4fd6,stroke-width:1.5px,color:#1a2a7a;
     style OBS fill:#dfe7fd,stroke:#3b4fd6,stroke-width:1.5px,color:#1a2a7a;
     style RET fill:#dfe7fd,stroke:#3b4fd6,stroke-width:1.5px,color:#1a2a7a;
