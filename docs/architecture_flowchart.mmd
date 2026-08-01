@@ -1,0 +1,86 @@
+flowchart TB
+    subgraph SRC["Knowledge Sources — pluggable, none required"]
+        SRS["Software Requirement<br/>Specification (any format)"]
+        FIG["Figma UI Guide"]
+        DEF["Defect History<br/>synthetic or real"]
+        LIVE["Live Android App<br/>on emulator"]
+    end
+
+    subgraph RAGP["RAG API :9010 — Ingestion &amp; Retrieval"]
+        EXT["Multi-pass extraction +<br/>self-critique + SRS drift"]
+        OBS["Live-UI observe<br/>new-vs-known state dedup"]
+        RET["Hybrid retrieval<br/>vector + keyword + graph-hop"]
+    end
+
+    KG[("Neo4j Knowledge Graph<br/>requirements · rules · Live App Model<br/>defects · nav tree · execution logs<br/>strategies · coverage · risk · anomalies<br/>profile / platform / application")]
+
+    subgraph LOOP["Agent Loop — LangGraph (Gateway :9100)"]
+        BRIEF["1 · Bootstrap brief<br/>all source summaries, dimension-filtered"]
+        PLAN(["2 · Planner<br/>retrieve or generate?"])
+        GEN["3 · Generate test case<br/>bug-oracle cascade + defect + nav +<br/>strategy + risk + anomaly + target-env"]
+        DEDUP{"4 · Semantic<br/>dedup?"}
+    end
+
+    subgraph EXE["Executor + mobilerun — Emulator"]
+        RUN["Execute test on device"]
+        HEAL["Classify failure, then<br/>self-heal + retry (WP7)"]
+    end
+
+    DASH["Operator Dashboard (WP9)<br/>live status · verdict stream ·<br/>app-model graph · trends"]
+
+    SRS --> EXT
+    FIG --> EXT
+    DEF --> EXT
+    LIVE --> OBS
+    EXT --> KG
+    OBS --> KG
+
+    BRIEF --> PLAN
+    PLAN -->|"need more context"| RET
+    RET --> KG
+    KG -->|"retrieved context"| PLAN
+    PLAN -->|"enough context"| GEN
+    GEN --> DEDUP
+    DEDUP -->|"unique"| RUN
+    DEDUP -.->|"duplicate: regenerate"| GEN
+
+    RUN --> HEAL
+    RUN -->|"observe each screen"| OBS
+    HEAL -->|"write-back: verdict, path,<br/>strategy, error, recovery"| KG
+    RUN --> DASH
+    KG --> DASH
+
+    KG -.->|"learned signals feed the next cycle"| BRIEF
+
+    %% ---- Subgraph backgrounds ----
+    style SRC  fill:#eafaf1,stroke:#1e8449,color:#0b3d24;
+    style RAGP fill:#eef1fe,stroke:#3b4fd6,color:#1a2a7a;
+    style LOOP fill:#f4effc,stroke:#7c3aed,color:#3d1a66;
+    style EXE  fill:#fdeeee,stroke:#dc2626,color:#7a1515;
+
+    %% ---- Sources (green) ----
+    style SRS  fill:#d1f2e0,stroke:#1e8449,stroke-width:1.5px,color:#0b3d24;
+    style FIG  fill:#d1f2e0,stroke:#1e8449,stroke-width:1.5px,color:#0b3d24;
+    style DEF  fill:#d1f2e0,stroke:#1e8449,stroke-width:1.5px,color:#0b3d24;
+    style LIVE fill:#d1f2e0,stroke:#1e8449,stroke-width:1.5px,color:#0b3d24;
+
+    %% ---- RAG API (blue) ----
+    style EXT fill:#dfe7fd,stroke:#3b4fd6,stroke-width:1.5px,color:#1a2a7a;
+    style OBS fill:#dfe7fd,stroke:#3b4fd6,stroke-width:1.5px,color:#1a2a7a;
+    style RET fill:#dfe7fd,stroke:#3b4fd6,stroke-width:1.5px,color:#1a2a7a;
+
+    %% ---- Knowledge graph (yellow) ----
+    style KG fill:#fdf2c4,stroke:#c99a06,stroke-width:2px,color:#5a4204;
+
+    %% ---- Agent loop (purple) ----
+    style BRIEF fill:#e9def8,stroke:#7c3aed,stroke-width:1.5px,color:#3d1a66;
+    style PLAN  fill:#e9def8,stroke:#7c3aed,stroke-width:1.5px,color:#3d1a66;
+    style GEN   fill:#e9def8,stroke:#7c3aed,stroke-width:1.5px,color:#3d1a66;
+    style DEDUP fill:#e9def8,stroke:#7c3aed,stroke-width:1.5px,color:#3d1a66;
+
+    %% ---- Executor (red) ----
+    style RUN  fill:#fde0e0,stroke:#dc2626,stroke-width:1.5px,color:#7a1515;
+    style HEAL fill:#fde0e0,stroke:#dc2626,stroke-width:1.5px,color:#7a1515;
+
+    %% ---- Dashboard (cyan) ----
+    style DASH fill:#d7f0f7,stroke:#0891b2,stroke-width:2px,color:#0a4553;
