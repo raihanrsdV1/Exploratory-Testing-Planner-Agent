@@ -9,6 +9,62 @@ from __future__ import annotations
 from . import rag_client
 
 
+def _failure_reason(notes: str) -> str:
+    """The actionable part of an execution note.
+
+    The executor writes "Droidrun execution completed in 47.6s. Steps taken: 7.
+    Success=False. Reason: <what actually went wrong>" — only the tail matters.
+    """
+    text = str(notes or "").strip()
+    if "Reason: " in text:
+        text = text.split("Reason: ", 1)[1]
+    for cut in (" | Self-heal:",):
+        if cut in text:
+            text = text.split(cut, 1)[0]
+    return " ".join(text.split())[:300]
+
+
+def build_failure_context(project: str, recent_tests: list[dict]) -> str:
+    """What previous runs actually discovered, so generation can build on it.
+
+    Without this the planner only sees the *titles* of failed tests and keeps
+    re-deriving variants of a defect it already found. Combines each failure's
+    real reason with the recurring ErrorPattern signatures mined from execution
+    history (REQ-303.2), which were previously computed but never fed back in.
+    """
+    lines: list[str] = []
+    for t in recent_tests:
+        if str(t.get("verdict", "")).lower() != "failed":
+            continue
+        reason = _failure_reason(t.get("notes", ""))
+        title = str(t.get("title", "")).strip()
+        if not title:
+            continue
+        lines.append(f"- {title}\n    → what happened: {reason or 'no reason recorded'}")
+        if len(lines) >= 25:
+            break
+
+    patterns: list[str] = []
+    try:
+        data = rag_client.rag_get("/execution/error-patterns", {"project": project})
+        for p in (data.get("error_patterns") or [])[:5]:
+            freq = p.get("frequency")
+            patterns.append(
+                f"- {p.get('error_type', '?')} recurring on '{p.get('screen', '?')}'"
+                f" ({freq}x) — {p.get('suggested_mitigation', '')}"
+            )
+    except Exception:
+        patterns = []
+
+    out: list[str] = []
+    if lines:
+        out += ["Confirmed findings from executed tests (do NOT re-test the same defect — "
+                "probe a DIFFERENT rule, screen or interaction instead):", *lines]
+    if patterns:
+        out += ["", "Recurring failure patterns across runs:", *patterns]
+    return "\n".join(out)
+
+
 def pick_relevant_screens(screens: list[dict], done_areas: list[str], recent_tests: list[dict]) -> list[str]:
     """Choose up to 2 screens to detail, biased toward untested, interaction-rich screens."""
     if not screens:

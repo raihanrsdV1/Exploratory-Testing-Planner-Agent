@@ -36,6 +36,14 @@ APP_NAME = os.getenv("APP_NAME", "the app under test")
 # Hard cap on ingested SRS text size (~500 KB).
 MAX_SRS_CHARS = 500_000
 
+# Explore/exploit balance for a run (ETA: defect-focused depth vs. coverage breadth):
+#   exploit  — drill into areas that have already broken (defect-prone depth)
+#   explore  — push into untested areas (coverage breadth)
+#   balanced — investigate failures first, then expand (default; today's behaviour)
+EXPLORATION_MODE = (os.getenv("EXPLORATION_MODE") or "balanced").strip().lower()
+if EXPLORATION_MODE not in {"exploit", "explore", "balanced"}:
+    EXPLORATION_MODE = "balanced"
+
 
 def check_gateway_auth(authorization: str | None) -> None:
     """Raise 401 unless the gateway API key matches (no-op when key is unset)."""

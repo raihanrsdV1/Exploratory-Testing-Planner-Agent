@@ -13,8 +13,8 @@ const SOURCES = [
   { id: 'planner', label: '🧠 Planner' },
 ]
 
-export default function LogsPanel({ paused }) {
-  const [source, setSource] = useState('mobilerun')
+/** One independently-polled, auto-scrolling log stream. */
+function LogStream({ source, label, paused }) {
   const [lines, setLines] = useState([])
   const [exists, setExists] = useState(true)
   const box = useRef(null)
@@ -28,9 +28,8 @@ export default function LogsPanel({ paused }) {
         const d = await r.json()
         if (!alive) return
         setExists(d.exists); setLines(d.lines || [])
-      } catch { /* ignore */ }
+      } catch { /* keep last good data */ }
     }
-    stick.current = true
     poll()
     const t = setInterval(() => { if (!paused) poll() }, 2000)
     return () => { alive = false; clearInterval(t) }
@@ -44,23 +43,29 @@ export default function LogsPanel({ paused }) {
   function onScroll() {
     const el = box.current
     if (!el) return
+    // Only keep pinning to the bottom while the user is already there.
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
   }
 
   return (
-    <div>
-      <div className="log-tabs">
-        {SOURCES.map(s => (
-          <button key={s.id} className={'log-tab' + (source === s.id ? ' active' : '')} onClick={() => setSource(s.id)}>
-            {s.label}
-          </button>
-        ))}
+    <div className="log-stream">
+      <div className="log-head">
+        {label}
+        <span className="log-count">{exists ? `${lines.length} lines` : 'no log yet'}</span>
       </div>
       <div className="logs" ref={box} onScroll={onScroll}>
         {!exists ? `No ${source} log yet — start the executor / trigger a test to see activity.`
           : lines.length === 0 ? 'Waiting for log output…'
           : lines.map((l, i) => <div key={i} className={lineClass(l)}>{l}</div>)}
       </div>
+    </div>
+  )
+}
+
+export default function LogsPanel({ paused }) {
+  return (
+    <div className="log-split">
+      {SOURCES.map(s => <LogStream key={s.id} source={s.id} label={s.label} paused={paused} />)}
     </div>
   )
 }

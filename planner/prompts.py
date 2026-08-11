@@ -214,6 +214,7 @@ def build_testcase_prompt(
     target_env: str = "",
     risk_context: str = "",
     anomaly_context: str = "",
+    failure_context: str = "",
 ) -> str:
     cmap = coverage_map or {}
     rtests = recent_tests or []
@@ -342,16 +343,21 @@ def build_testcase_prompt(
             "",
         ]
 
-    history_block = "\n".join(f"- {t}" for t in done_titles[:40]) or "- none"
-    failed_block = "\n".join(f"- {t}" for t in failed_titles[:20]) or "- none"
+    history_block = "\n".join(f"- {t}" for t in done_titles[:120]) or "- none"
+    failed_block = "\n".join(f"- {t}" for t in failed_titles[:60]) or "- none"
 
     parts += [
         "## Executed Tests — semantic duplicates are FORBIDDEN",
         history_block,
         "",
-        "## Known Failures — probe adjacent cases and variants around these",
-        failed_block,
-        "",
+    ]
+    # Prefer the detailed findings block (title + why it failed + recurring
+    # patterns); fall back to bare titles when no reasons were recorded.
+    if failure_context:
+        parts += ["## What Previous Tests Already Proved", failure_context, ""]
+    else:
+        parts += ["## Known Failures — probe adjacent cases and variants around these", failed_block, ""]
+    parts += [
         "## Exploratory Testing Heuristics — apply at least one",
         "- BOUNDARY: Test at the edges of valid input ranges (max length, empty, zero, one-off, overflow).",
         "- INVALID INPUT: Submit malformed, null, or unexpected-type data. Does the app fail gracefully?",

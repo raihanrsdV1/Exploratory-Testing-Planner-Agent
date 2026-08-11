@@ -35,10 +35,14 @@ class LiveUISource(KnowledgeSource):
             return None
 
         by_id = {n["id"]: n for n in nodes}
-        lines = ["Observed app map (live states reached during exploration):"]
+        lines = ["Observed app map — these are the REAL screens and control names seen on the device.",
+                 "Prefer these names in test steps over design-file labels; they are what exists at runtime."]
         for n in nodes[:12]:
             flag = " [dialog]" if n.get("has_dialog") else ""
             lines.append(f"- {n.get('label','?')}{flag} (visited {n.get('visits',0)}x, {n.get('elements',0)} controls)")
+            controls = n.get("controls") or []
+            if controls:
+                lines.append(f"    controls: {', '.join(controls[:8])}")
         if edges:
             lines.append("Known transitions:")
             for e in edges[:14]:

@@ -27,6 +27,17 @@ def parse_testcase(raw: str) -> dict:
             return obj
     except Exception:
         pass
+    # Models often keep talking after the JSON object (or emit several). The
+    # outermost {...} slice above then spans that trailing prose and fails to
+    # decode, so take just the first complete value and ignore the rest.
+    try:
+        start = (raw or "").find("{")
+        if start != -1:
+            obj, _ = json.JSONDecoder().raw_decode(raw[start:])
+            if isinstance(obj, dict):
+                return obj
+    except Exception:
+        pass
     return {"raw": raw}
 
 

@@ -21,6 +21,11 @@ from collections import Counter
 
 from . import embeddings
 
+# Failure categories that say nothing about the application under test: the run
+# never got far enough to observe misbehaviour. They must not count as defect
+# discoveries, nor as evidence that a test is flaky.
+NON_DEFECT_ERRORS = ("PRECONDITION_NOT_MET", "STEP_LIMIT_EXCEEDED")
+
 
 # ── 307.1 test effectiveness ────────────────────────────────────────────────
 
@@ -30,9 +35,10 @@ def compute_test_effectiveness(session, project, now) -> list[dict]:
         """
         MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
         OPTIONAL MATCH (t)<-[:FOR_TEST]-(e:ExecutionLog)
-        // A run blocked on missing test data never exercised the app, so it is
-        // neither a defect discovery nor evidence of instability — drop it.
-        WHERE e IS NULL OR coalesce(e.error_type,'') <> 'PRECONDITION_NOT_MET'
+        // A run blocked on missing test data — or one that ran out of steps —
+        // never exercised the app, so it is neither a defect discovery nor
+        // evidence of instability. Drop it.
+        WHERE e IS NULL OR NOT coalesce(e.error_type,'') IN $non_defect
         WITH t, collect(e.verdict) AS verdicts
         OPTIONAL MATCH (t)-[:COVERS]->(req:Requirement)
         WITH t, verdicts, count(DISTINCT req) AS reqs
@@ -40,7 +46,7 @@ def compute_test_effectiveness(session, project, now) -> list[dict]:
         RETURN t.id AS id, t.title AS title, t.area AS area, t.external_id AS external_id,
                verdicts, reqs, count(DISTINCT fa) AS areas
         """,
-        project=project,
+        project=project, non_defect=list(NON_DEFECT_ERRORS),
     )
     out = []
     for r in rows:

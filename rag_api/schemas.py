@@ -44,7 +44,9 @@ class LogTestRequest(DimensionMixin):
     project: str = Field(..., min_length=1)
     test_case_id: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1)
-    verdict: Literal["pass", "failed"]
+    # "planned" = generated but not executed yet; upgraded to pass/failed by the
+    # executor once the run completes.
+    verdict: Literal["pass", "failed", "planned"]
     notes: str = ""
     area: str = "general"
     # Original requirement refs (e.g. ["FR-5","FR-7"]) this test covers -> COVERS edges.

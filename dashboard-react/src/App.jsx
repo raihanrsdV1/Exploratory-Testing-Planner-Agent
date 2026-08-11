@@ -1,9 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import AppModelGraph from './AppModelGraph.jsx'
 import LogsPanel from './LogsPanel.jsx'
+import PlannerTrace from './PlannerTrace.jsx'
+import RunSteps from './RunSteps.jsx'
 
 const REFRESH_MS = 4000
 const num = (n) => (n == null || isNaN(n) ? '—' : Number(n).toLocaleString())
+
+// Show the verdict as recorded. Collapsing anything non-'failed' to "pass" would
+// display a generated-but-unexecuted ('planned') test as passing.
+const VERDICT_CLS = { failed: 'fail', planned: 'plan', pass: 'pass', passed: 'pass' }
+function Verdict({ value }) {
+  const v = String(value || '').toLowerCase()
+  return <span className={'chip ' + (VERDICT_CLS[v] || 'plan')}>{v || 'unknown'}</span>
+}
 
 function Tile({ label, value, sub, cls }) {
   return (
@@ -23,6 +33,7 @@ export default function App() {
   const [ago, setAgo] = useState('connecting…')
   const [auto, setAuto] = useState(true)
   const [selectedExec, setSelectedExec] = useState(null)
+  const [openSteps, setOpenSteps] = useState(null)
   const lastOk = useRef(0)
 
   const poll = useCallback(async (proj) => {
@@ -58,6 +69,8 @@ export default function App() {
   const recent = c.recent_tests || []
   const areas = c.area_breakdown || {}
   const am = d.appmodel || {}
+  const rules = d.rules || []
+  const uncoveredReqs = (d.requirement_coverage || {}).uncovered_requirements || []
   const nodeLabel = Object.fromEntries((am.nodes || []).map(n => [n.id, n.label]))
   // Resolve a run's path to current state labels and collapse consecutive repeats
   // into the actual navigation route.
@@ -75,7 +88,11 @@ export default function App() {
   const highlightPath = activeExec ? activeExec.path : null
   const failed = recent.filter(t => String(t.verdict).toLowerCase() === 'failed')
   const passed = recent.filter(t => String(t.verdict).toLowerCase() === 'pass')
-  const passRate = recent.length ? Math.round((100 * passed.length) / recent.length) : 0
+  // 'planned' tests were generated but never executed — they must not dilute the
+  // pass rate, which is a ratio over real runs only.
+  const planned = recent.filter(t => String(t.verdict).toLowerCase() === 'planned')
+  const executedCount = passed.length + failed.length
+  const passRate = executedCount ? Math.round((100 * passed.length) / executedCount) : 0
   const hot = new Set(c.hot_spots || [])
   const areaRows = Object.entries(areas).sort((a, b) => (b[1].total - a[1].total))
 
@@ -104,8 +121,8 @@ export default function App() {
         {err ? <div className="banner">Could not reach the gateway (/dashboard/data): {err}. Is it running on :9100?</div> : null}
 
         <section className="kpis">
-          <Tile label="Total Tests" value={num(s.test_case_count)} sub={`${s.test_run_count || 0} runs`} />
-          <Tile label="Pass Rate" value={passRate + '%'} sub={`${passed.length}/${recent.length} recent`} cls="pass" />
+          <Tile label="Total Tests" value={num(s.test_case_count)} sub={planned.length ? `${s.test_run_count || 0} runs · ${planned.length} planned` : `${s.test_run_count || 0} runs`} />
+          <Tile label="Pass Rate" value={passRate + '%'} sub={`${passed.length}/${executedCount} executed`} cls="pass" />
           <Tile label="Bugs Found" value={num(failed.length)} sub="failed verdicts" cls="fail" />
           <Tile label="Coverage" value={(cov.coverage_pct ?? 0) + '%'} sub={`${cov.areas_tested || 0}/${cov.areas_available || 0} areas`} />
           <Tile label="Business Policies" value={num(s.validation_rule_count)} sub="validation rules (SRS)" cls="accent" />
@@ -144,9 +161,7 @@ export default function App() {
                   <div key={i} className={'exec-row' + (id === selectedExec ? ' active' : '')}
                        onClick={() => setSelectedExec(id === selectedExec ? null : id)}>
                     <div className="top">
-                      <span className={'chip ' + (String(e.verdict).toLowerCase() === 'failed' ? 'fail' : 'pass')}>
-                        {String(e.verdict).toLowerCase() === 'failed' ? 'failed' : 'pass'}
-                      </span>
+                      <Verdict value={e.verdict} />
                       <span className="title">{e.test_case_id} — {e.title}</span>
                       <span className="meta">{distinct} states · {e.states_visited} steps · {Math.round((e.duration_ms || 0) / 1000)}s{e.error_type ? ' · ' + e.error_type : ''}</span>
                     </div>
@@ -155,6 +170,11 @@ export default function App() {
                         {labels.map((l, j) => <span key={j}><span className="st">{l || '?'}</span>{j < labels.length - 1 ? <span className="arr">→</span> : null}</span>)}
                       </div>
                     ) : null}
+                    <button className="steps-toggle"
+                            onClick={(ev) => { ev.stopPropagation(); setOpenSteps(openSteps === id ? null : id) }}>
+                      {openSteps === id ? '▾ hide device steps' : '▸ show device steps'}
+                    </button>
+                    {openSteps === id ? <RunSteps createdAt={e.created_at} /> : null}
                   </div>
                 )
               }) : <div className="empty">No executions logged yet — run the executor.</div>}
@@ -163,7 +183,12 @@ export default function App() {
         </div>
 
         <div className="panel">
-          <h2>📟 Live Logs <span className="count">(device agent + planner reasoning — switch tabs)</span></h2>
+          <h2>🧠 Planner Execution Trace <span className="count">(each generation run: LangGraph nodes, LLM cost, retrievals — newest first)</span></h2>
+          <div className="body"><PlannerTrace project={project} paused={!auto} /></div>
+        </div>
+
+        <div className="panel">
+          <h2>📟 Live Logs <span className="count">(device agent and planner reasoning, side by side — both stream independently)</span></h2>
           <div className="body"><LogsPanel paused={!auto} /></div>
         </div>
 
@@ -180,9 +205,7 @@ export default function App() {
                         <td className="mono">{t.id}</td><td>{t.title}</td>
                         <td><span className="area-tag">{t.area || '—'}</span></td>
                         <td style={{ textAlign: 'right' }}>
-                          <span className={'chip ' + (String(t.verdict).toLowerCase() === 'failed' ? 'fail' : 'pass')}>
-                            {String(t.verdict).toLowerCase() === 'failed' ? 'failed' : 'pass'}
-                          </span>
+                          <Verdict value={t.verdict} />
                         </td>
                       </tr>
                     )) : <tr><td colSpan="4"><div className="empty">No test cases yet.</div></td></tr>}
@@ -236,6 +259,34 @@ export default function App() {
                 <div className="kv"><span>Business policies (validation rules)</span><span className="v">{num(s.validation_rule_count)}</span></div>
                 <div className="kv"><span>Domain entities</span><span className="v">{num(s.entity_count)}</span></div>
                 <div className="kv"><span>Requirements covered by tests</span><span className="v">{num(s.covered_requirement_count)} / {num(s.requirement_count)}</span></div>
+                {rules.length ? (
+                  <section className="srs-sec">
+                    <h3>Business policies <span>{rules.length}</span>
+                      <em>⚑ needs review</em></h3>
+                    <ul className="srs-list">
+                      {rules.map((r, i) => (
+                        <li key={i} className={r.needs_review ? 'flagged' : ''}>
+                          <span className="srs-text">{r.needs_review ? '⚑ ' : ''}{r.rule}</span>
+                          {r.feature || r.requirement_id
+                            ? <span className="area-tag">{r.feature || r.requirement_id}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+                {uncoveredReqs.length ? (
+                  <section className="srs-sec">
+                    <h3>Requirements not yet covered <span>{uncoveredReqs.length}</span></h3>
+                    <ul className="srs-list">
+                      {uncoveredReqs.map((r) => (
+                        <li key={r.ref_id}>
+                          <span className="srs-text"><b className="srs-ref">{r.ref_id}</b>{r.text}</span>
+                          {r.feature ? <span className="area-tag">{r.feature}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
                 <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Extracted by the LLM from the ingested SRS.</div>
               </div>
             </div>

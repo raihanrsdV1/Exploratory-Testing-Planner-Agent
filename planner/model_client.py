@@ -105,6 +105,10 @@ def _call_openrouter(prompt: str, max_new_tokens: int, enable_thinking: bool) ->
         "max_tokens": max_new_tokens,
         "temperature": 0.7,
     }
+    if not enable_thinking:
+        # Reasoning tokens are billed against max_tokens, so on a reasoning model
+        # they starve the JSON answer and it gets truncated mid-object.
+        payload["reasoning"] = {"enabled": False}
     try:
         resp = requests.post(
             f"{config.OPENROUTER_BASE_URL}/chat/completions",

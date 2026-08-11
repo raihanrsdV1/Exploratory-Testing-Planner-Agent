@@ -145,6 +145,32 @@ def _signature(package: str, activity: str, sorted_keys: list[str], has_dialog: 
     return h.hexdigest()[:16]
 
 
+def control_labels(key_set: Iterable[str], limit: int = 10) -> list[str]:
+    """Human-readable names of the controls actually present in a state.
+
+    The planner otherwise writes steps against design-time (Figma) labels, which
+    may not exist in the running app. These come from the real accessibility tree:
+    a content-description when the app supplies one (e.g. "Create contact"),
+    otherwise the resource-id tail. Clickable controls come first, since those are
+    what a test step can act on. Keys carrying neither are skipped — a pure-Compose
+    screen may legitimately yield none.
+    """
+    clickable: list[str] = []
+    other: list[str] = []
+    for key in key_set or []:
+        parts = str(key).split(_F)
+        if len(parts) < 4:
+            continue
+        rid, _cls, cd, click = parts[0], parts[1], parts[2], parts[3]
+        label = cd.strip() or rid.split("/")[-1].strip()
+        if not label or _looks_like_resource_id(label) and "/" in label:
+            continue
+        bucket = clickable if click == "1" else other
+        if label not in bucket:
+            bucket.append(label)
+    return (clickable + other)[:limit]
+
+
 def similarity(key_set_a: list[str], key_set_b: list[str]) -> float:
     """Jaccard over structural keys — the near-match score (mirrors mobilerun's
     ``compare_states`` node score, on our content-abstracted keys)."""

@@ -1262,7 +1262,10 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
             """
             MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
             RETURN coalesce(t.external_id, t.id) AS id, t.title AS title, t.area AS area,
-                   t.last_verdict AS verdict, t.last_run_at AS ts
+                   t.last_verdict AS verdict, t.last_run_at AS ts,
+                   // The failure reason is what makes a past failure actionable for the
+                   // planner — without it the agent only knows THAT a test failed.
+                   t.last_notes AS notes
             ORDER BY t.last_run_at DESC
             LIMIT $limit
             """,
@@ -1449,9 +1452,12 @@ def figma_elements(
 def log_test(req: LogTestRequest, authorization: str | None = Header(default=None)):
     _check_auth(authorization)
     now = _utc_now()
-    # Keep a stable internal testcase key by semantic title so repeated external IDs
-    # (e.g., TC-001 in multiple rounds) do not overwrite different testcases.
-    internal_test_id = f"{req.project}::tc::{_slug(req.title)}"
+    # Key the node by its external id (assigned once by the planner and carried
+    # unchanged through execution) so the pre-logged "planned" record and the
+    # post-execution verdict update the SAME node even if the title is reworded.
+    # Fall back to the title slug when no id is supplied.
+    key_basis = req.test_case_id.strip() if (req.test_case_id and req.test_case_id.strip()) else req.title
+    internal_test_id = f"{req.project}::tc::{_slug(key_basis)}"
     run_id = f"{internal_test_id}::run::{now}"
     area_slug = _slug(req.area)
 
@@ -1969,7 +1975,8 @@ def appmodel_graph(project: str, authorization: str | None = Header(default=None
             RETURN s.id AS id, s.label AS label, s.activity AS activity,
                    s.visit_count AS visits, s.has_dialog AS has_dialog,
                    s.element_count AS elements, s.last_seen AS last_seen,
-                   (s.screenshot_ref IS NOT NULL) AS has_shot
+                   (s.screenshot_ref IS NOT NULL) AS has_shot,
+                   s.key_set AS key_set
             ORDER BY s.visit_count DESC
             """, project=project)]
         edges = [dict(r) for r in session.run(
@@ -1981,6 +1988,9 @@ def appmodel_graph(project: str, authorization: str | None = Header(default=None
     # vanished after an app update fade out. Computed on read — no stale nodes.
     stale = 0
     for n in nodes:
+        # Real control names, so the planner can write steps against controls that
+        # actually exist on the observed screen (not design-time Figma labels).
+        n["controls"] = app_state.control_labels(n.pop("key_set", None) or [])
         w = learning_mod.decay_weight(n.pop("last_seen", "") or "")
         n["recency_weight"] = round(w, 4)
         n["stale"] = w < 0.5
@@ -2033,16 +2043,17 @@ def execution_log(req: ExecutionLogRequest, authorization: str | None = Header(d
 
         # REQ-303.3: reinforce strategy memory. In this system a 'failed' verdict
         # means the test exposed a defect, i.e. the strategy was effective.
-        # PRECONDITION_NOT_MET is excluded: the run aborted before touching the app,
-        # so it says nothing about the strategy — counting it would teach the agent
-        # to favour strategies that merely fail to set up.
+        # NON_DEFECT_ERRORS are excluded: those runs never showed the app
+        # misbehaving (setup never completed, or the step budget ran out), so
+        # counting them would teach the agent to favour strategies that merely
+        # fail to finish.
         strat = {}
         if internal_tc:
             row = session.run(
                 "MATCH (t:TestCase {id:$tc}) RETURN t.test_type AS tt, t.area AS area", tc=internal_tc
             ).single()
             strategy_type = (row["tt"] if row and row["tt"] else (row["area"] if row else "")) or "unspecified"
-            found_defect = req.verdict == "failed" and req.error_type != "PRECONDITION_NOT_MET"
+            found_defect = req.verdict == "failed" and req.error_type not in metrics_mod.NON_DEFECT_ERRORS
             strat = learning_mod.record_strategy(
                 session, req.project, strategy_type, effective=found_defect, now=now,
             )

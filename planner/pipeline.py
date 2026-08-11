@@ -311,7 +311,9 @@ def agent_coverage(project: str, authorization: str | None) -> dict:
         "exploration_directive": directive,
         "figma_screen_count": len(figma_overview),
         "requirement_coverage": requirement_coverage,
-        "recent_tests": recent_tests[:20],
+        # Full history the brief returned (bounded by its own recent_limit) — a
+        # hard slice here silently hid completed tests from the dashboard.
+        "recent_tests": recent_tests,
     }
 
 
@@ -353,6 +355,8 @@ def dashboard_data(project: str) -> dict:
         "dimensions": _get("/dimensions/list", default={}),
         "drift": _get("/srs/drift", default={}),
         "business_logic": _get("/business-logic/rules", {"project": project, "needs_review": True}, default={}),
+        "rules": _get("/business-logic/rules", key="rules", default=[]),
+        "requirement_coverage": _get("/coverage/requirements", default={}),
         "navtree": _get("/navtree/stats", default={}),
         "nav_failed": _get("/navtree/failed-paths", {"project": project, "limit": 8}, key="failed_paths", default=[]),
         # Read-only: the agent loop (build_learned_context) triggers detection; the

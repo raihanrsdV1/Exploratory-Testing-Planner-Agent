@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import re
 
+from . import config
+
 
 def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict]) -> dict:
     """Derive a coverage map from test history + known screens (purely data-driven)."""
+    # Exclude not-yet-executed ("planned") tests so coverage reflects real runs only.
+    executed = [t for t in recent_tests if str(t.get("verdict", "")).lower() != "planned"]
     area_stats: dict[str, dict] = {}
-    for t in recent_tests:
+    for t in executed:
         area = re.sub(r"\s+", "_", str(t.get("area", "general")).lower().strip()) or "general"
         stats = area_stats.setdefault(area, {"total": 0, "passed": 0, "failed": 0})
         stats["total"] += 1
@@ -39,7 +43,7 @@ def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict]) ->
         "uncovered_purposes": uncovered_purposes,
         "hot_spots": hot_spots,
         "exhausted_areas": exhausted,
-        "total_tests": len(recent_tests),
+        "total_tests": len(executed),
         "total_areas_tested": len(tested_areas),
         "total_areas_available": len(screen_purposes),
         "coverage_pct": cov_pct,
@@ -65,32 +69,53 @@ def build_coverage_block(coverage_map: dict) -> str:
     return "\n".join(lines)
 
 
-def build_exploration_directive(coverage_map: dict, recent_tests: list[dict]) -> str:
-    """Prioritised, data-driven next-action directive for the planner."""
+def build_exploration_directive(coverage_map: dict, recent_tests: list[dict], mode: str | None = None) -> str:
+    """Prioritised, data-driven next-action directive for the planner.
+
+    ``mode`` sets the explore/exploit balance for the run (see config.EXPLORATION_MODE):
+    ``exploit`` puts defect-prone depth first, ``explore`` puts untested breadth first,
+    ``balanced`` investigates failures then expands.
+    """
+    mode = (mode or config.EXPLORATION_MODE or "balanced").strip().lower()
+    recent_tests = [t for t in recent_tests if str(t.get("verdict", "")).lower() != "planned"]
     lines: list[str] = []
     hot_spots = coverage_map.get("hot_spots", [])
     uncovered = coverage_map.get("uncovered_purposes", [])
     exhausted = coverage_map.get("exhausted_areas", [])
 
-    if hot_spots:
-        lines.append(
-            f"[PRIORITY 1 — INVESTIGATE] Areas with repeated failures need deeper edge-case coverage: "
-            f"{', '.join(hot_spots[:3])}"
-        )
-    if uncovered:
-        lines.append(f"[PRIORITY 2 — EXPAND] Areas with ZERO test coverage yet: {', '.join(uncovered[:5])}")
+    investigate = (
+        f"[INVESTIGATE] Areas with repeated failures need deeper edge-case coverage: "
+        f"{', '.join(hot_spots[:3])}"
+    ) if hot_spots else ""
+    expand = (
+        f"[EXPAND] Areas with ZERO test coverage yet: {', '.join(uncovered[:5])}"
+    ) if uncovered else ""
+
+    if mode == "exploit":
+        lines.append("[MODE: EXPLOIT] Go DEEP on areas that have already broken. Prefer another "
+                     "angle on a known-fragile area over opening a new one.")
+        ordered = [investigate, expand]
+    elif mode == "explore":
+        lines.append("[MODE: EXPLORE] Go BROAD. Cover untested areas first; only revisit a "
+                     "known-fragile area once no untested area remains.")
+        ordered = [expand, investigate]
+    else:
+        ordered = [investigate, expand]
+
+    for i, block in enumerate([b for b in ordered if b], start=1):
+        lines.append(f"[PRIORITY {i}] " + block)
 
     last_areas = [str(t.get("area", "")).lower().strip() for t in recent_tests[:4] if t.get("area")]
     if len(last_areas) >= 3 and len(set(last_areas)) == 1:
         last_verdicts = [str(t.get("verdict", "")).lower() for t in recent_tests[:4]]
         if all(v == "pass" for v in last_verdicts):
             lines.append(
-                f"[PRIORITY 3 — PIVOT] Last {len(last_areas)} consecutive tests all PASSED in "
+                f"[PIVOT] Last {len(last_areas)} consecutive tests all PASSED in "
                 f"'{last_areas[0]}'. This area is likely stable — move to a different area now."
             )
         else:
             lines.append(
-                f"[PRIORITY 3 — VARY ANGLE] Still in '{last_areas[0]}' with mixed results. "
+                f"[VARY ANGLE] Still in '{last_areas[0]}' with mixed results. "
                 "Try a different test type: boundary values, invalid input, or state transitions."
             )
 

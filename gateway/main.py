@@ -18,6 +18,9 @@ Nothing here is specific to any single app — all domain knowledge comes from t
 ingested SRS/UI knowledge graph at request time.
 """
 
+import json
+import re
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -106,13 +109,85 @@ _PLANNER_DROP = (
 
 
 def _filter_planner(lines: list[str]) -> list[str]:
-    out = []
+    """Keep only planner *reasoning* lines, rewritten to one compact line each.
+
+    The raw structlog output is dominated by HTTP/RAG plumbing and repeats
+    request_id/path/project on every line, which buries the few events that
+    actually explain what the planner did.
+    """
+    out: list[str] = []
     for l in lines:
         if any(d in l for d in _PLANNER_DROP):
             continue
-        if ("request_started" in l or "request_done" in l) and "path=/agent" not in l:
+        low = l.lower()
+        is_event = any(e in l for e in ("node_enter", "node_exit", "node_error", "llm_call"))
+        is_problem = ("[error" in low or "[warning" in low or "traceback" in low
+                      or "exception" in low)
+        if not (is_event or is_problem):
+            continue  # rag_call / request_started / request_done / dashboard polling
+
+        ts = l[11:19] if len(l) > 19 and l[10] == "T" else ""
+        node = _field(l, "node")
+        if "node_enter" in l:
+            rnd = _field(l, "round")
+            body = f"→ {node}" + (f"  (round {rnd})" if rnd and rnd != "0" else "")
+        elif "node_exit" in l:
+            body = f"✓ {node}  {_ms(_field(l, 'duration_ms'))}"
+        elif "node_error" in l:
+            body = f"✖ {node} FAILED  {_ms(_field(l, 'duration_ms'))}  {_field(l, 'error')}"
+        elif "llm_call" in l:
+            body = (f"  🧠 LLM {_field(l, 'backend')}  {_ms(_field(l, 'latency_ms'))}"
+                    f"  ~{_field(l, 'estimated_tokens')} tok")
+        else:
+            body = l.strip()
+        out.append(f"{ts}  {body}" if ts else body)
+    return out
+
+
+def _field(line: str, key: str) -> str:
+    """Pull a `key=value` field out of a structlog line (value may contain spaces)."""
+    marker = f"{key}="
+    i = line.find(marker)
+    if i == -1:
+        return ""
+    rest = line[i + len(marker):]
+    # Values are space-separated; an error message is the last field and may have spaces.
+    return rest.strip() if key == "error" else rest.split(" ", 1)[0].strip()
+
+
+def _ms(value: str) -> str:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return ""
+    return f"{v / 1000:.1f}s" if v >= 1000 else f"{v:.0f}ms"
+
+
+def _clean_device_log(lines: list[str]) -> list[str]:
+    """Reduce mobilerun's log to the events that explain what happened on device.
+
+    mobilerun logs every streamed LLM token as its own record (and multi-line
+    messages arrive with no timestamp prefix at all), so the raw file is ~90%
+    single-character fragments. Rather than guess how to re-join them, keep the
+    structural timeline — step banners, retries, recovery, results — and let the
+    per-step trajectory view (``/dashboard/run-steps``) supply the detail.
+    """
+    starters = ("📁", "🚀", "🔄", "❌", "✅", "🗺", "📋", "🔧", "⚠")
+    keywords = ("Step ", "Trajectory", "Running MobileAgent", "get_state", "State retrieval",
+                "Recovery action", "Self-heal", "App model", "Execution logged", "EXECUTING")
+    out: list[str] = []
+    for l in lines:
+        if not _TS_PREFIX.match(l):
+            continue                                   # prefix-less streamed continuation
+        if "Could not get usage" in l:
+            continue                                   # known cosmetic mobilerun/OpenRouter gap
+        body = l.partition(" | ")[2].strip()
+        if not body:
             continue
-        out.append(l)
+        keep = (" WARNING " in l or " ERROR " in l or "executor |" in l
+                or body.startswith(starters) or any(k in body for k in keywords))
+        if keep:
+            out.append(l)
     return out
 
 
@@ -134,8 +209,185 @@ def dashboard_logs(lines: int = 250, source: str = "mobilerun"):
         content = []
     if source == "planner":
         content = _filter_planner(content)
+    else:
+        content = _clean_device_log(content)
     n = max(1, min(lines, 1000))
     return {"exists": True, "source": source, "total": len(content), "lines": content[-n:]}
+
+
+# Planner-owned request paths. Everything else in app.jsonl (dashboard polling,
+# health checks, RAG-API-side logging) is noise for a planner trace.
+_PLANNER_PATHS = ("/agent/", "/srs/ingest", "/figma/ingest", "/defects/ingest", "/chat")
+
+# A real log record starts with HH:MM:SS; anything else is a wrapped continuation.
+_TS_PREFIX = re.compile(r"^\d{2}:\d{2}:\d{2} ")
+
+
+@app.get("/dashboard/planner-trace", include_in_schema=False)
+def dashboard_planner_trace(runs: int = 12, project: str = ""):
+    """The planner's execution trace, grouped into runs (WP9 debugging view).
+
+    Reads the structured JSONL sink (``logs/app.jsonl``) rather than the text log,
+    so each run reports its LangGraph node sequence with per-node timings, LLM
+    latency/token cost, and RAG retrievals — the things you need to see when a
+    generation is slow, loops, or comes back empty.
+    """
+    log_path = Path(__file__).resolve().parent.parent / "logs" / "app.jsonl"
+    if not log_path.exists():
+        return {"exists": False, "runs": []}
+
+    try:
+        raw_lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return {"exists": False, "runs": []}
+
+    by_id: dict[str, dict] = {}
+    order: list[str] = []
+    for line in raw_lines:
+        if '"event"' not in line:
+            continue
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        kind = rec.get("event")
+        if kind not in ("node_enter", "node_exit", "node_error", "llm_call", "rag_call"):
+            continue
+        path = str(rec.get("path") or "")
+        if not any(p in path for p in _PLANNER_PATHS):
+            continue
+        if project and rec.get("project") and rec["project"] != project:
+            continue
+
+        rid = str(rec.get("request_id") or "unknown")
+        run = by_id.get(rid)
+        if run is None:
+            run = by_id[rid] = {
+                "request_id": rid, "path": path, "project": rec.get("project", ""),
+                "started_at": rec.get("timestamp", ""), "ended_at": rec.get("timestamp", ""),
+                "status": "running", "node_ms": 0.0, "llm_ms": 0.0, "llm_calls": 0,
+                "tokens": 0, "rag_calls": 0, "events": [],
+            }
+            order.append(rid)
+        run["ended_at"] = rec.get("timestamp", run["ended_at"])
+        if not run["project"] and rec.get("project"):
+            run["project"] = rec["project"]
+
+        if kind == "node_enter":
+            run["events"].append({
+                "ts": rec.get("timestamp", ""), "kind": "node", "node": rec.get("node", "?"),
+                "round": rec.get("round", 0), "duration_ms": None,
+            })
+        elif kind == "node_exit":
+            dur = rec.get("duration_ms")
+            run["node_ms"] += float(dur or 0)
+            for ev in reversed(run["events"]):
+                if ev["kind"] == "node" and ev["node"] == rec.get("node") and ev["duration_ms"] is None:
+                    ev["duration_ms"] = dur
+                    break
+            else:
+                run["events"].append({"ts": rec.get("timestamp", ""), "kind": "node",
+                                      "node": rec.get("node", "?"), "round": 0, "duration_ms": dur})
+        elif kind == "node_error":
+            run["status"] = "error"
+            run["events"].append({
+                "ts": rec.get("timestamp", ""), "kind": "error", "node": rec.get("node", "?"),
+                "duration_ms": rec.get("duration_ms"), "error": str(rec.get("error", ""))[:400],
+            })
+        elif kind == "llm_call":
+            run["llm_calls"] += 1
+            run["llm_ms"] += float(rec.get("latency_ms") or 0)
+            run["tokens"] += int(rec.get("estimated_tokens") or 0)
+            run["events"].append({
+                "ts": rec.get("timestamp", ""), "kind": "llm", "backend": rec.get("backend", ""),
+                "duration_ms": rec.get("latency_ms"), "tokens": rec.get("estimated_tokens", 0),
+            })
+        else:  # rag_call
+            run["rag_calls"] += 1
+            run["events"].append({
+                "ts": rec.get("timestamp", ""), "kind": "rag",
+                "endpoint": rec.get("endpoint", ""), "method": rec.get("method", ""),
+                "duration_ms": rec.get("latency_ms"),
+            })
+
+    n = max(1, min(runs, 50))
+    selected = [by_id[r] for r in order[-n:]][::-1]  # newest run first
+    for run in selected:
+        if run["status"] != "error":
+            # A finished run's last node has a duration; a hung/aborted one does not.
+            pending = any(e["kind"] == "node" and e["duration_ms"] is None for e in run["events"])
+            run["status"] = "running" if pending else "ok"
+        run["total_ms"] = round(run["node_ms"], 1)
+        run["llm_ms"] = round(run["llm_ms"], 1)
+    return {"exists": True, "run_count": len(order), "runs": selected}
+
+
+@app.get("/dashboard/run-steps", include_in_schema=False)
+def dashboard_run_steps(created_at: str = "", trajectory: str = ""):
+    """Every device step of one test execution, from mobilerun's saved trajectory.
+
+    mobilerun writes a ``trajectory.json`` per run holding the agent's per-step
+    thought, the tool call it made, and the outcome — the detail needed to debug a
+    verdict. Runs are matched by start time: the folder is named with the local
+    time the run began, so we take the newest one that started at or before the
+    execution's ``created_at`` (UTC).
+    """
+    root = Path(__file__).resolve().parent.parent / "logs" / "trajectories"
+    if not root.is_dir():
+        return {"found": False, "reason": "no trajectories directory", "steps": []}
+
+    chosen = (root / trajectory) if trajectory else None
+    if chosen is None:
+        try:
+            ended = datetime.fromisoformat((created_at or "").replace("Z", "+00:00")).astimezone()
+        except (ValueError, TypeError):
+            ended = None
+        best = None
+        for d in root.iterdir():
+            if not d.is_dir():
+                continue
+            try:  # folder name: YYYYMMDD_HHMMSS_<uuid>, in local time
+                started = datetime.strptime("_".join(d.name.split("_")[:2]), "%Y%m%d_%H%M%S").astimezone()
+            except ValueError:
+                continue
+            if ended is not None and started > ended:
+                continue
+            if best is None or started > best[0]:
+                best = (started, d)
+        chosen = best[1] if best else None
+
+    if chosen is None or not (chosen / "trajectory.json").exists():
+        return {"found": False, "reason": "no trajectory for this run", "steps": []}
+
+    try:
+        events = json.loads((chosen / "trajectory.json").read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"found": False, "reason": f"unreadable trajectory: {exc}", "steps": []}
+
+    steps: list[dict] = []
+    outcome: dict = {}
+    thought = ""
+    for ev in events if isinstance(events, list) else []:
+        kind = ev.get("type")
+        if kind == "FastAgentResponseEvent":
+            thought = str(ev.get("thought") or "").strip()
+        elif kind == "ToolExecutionEvent":
+            steps.append({
+                "n": len(steps) + 1,
+                "tool": ev.get("tool_name", ""),
+                "args": ev.get("tool_args", {}),
+                "success": bool(ev.get("success")),
+                "summary": str(ev.get("summary") or "")[:400],
+                "thought": thought[:800],
+            })
+            thought = ""
+        elif kind == "FastAgentEndEvent":
+            outcome = {
+                "success": bool(ev.get("success")),
+                "reason": str(ev.get("reason") or "")[:800],
+                "tool_calls": ev.get("tool_call_count"),
+            }
+    return {"found": True, "trajectory": chosen.name, "steps": steps, "outcome": outcome}
 
 
 @app.get("/dashboard/screenshot", include_in_schema=False)

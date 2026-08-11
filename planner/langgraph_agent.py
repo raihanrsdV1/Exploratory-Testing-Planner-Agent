@@ -63,6 +63,7 @@ class AgentState(TypedDict):
     next_testcase: dict
     retrieval_plan: dict
     model_thinking: str
+    failure_context: str
 
 
 @timed_node("bootstrap_context")
@@ -79,6 +80,7 @@ def bootstrap_context(state: AgentState) -> AgentState:
         if t.get("title") and str(t.get("verdict", "")).lower() == "failed"
     ]
     done_areas = [str(t.get("area", "")) for t in recent_tests if t.get("area")]
+    failure_context = context_builders.build_failure_context(project, recent_tests)
     figma_screens = brief.get("screen_index", []) if isinstance(brief, dict) else []
     figma_overview = rag_client.get_figma_overview(project)
     fallback_screens = context_builders.pick_relevant_screens(figma_screens, done_areas, recent_tests)
@@ -96,6 +98,7 @@ def bootstrap_context(state: AgentState) -> AgentState:
         "recent_tests": recent_tests,
         "done_titles": done_titles,
         "failed_titles": failed_titles,
+        "failure_context": failure_context,
         "done_areas": done_areas,
         "figma_screens": figma_screens,
         "figma_overview": figma_overview,
@@ -318,6 +321,7 @@ def generate_testcase(state: AgentState) -> AgentState:
         target_env=target_env,
         risk_context=risk_context,
         anomaly_context=anomaly_context,
+        failure_context=state.get("failure_context", ""),
     )
 
     model_data = model_client.call_model(prompt, state["max_new_tokens"], state["enable_thinking"])
@@ -386,6 +390,7 @@ def duplicate_check(state: AgentState) -> AgentState:
             failed_titles=state["failed_titles"],
             coverage_map=state["coverage_map"],
             recent_tests=state["recent_tests"],
+            failure_context=state.get("failure_context", ""),
         ) + "\n\nBlocked titles (semantic overlap with any of these is FORBIDDEN):\n" + blocked
         
         model_data = model_client.call_model(retry_prompt, state["max_new_tokens"], state["enable_thinking"])
@@ -403,8 +408,9 @@ def duplicate_check(state: AgentState) -> AgentState:
                 "model_thinking": model_data.get("thinking", ""),
             }
 
-    # Stage 6: Enforce external test case ID
-    if isinstance(parsed, dict):
+    # Stage 6: Enforce external test case ID. Require a title so an unparsed
+    # ``{"raw": ...}`` blob never gets an id and is never logged as a test.
+    if isinstance(parsed, dict) and "title" in parsed:
         parsed["test_case_id"] = textutil.next_testcase_id(state["recent_tests"])
         state["next_testcase_json"] = json.dumps(parsed, ensure_ascii=False, indent=2)
         state["next_testcase"] = parsed
@@ -444,7 +450,7 @@ def run_agent(req_args: dict) -> dict:
         app_name=req_args.get("app_name", ""),
         objective=req_args.get("objective", ""),
         top_k=req_args.get("top_k", 5),
-        max_new_tokens=req_args.get("max_new_tokens", 4096),
+        max_new_tokens=req_args.get("max_new_tokens", 8000),
         enable_thinking=req_args.get("enable_thinking", False),
         debug_trace=req_args.get("debug_trace", False),
         
@@ -488,9 +494,11 @@ def run_agent(req_args: dict) -> dict:
             try:
                 rag_client.rag_post("/tests/log", {
                     "project": final_state["project"],
-                    "test_case_id": parsed.get("test_case_id") or "TC-GEN",
+                    "test_case_id": parsed["test_case_id"],
                     "title": parsed.get("title") or "Generated Test Case",
-                    "verdict": "pass",
+                    # Not executed yet — logging "pass" here invents a passing test
+                    # that never ran and poisons coverage, risk and effectiveness.
+                    "verdict": "planned",
                     "notes": "[GENERATED] Awaiting execution.",
                     "area": parsed.get("area", "general"),
                     "requirement_ids": parsed.get("requirement_ids", []) if isinstance(parsed.get("requirement_ids"), list) else [],

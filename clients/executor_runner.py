@@ -53,6 +53,11 @@ EXECUTOR_LLM_MODEL = os.getenv("EXECUTOR_LLM_MODEL", "gemini-2.5-pro")
 EXECUTOR_TIMEOUT = int(os.getenv("EXECUTOR_TIMEOUT", "120"))
 EXECUTOR_ROUNDS = int(os.getenv("EXECUTOR_ROUNDS", "2"))
 EXECUTOR_MAX_STEPS = int(os.getenv("EXECUTOR_MAX_STEPS", "30"))
+# LlamaIndex defaults the device LLM to 256 output tokens / 3900 context. At 256 the
+# agent's tool call gets cut off mid-argument, so it can never signal completion and
+# every run burns to EXECUTOR_MAX_STEPS and is logged as a failure.
+EXECUTOR_MAX_TOKENS = int(os.getenv("EXECUTOR_MAX_TOKENS", "4000"))
+EXECUTOR_CONTEXT_WINDOW = int(os.getenv("EXECUTOR_CONTEXT_WINDOW", "128000"))
 # WP7 self-healing: attempt one adaptive recovery on a recoverable failure.
 SELF_HEAL = os.getenv("SELF_HEAL", "1").strip().lower() not in {"0", "false", "no"}
 TARGET_APP_PACKAGE = os.getenv("TARGET_APP_PACKAGE", "com.android.contacts")
@@ -195,7 +200,7 @@ def _log_planner_trace(planner_data: dict, label: str = ""):
 # 1. PLANNER GATEWAY COMMUNICATION
 # ──────────────────────────────────────────────────────────────────────────────
 
-def get_next_testcase(max_new_tokens: int = 4096) -> dict:
+def get_next_testcase(max_new_tokens: int = 8000) -> dict:
     """Ask the planner gateway for the next test case."""
     resp = requests.post(
         f"{GATEWAY_URL}/agent/next-testcase",
@@ -216,7 +221,7 @@ def get_next_testcase(max_new_tokens: int = 4096) -> dict:
 
 
 def log_verdict_and_get_next(
-    tc: dict, verdict: str, notes: str, max_new_tokens: int = 4096
+    tc: dict, verdict: str, notes: str, max_new_tokens: int = 8000
 ) -> dict:
     """Log the execution verdict then separately fetch the next test case.
 
@@ -316,6 +321,9 @@ _RECOVERY = {
     "TIMEOUT": {"action": "retry with an extended timeout", "retry": True},
     "CRASH": {"action": "restart the app and resume from the last stable screen", "retry": True},
     "PERMISSION_DENIED": {"action": "grant the required permission/precondition, then retry", "retry": True},
+    # Budget exhaustion, not app misbehaviour: the agent simply ran out of steps.
+    # No retry — the retry gets the same budget and would exhaust it again.
+    "STEP_LIMIT_EXCEEDED": {"action": "ran out of steps before finishing; raise EXECUTOR_MAX_STEPS or simplify the test", "retry": False},
 }
 
 
@@ -330,6 +338,10 @@ def classify_failure(reason: str, success: bool = False) -> str:
     if any(k in r for k in ("precondition not met", "preconditions not met",
                             "precondition failed", "preconditions are not met")):
         return "PRECONDITION_NOT_MET"
+    # Also not app misbehaviour: the step budget ran out mid-test. Without this it
+    # falls through to ASSERTION_FAILURE and is counted as a discovered defect.
+    if any(k in r for k in ("max step count", "max steps", "step limit")):
+        return "STEP_LIMIT_EXCEEDED"
     if any(k in r for k in ("permission", "denied", "not granted")):
         return "PERMISSION_DENIED"
     if any(k in r for k in ("crash", "terminated", "closed unexpectedly", "anr", "has stopped", "force close")):
@@ -581,6 +593,8 @@ async def execute_test_on_device(test_case: dict) -> dict:
             provider,
             model=EXECUTOR_LLM_MODEL,
             api_key=api_key,
+            max_tokens=EXECUTOR_MAX_TOKENS,
+            context_window=EXECUTOR_CONTEXT_WINDOW,
         )
 
         # Create and run the agent. Trajectory capture is enabled so we can feed the
