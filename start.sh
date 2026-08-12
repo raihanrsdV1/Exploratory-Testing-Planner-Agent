@@ -1,237 +1,231 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# start.sh — Start all QA Agent services and verify they are healthy
+# start.sh — Bring up the whole QA Agent stack, idempotently.
+#
+#   Neo4j (local Desktop DBMS)  →  Android emulator  →  RAG API  →  Gateway
+#
+# A plain start brings up infrastructure only — it does NOT touch your data
+# (no re-ingest, no executor). Opt in with flags.
 #
 # Usage:
-#   ./start.sh               # start everything + ingest SRS & Figma + executor
-#   ./start.sh --no-ingest   # start services only, skip ingest
-#   ./start.sh --no-executor # start services + ingest, but skip executor
-#   ./start.sh --stop        # kill all managed services
+#   ./start.sh                 # neo4j + emulator + rag_api + gateway (no data changes)
+#   ./start.sh --ingest        # ALSO reset + ingest SRS/Figma  (DESTRUCTIVE: wipes tests/app-model)
+#   ./start.sh --with-executor # ALSO start the executor test loop
+#   ./start.sh --build         # ALSO (re)build the React dashboard first
+#   ./start.sh --no-neo4j      # skip starting Neo4j (managed elsewhere)
+#   ./start.sh --no-emulator   # skip the emulator (e.g. using a physical device)
+#   ./start.sh --stop          # delegate to ./stop.sh
+#
+# Machine-specific paths (Neo4j DBMS dir, emulator AVD) can be overridden in .env.
 # ─────────────────────────────────────────────────────────────────────────────
 
-set -euo pipefail
+set -uo pipefail
 
-# ── Config ────────────────────────────────────────────────────────────────────
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$DIR"
 ENV_FILE="$DIR/.env"
 
+# ── Delegate stop ──────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "--stop" ]]; then exec "$DIR/stop.sh"; fi
+
+# ── Load .env (for config + overrides) ──────────────────────────────────────────
+if [[ -f "$ENV_FILE" ]]; then set -a; source "$ENV_FILE"; set +a; fi
+
+# ── Config (override any of these in .env) ──────────────────────────────────────
 RAG_PORT=9010
 GATEWAY_PORT=9100
-
-RAG_LOG="$DIR/logs/rag_api.log"
-GATEWAY_LOG="$DIR/logs/gateway.log"
-EXECUTOR_LOG="$DIR/logs/simulation_result.txt"
-
 PID_FILE="$DIR/logs/services.pid"
+PROJECT="${PROJECT:-contacts-app}"
+SRS_PATH="${SRS_PATH:-./data/inputs/Sample-Contacts-App-SRS.txt}"
+FIGMA_PATH="${FIGMA_PATH:-./data/inputs/GENERATED_JSON.json}"
 
-PROJECT="contacts-app"
-SRS_PATH="./data/inputs/Sample-Contacts-App-SRS.txt"
-FIGMA_PATH="./data/inputs/GENERATED_JSON.json"
+# Local Neo4j Desktop-managed instance (the "test" DBMS).
+NEO4J_DBMS_DIR="${NEO4J_DBMS_DIR:-$HOME/Library/Application Support/neo4j-desktop/Application/Data/dbmss/dbms-15751e0d-b9e8-437e-8199-e0fb4c954865}"
+NEO4J_JAVA_HOME="${NEO4J_JAVA_HOME:-$(ls -d "$HOME/Library/Application Support/neo4j-desktop/Application/Cache/runtime/"zulu*jre* 2>/dev/null | head -1)}"
 
-# ── Colours ───────────────────────────────────────────────────────────────────
+# Android emulator.
+ANDROID_EMULATOR="${ANDROID_EMULATOR:-$HOME/Library/Android/sdk/emulator/emulator}"
+EMULATOR_AVD="${EMULATOR_AVD:-MyEmulator}"
+PORTAL_A11Y="com.mobilerun.portal/com.mobilerun.portal.service.MobilerunAccessibilityService"
+
+# ── Flags ────────────────────────────────────────────────────────────────────
+DO_INGEST=false; DO_EXECUTOR=false; DO_BUILD=false; DO_NEO4J=true; DO_EMULATOR=true
+for arg in "$@"; do
+  case "$arg" in
+    --ingest)        DO_INGEST=true ;;
+    --with-executor) DO_EXECUTOR=true ;;
+    --build)         DO_BUILD=true ;;
+    --no-neo4j)      DO_NEO4J=false ;;
+    --no-emulator)   DO_EMULATOR=false ;;
+  esac
+done
+
+# ── Colours + helpers ───────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}[OK]${NC}  $*"; }
 err()  { echo -e "${RED}[ERR]${NC} $*"; }
-info() { echo -e "${CYAN}[..] ${NC} $*"; }
-warn() { echo -e "${YELLOW}[!!] ${NC} $*"; }
+info() { echo -e "${CYAN}[..]${NC}  $*"; }
+warn() { echo -e "${YELLOW}[!!]${NC}  $*"; }
 
-# ── Stop mode ─────────────────────────────────────────────────────────────────
-if [[ "${1:-}" == "--stop" ]]; then
-  if [[ -f "$PID_FILE" ]]; then
-    while IFS= read -r pid; do
-      kill "$pid" 2>/dev/null && echo "  killed PID $pid" || true
-    done < "$PID_FILE"
-    rm -f "$PID_FILE"
-    ok "All managed services stopped."
-  else
-    warn "No PID file found. Nothing to stop."
-  fi
-  exit 0
-fi
-
-NO_INGEST=false
-NO_EXECUTOR=false
-for arg in "$@"; do
-  [[ "$arg" == "--no-ingest" ]]   && NO_INGEST=true
-  [[ "$arg" == "--no-executor" ]] && NO_EXECUTOR=true
-done
-
-# ── Setup ─────────────────────────────────────────────────────────────────────
 mkdir -p "$DIR/logs"
-> "$PID_FILE"
-cd "$DIR"
+: > "$PID_FILE"
 
-# ── Load environment from .env if present ────────────────────────────────────
-if [[ -f "$ENV_FILE" ]]; then
-  info "Loading environment from .env"
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
-fi
-
-# ── Resolve Python executable ────────────────────────────────────────────────
+# ── Resolve Python ──────────────────────────────────────────────────────────────
 if [[ -z "${PYTHON_BIN:-}" ]]; then
-  if [[ -x "$DIR/venv/bin/python" ]]; then
-    PYTHON_BIN="$DIR/venv/bin/python"
-  elif command -v python >/dev/null 2>&1; then
-    PYTHON_BIN="$(command -v python)"
-  elif command -v python3 >/dev/null 2>&1; then
-    PYTHON_BIN="$(command -v python3)"
-  else
-    err "No Python executable found. Install Python or set PYTHON_BIN in .env"
-    exit 1
-  fi
+  if   [[ -x "$DIR/venv/bin/python" ]]; then PYTHON_BIN="$DIR/venv/bin/python"
+  elif command -v python  >/dev/null 2>&1; then PYTHON_BIN="$(command -v python)"
+  elif command -v python3 >/dev/null 2>&1; then PYTHON_BIN="$(command -v python3)"
+  else err "No Python found. Create venv or set PYTHON_BIN in .env"; exit 1; fi
 fi
 
-echo ""
-echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
-echo -e "${CYAN}  QA Agent System — Startup                    ${NC}"
-echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
-echo ""
-
-# ── Helper: wait for HTTP health endpoint ─────────────────────────────────────
 wait_for_health() {
-  local name="$1" url="$2" retries=60 delay=1
-  info "Waiting for $name at $url ..."
-  for i in $(seq 1 $retries); do
-    if curl -sf "$url" > /dev/null 2>&1; then
-      ok "$name is up"
-      return 0
-    fi
-    sleep "$delay"
+  local name="$1" url="$2" retries="${3:-60}"
+  info "Waiting for $name ($url) ..."
+  for _ in $(seq 1 "$retries"); do
+    curl -sf "$url" >/dev/null 2>&1 && { ok "$name is up"; return 0; }
+    sleep 1
   done
-  err "$name did NOT start within $((retries * delay))s"
-  err "  Check log: ${url/health/} → see logs/ directory"
-  return 1
+  err "$name did not start in ${retries}s — check logs/"; return 1
 }
 
-# ── Check for port conflicts ───────────────────────────────────────────────────
-check_port() {
-  local port="$1" name="$2"
-  if lsof -ti :"$port" > /dev/null 2>&1; then
-    local pids owner
-    pids=$(lsof -ti :"$port" | tr '\n' ' ')
-    owner=$(lsof -ti :"$port" | xargs ps -o comm= -p 2>/dev/null | head -1 || echo "unknown")
-    warn "Port $port ($name) already in use by PID(s) $pids ($owner)"
-    warn "  Will attempt to use existing process — if health check fails, run: kill $pids"
-    return 1
-  fi
-  return 0
-}
+echo ""
+echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
+echo -e "${CYAN}  QA Agent System — Startup                     ${NC}"
+echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
+echo ""
 
 ERRORS=0
 
-# ── 1. RAG API ────────────────────────────────────────────────────────────────
-echo -e "${CYAN}[1/3] RAG API (Neo4j + SRS/Figma store)${NC}"
-if check_port $RAG_PORT "RAG API"; then
-  "$PYTHON_BIN" -m uvicorn rag_api.main:app --host 0.0.0.0 --port $RAG_PORT \
-    > "$RAG_LOG" 2>&1 &
-  RAG_PID=$!
-  echo "$RAG_PID" >> "$PID_FILE"
-  info "Started RAG API (PID $RAG_PID) → $RAG_LOG"
+# ── 1. Neo4j ─────────────────────────────────────────────────────────────────────
+echo -e "${CYAN}[1/4] Neo4j${NC}"
+if [[ "$DO_NEO4J" == true ]]; then
+  if curl -sf http://localhost:7474 >/dev/null 2>&1; then
+    ok "Neo4j already running (http 7474 / bolt 7687)"
+  elif [[ -x "$NEO4J_DBMS_DIR/bin/neo4j" ]]; then
+    info "Starting Neo4j DBMS at $NEO4J_DBMS_DIR"
+    JAVA_HOME="$NEO4J_JAVA_HOME" "$NEO4J_DBMS_DIR/bin/neo4j" start >/dev/null 2>&1 || true
+    wait_for_health "Neo4j" "http://localhost:7474" 60 || ERRORS=$((ERRORS+1))
+  else
+    warn "Neo4j binary not found at \$NEO4J_DBMS_DIR — start Neo4j Desktop manually,"
+    warn "  or set NEO4J_DBMS_DIR in .env. (Skipping.)"
+  fi
+else
+  info "Skipping Neo4j (--no-neo4j)"
+fi
+echo ""
+
+# ── 2. Android emulator ──────────────────────────────────────────────────────────
+echo -e "${CYAN}[2/4] Android emulator${NC}"
+if [[ "$DO_EMULATOR" == true ]]; then
+  if ! command -v adb >/dev/null 2>&1; then
+    warn "adb not found — skipping emulator (brew install android-platform-tools)"
+  elif [[ "$(adb devices 2>/dev/null | grep -c 'device$')" -gt 0 ]]; then
+    ok "An Android device/emulator is already connected"
+  elif [[ -x "$ANDROID_EMULATOR" ]]; then
+    info "Launching emulator '$EMULATOR_AVD' (boot can take a minute) ..."
+    nohup "$ANDROID_EMULATOR" -avd "$EMULATOR_AVD" > "$DIR/logs/emulator.log" 2>&1 &
+    for _ in $(seq 1 90); do
+      [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] && break
+      sleep 2
+    done
+    if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+      ok "Emulator booted"
+    else
+      warn "Emulator did not report boot within ~3min — check logs/emulator.log"
+    fi
+  else
+    warn "emulator binary not found at \$ANDROID_EMULATOR — set ANDROID_EMULATOR/EMULATOR_AVD in .env"
+  fi
+  # Enable the mobilerun Portal accessibility service (needed for device control).
+  if [[ "$(adb devices 2>/dev/null | grep -c 'device$')" -gt 0 ]]; then
+    adb shell settings put secure enabled_accessibility_services "$PORTAL_A11Y" >/dev/null 2>&1 || true
+    adb shell settings put secure accessibility_enabled 1 >/dev/null 2>&1 || true
+    info "mobilerun accessibility service enabled"
+  fi
+else
+  info "Skipping emulator (--no-emulator)"
+fi
+echo ""
+
+# ── 3. (optional) build dashboard ────────────────────────────────────────────────
+if [[ "$DO_BUILD" == true ]]; then
+  echo -e "${CYAN}[--] Building React dashboard${NC}"
+  if command -v npm >/dev/null 2>&1; then
+    ( cd "$DIR/dashboard-react" && npm install --silent && npm run build ) && ok "Dashboard built" \
+      || warn "Dashboard build failed — gateway will serve the fallback dashboard"
+  else
+    warn "npm not found — skipping dashboard build"
+  fi
+  echo ""
+fi
+
+# ── 4. Services (RAG API + Gateway) ──────────────────────────────────────────────
+if [[ "${MODEL_BACKEND:-openrouter}" == "ngrok" && -z "${MODEL_API_URL:-}" ]]; then
+  err "MODEL_BACKEND=ngrok but MODEL_API_URL is not set (add it to .env)."; exit 1
+fi
+
+echo -e "${CYAN}[3/4] RAG API (:$RAG_PORT)${NC}"
+if lsof -ti :"$RAG_PORT" >/dev/null 2>&1; then
+  warn "Port $RAG_PORT already in use — reusing existing process"
+else
+  "$PYTHON_BIN" -m uvicorn rag_api.main:app --host 0.0.0.0 --port "$RAG_PORT" > "$DIR/logs/rag_api.log" 2>&1 &
+  echo $! >> "$PID_FILE"; info "Started RAG API (PID $!)"
 fi
 wait_for_health "RAG API" "http://127.0.0.1:$RAG_PORT/health" || ERRORS=$((ERRORS+1))
 echo ""
 
-# ── 2. Agent Gateway ──────────────────────────────────────────────────────────
-echo -e "${CYAN}[2/3] Agent Gateway${NC}"
-if [[ -z "${MODEL_API_URL:-}" ]]; then
-  err "MODEL_API_URL is not set. Point it to your Kaggle/ngrok planner /generate API."
-  err "Example: export MODEL_API_URL=https://xxxx.ngrok-free.app"
-  err "Or add MODEL_API_URL=... to .env in this project root."
-  exit 1
-fi
-if check_port $GATEWAY_PORT "Gateway"; then
+echo -e "${CYAN}[4/4] Agent Gateway (:$GATEWAY_PORT)${NC}"
+if lsof -ti :"$GATEWAY_PORT" >/dev/null 2>&1; then
+  warn "Port $GATEWAY_PORT already in use — reusing existing process"
+else
   RAG_API_URL="http://127.0.0.1:$RAG_PORT" \
-  MODEL_API_URL="$MODEL_API_URL" \
-  "$PYTHON_BIN" -m uvicorn gateway.main:app --host 0.0.0.0 --port $GATEWAY_PORT \
-    > "$GATEWAY_LOG" 2>&1 &
-  GATEWAY_PID=$!
-  echo "$GATEWAY_PID" >> "$PID_FILE"
-  info "Started Gateway (PID $GATEWAY_PID) → $GATEWAY_LOG"
+  "$PYTHON_BIN" -m uvicorn gateway.main:app --host 0.0.0.0 --port "$GATEWAY_PORT" > "$DIR/logs/gateway.log" 2>&1 &
+  echo $! >> "$PID_FILE"; info "Started Gateway (PID $!)"
 fi
 wait_for_health "Gateway" "http://127.0.0.1:$GATEWAY_PORT/health" || ERRORS=$((ERRORS+1))
 echo ""
 
-# ── Abort if any service failed ───────────────────────────────────────────────
 if [[ $ERRORS -gt 0 ]]; then
-  echo -e "${RED}═══════════════════════════════════════════════${NC}"
-  err "$ERRORS service(s) failed to start. Check logs in $DIR/logs/"
-  echo -e "${RED}═══════════════════════════════════════════════${NC}"
-  exit 1
+  err "$ERRORS component(s) failed to start — check logs/"; exit 1
 fi
 
-# ── 3. Ingest SRS + Figma ─────────────────────────────────────────────────────
-if [[ "$NO_INGEST" == false ]]; then
-  echo -e "${CYAN}[3/3] Ingesting SRS + Figma into Neo4j${NC}"
-
+# ── (optional) ingest ─────────────────────────────────────────────────────────────
+if [[ "$DO_INGEST" == true ]]; then
+  echo -e "${CYAN}[+] Ingesting SRS + Figma (reset → SRS → Figma)${NC}"
+  warn "This RESETS the project graph (wipes tests + app model)."
   if [[ -f "$SRS_PATH" && -f "$FIGMA_PATH" ]]; then
-    info "Running ingest_all.py (reset + SRS + Figma + stats)"
-    INGEST_OUTPUT=$(GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT" \
-      RAG_URL="http://127.0.0.1:$RAG_PORT" \
-      PROJECT="$PROJECT" \
-      SRS_PATH="$SRS_PATH" \
-      FIGMA_PATH="$FIGMA_PATH" \
-      "$PYTHON_BIN" scripts/ingest_all.py 2>&1) || {
-      err "ingest_all.py failed"
-      echo "$INGEST_OUTPUT"
-      ERRORS=$((ERRORS+1))
-    }
-    if [[ $ERRORS -eq 0 ]]; then
-      ok "Graph rebuilt successfully"
-      echo "$INGEST_OUTPUT"
-    fi
+    GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT" RAG_URL="http://127.0.0.1:$RAG_PORT" \
+    PROJECT="$PROJECT" SRS_PATH="$SRS_PATH" FIGMA_PATH="$FIGMA_PATH" \
+      "$PYTHON_BIN" scripts/ingest_all.py && ok "Graph ingested" || err "Ingest failed"
   else
-    warn "SRS or Figma file missing (SRS=$SRS_PATH, FIGMA=$FIGMA_PATH) — skipping ingest"
+    warn "SRS/Figma file missing — skipping ingest"
   fi
   echo ""
 fi
 
-# ── 4. Droidrun Executor ──────────────────────────────────────────────────────
-if [[ "$NO_EXECUTOR" == false ]]; then
-  echo -e "${CYAN}[4/4] Droidrun Executor${NC}"
-
-  # Check ADB device is connected
-  if ! command -v adb &>/dev/null; then
-    warn "adb not found — skipping executor. Install: brew install android-platform-tools"
+# ── (optional) executor ────────────────────────────────────────────────────────────
+if [[ "$DO_EXECUTOR" == true ]]; then
+  echo -e "${CYAN}[+] Droidrun Executor${NC}"
+  if [[ "$(adb devices 2>/dev/null | grep -c 'device$')" -gt 0 ]]; then
+    "$PYTHON_BIN" clients/executor_runner.py > "$DIR/logs/simulation_result.txt" 2>&1 &
+    echo $! >> "$PID_FILE"
+    ok "Executor started (PID $!) → tail -f logs/simulation_result.txt"
   else
-    ADB_DEVICES=$(adb devices 2>/dev/null | grep -v '^List' | grep 'device$' | wc -l | tr -d ' ')
-    if [[ "$ADB_DEVICES" -eq 0 ]]; then
-      warn "No ADB device/emulator connected — skipping executor."
-      warn "  Start your Android emulator then re-run, or use: ./start.sh --no-executor"
-    else
-      info "ADB device found (${ADB_DEVICES} device(s)). Launching executor..."
-      "$PYTHON_BIN" clients/executor_runner.py \
-        > "$EXECUTOR_LOG" 2>&1 &
-      EXECUTOR_PID=$!
-      echo "$EXECUTOR_PID" >> "$PID_FILE"
-      ok "Executor started (PID $EXECUTOR_PID) → logs/simulation_result.txt"
-      info "  Watch live: tail -f $DIR/logs/simulation_result.txt"
-    fi
+    warn "No ADB device — cannot start executor"
   fi
   echo ""
 fi
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# ── Summary ─────────────────────────────────────────────────────────────────────
 echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
-if [[ $ERRORS -eq 0 ]]; then
-  ok "All systems running."
-else
-  err "$ERRORS error(s) during ingest — services are up but data may be incomplete."
-fi
+ok "Stack is up."
 echo ""
+echo "  Neo4j      → http://localhost:7474   (bolt :7687)"
 echo "  RAG API    → http://127.0.0.1:$RAG_PORT"
-echo "  Model      → $MODEL_API_URL"
 echo "  Gateway    → http://127.0.0.1:$GATEWAY_PORT"
+echo "  Dashboard  → http://127.0.0.1:$GATEWAY_PORT/dashboard?project=$PROJECT"
 echo ""
-echo "  Next steps:"
-echo "    tail -f simulation_result.txt      # watch live executor output"
-echo "    $PYTHON_BIN clients/test_loop_client.py    # interactive QA loop"
-echo "    $PYTHON_BIN clients/executor_runner.py     # run executor manually"
-echo "    ./start.sh --no-executor       # start services without executor"
-echo "    ./start.sh --stop              # stop all services"
+echo "  Run a test loop:  $PYTHON_BIN clients/executor_runner.py"
+echo "  Stop everything:  ./stop.sh"
 echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
 echo ""
-
-exit $ERRORS

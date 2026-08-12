@@ -105,7 +105,8 @@ clients/                  Execution scripts
 scripts/
   ingest_all.py           One-shot ingest helper (reset → SRS → Figma → stats)
 
-start.sh                  One-command local startup / stop
+start.sh                  Bring up the whole stack (Neo4j + emulator + services)
+stop.sh                   Tear it all down (services + emulator + Neo4j)
 requirements.txt          Local Python dependencies
 docs/                     Architecture diagrams and documentation
 data/inputs/              Sample SRS + Figma export
@@ -286,8 +287,18 @@ curl http://127.0.0.1:9010/health     # {"status":"ok", ...}
 curl http://127.0.0.1:9100/health     # shows the active model backend
 ```
 
-`./start.sh` starts both, ingests the sample data, and runs the executor.
-`./start.sh --no-ingest` starts services only; `./start.sh --stop` kills them.
+`./start.sh` brings up the **whole stack idempotently** — local Neo4j, the Android
+emulator (boots it + enables the mobilerun accessibility service), the RAG API, and
+the Gateway — **without touching your data**. Opt in with flags:
+
+- `./start.sh --ingest` — also reset + ingest SRS/Figma (**destructive**: wipes tests + app model).
+- `./start.sh --with-executor` — also start the executor test loop.
+- `./start.sh --build` — (re)build the React dashboard first.
+- `./start.sh --no-neo4j` / `--no-emulator` — skip those (e.g. managed elsewhere / physical device).
+
+`./stop.sh` tears it all down (services + emulator + Neo4j); `./stop.sh --services-only`,
+`--keep-emulator`, and `--keep-neo4j` scope the shutdown. Machine-specific paths
+(Neo4j DBMS dir, emulator AVD) auto-detect but can be overridden in `.env` — see `.env.example`.
 
 ---
 
