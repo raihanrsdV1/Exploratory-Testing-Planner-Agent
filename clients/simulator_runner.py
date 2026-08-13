@@ -12,19 +12,15 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-# ── Load .env from project root ──────────────────────────────────────────────
-load_dotenv()
+# ── Configuration (single source of truth: settings.py) ──────────────────────
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from settings import (  # noqa: E402
+    SIM_OUTPUT_FILE as OUTPUT_FILE, GATEWAY_URL as BASE, RAG_URL, PROJECT, APP_NAME,
+    TOP_K, DEBUG_TRACE, RESET_TESTS_FIRST, RESET_ALL_FIRST, SIM_FAIL_EVERY, SIM_ROUNDS,
+)
 
-OUTPUT_FILE = os.getenv("SIM_OUTPUT_FILE", "").strip()
-BASE = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
-RAG_URL = os.getenv("RAG_URL", "http://127.0.0.1:9010").rstrip("/")
-PROJECT = os.getenv("PROJECT", "contacts-app")
-APP_NAME = os.getenv("APP_NAME", "contacts app")
-TOP_K = int(os.getenv("TOP_K", "8"))
-DEBUG_TRACE = os.getenv("DEBUG_TRACE", "1").strip().lower() not in {"0", "false", "no"}
-RESET_TESTS_FIRST = os.getenv("RESET_TESTS_FIRST", "0").strip().lower() in {"1", "true", "yes"}
-RESET_ALL_FIRST = os.getenv("RESET_ALL_FIRST", "0").strip().lower() in {"1", "true", "yes"}
-SIM_FAIL_EVERY = int(os.getenv("SIM_FAIL_EVERY", "5"))
+BASE = BASE.rstrip("/")
+RAG_URL = RAG_URL.rstrip("/")
 
 
 def _print_stage_header(text: str):
@@ -284,7 +280,7 @@ class _Tee:
 
 
 if __name__ == "__main__":
-    rounds = int(os.getenv("SIM_ROUNDS", "3"))
+    rounds = SIM_ROUNDS
     if OUTPUT_FILE:
         os.makedirs(os.path.dirname(os.path.abspath(OUTPUT_FILE)), exist_ok=True)
         with open(OUTPUT_FILE, "w", encoding="utf-8") as fh:

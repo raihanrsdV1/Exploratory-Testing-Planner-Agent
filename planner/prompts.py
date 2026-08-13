@@ -13,7 +13,7 @@ import re
 
 from ingestion import ui_normalizer
 
-from . import coverage, context_builders, model_client, textutil
+from . import budget, config, coverage, context_builders, model_client, textutil
 
 
 def summarize_srs_with_model(srs_text: str, max_new_tokens: int = 4096) -> str:
@@ -28,7 +28,7 @@ def summarize_srs_with_model(srs_text: str, max_new_tokens: int = 4096) -> str:
         "Validation and constraints:\n- ...\n"
         "Coverage priorities for next tests:\n- ...\n\n"
         "Rules:\n"
-        "- Preserve critical requirement IDs when available (FR-#, NFR-#).\n"
+        "- Preserve requirement IDs exactly as they appear in the document (any format).\n"
         "- Keep it compact but include all high-impact behaviors and validations.\n"
         "- If non-functional requirements are not explicitly listed, state that clearly.\n\n"
         "SRS:\n"
@@ -215,11 +215,53 @@ def build_testcase_prompt(
     risk_context: str = "",
     anomaly_context: str = "",
     failure_context: str = "",
+    requirements_context: str = "",
 ) -> str:
     cmap = coverage_map or {}
     rtests = recent_tests or []
     coverage_block = coverage.build_coverage_block(cmap)
     directive = coverage.build_exploration_directive(cmap, rtests)
+
+    # ── Global prompt budget (replaces per-block magic-number caps) ───────────
+    # Everything variable competes for one ceiling, filled priority-first:
+    #   0 — the bug oracle and the controls needed to write valid steps
+    #   1 — what past tests already proved, and the dedup list
+    #   2 — learned signals that steer where to look next
+    #   3 — background context that is nice to have
+    # Priority 0 is never dropped; the lowest priority is truncated/dropped first.
+    _blocks = [
+        budget.Block("requirements", requirements_context, priority=0),
+        budget.Block("srs", srs_context, priority=0),
+        budget.Block("figma", figma_context, priority=0),
+        budget.Block("failure", failure_context, priority=1),
+        budget.Block("done_titles", "\n".join(f"- {t}" for t in done_titles), priority=1),
+        budget.Block("defect", defect_context, priority=2),
+        budget.Block("risk", risk_context, priority=2),
+        budget.Block("anomaly", anomaly_context, priority=2),
+        budget.Block("nav", nav_context, priority=2),
+        budget.Block("failed_nav", failed_nav, priority=2),
+        budget.Block("strategy", strategy_context, priority=2),
+        budget.Block("figma_overview", figma_overview_context, priority=3),
+        budget.Block("figma_flow", figma_flow_context, priority=3),
+        budget.Block("failed_titles", "\n".join(f"- {t}" for t in failed_titles), priority=3),
+    ]
+    _fitted, _report = budget.fit(_blocks, config.PROMPT_BUDGET_TOKENS)
+    build_testcase_prompt.last_budget_report = _report.as_dict()
+
+    requirements_context = _fitted.get("requirements", "")
+    srs_context = _fitted.get("srs", "")
+    figma_context = _fitted.get("figma", "")
+    failure_context = _fitted.get("failure", "")
+    defect_context = _fitted.get("defect", "")
+    risk_context = _fitted.get("risk", "")
+    anomaly_context = _fitted.get("anomaly", "")
+    nav_context = _fitted.get("nav", "")
+    failed_nav = _fitted.get("failed_nav", "")
+    strategy_context = _fitted.get("strategy", "")
+    figma_overview_context = _fitted.get("figma_overview", "")
+    figma_flow_context = _fitted.get("figma_flow", "")
+    history_text = _fitted.get("done_titles", "")
+    failed_text = _fitted.get("failed_titles", "")
 
     parts = [
         f"You are a world-class EXPLORATORY software tester running an adaptive, session-based "
@@ -253,6 +295,12 @@ def build_testcase_prompt(
             "",
         ]
 
+    if requirements_context:
+        parts += [
+            "## Requirements You May Cite (authoritative ids)",
+            requirements_context,
+            "",
+        ]
     if srs_context:
         parts += [
             "## Business Rules & Requirements (from SRS)",
@@ -343,8 +391,9 @@ def build_testcase_prompt(
             "",
         ]
 
-    history_block = "\n".join(f"- {t}" for t in done_titles[:120]) or "- none"
-    failed_block = "\n".join(f"- {t}" for t in failed_titles[:60]) or "- none"
+    # Sized by the global budget above, not a fixed title count.
+    history_block = history_text or "- none"
+    failed_block = failed_text or "- none"
 
     parts += [
         "## Executed Tests — semantic duplicates are FORBIDDEN",
@@ -373,9 +422,16 @@ def build_testcase_prompt(
         "3. PREFER negative, boundary, and state-transition tests over happy-path positive tests.",
         "4. Steps MUST reference actual UI element names from the UI context — no invented labels.",
         "5. The 'rationale' field MUST name the specific defect class or risk this test is designed to expose.",
+        "5b. 'preconditions' MUST be things the tester can CREATE from a fresh app "
+        "(e.g. 'create a contact named X first'). NEVER state environmental assumptions "
+        "the tester can only check and not establish — 'no existing contacts', "
+        "'contacts exist on SIM', 'user is signed in to cloud'. The app starts in a clean "
+        "state each run; if your test needs data, the FIRST STEPS must create it. A test "
+        "that depends on an unachievable precondition is abandoned without testing anything, "
+        "which is worse than no test at all.",
         "6. The 'area' field MUST align with the Exploration Directive — do not default to the easiest area.",
-        "7. 'requirement_ids' MUST list the requirement IDs (e.g. FR-5) this test verifies, taken from the "
-        "requirements context above. Use [] only if none apply.",
+        "7. 'requirement_ids' MUST contain ids copied EXACTLY from the '## Requirements You May Cite' "
+        "list above. Never invent an id or guess a format. Use [] if none apply.",
         "8. SELF-CONTAINED: assume the app starts EMPTY with no pre-existing data. If the test needs data "
         "(an existing record, a populated list), the FIRST steps MUST create it through the UI. Never write "
         "a precondition that merely asserts data already exists — the executor cannot conjure it and the run "
@@ -386,7 +442,7 @@ def build_testcase_prompt(
         '{"test_case_id":"...","title":"...","screen":"...","preconditions":[...],"steps":[...],'
         '"expected_result":"...","priority":"high|medium|low","area":"...",'
         '"test_type":"positive|negative|boundary|state_transition|recovery|combination",'
-        '"requirement_ids":["FR-#"],'
+        '"requirement_ids":["<id copied from the list above>"],'
         '"rationale":"what specific bug or risk this test is designed to expose"}',
     ]
     return "\n".join(parts)

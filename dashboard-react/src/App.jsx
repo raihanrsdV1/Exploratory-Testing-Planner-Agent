@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import AppModelGraph from './AppModelGraph.jsx'
 import LogsPanel from './LogsPanel.jsx'
+import Intelligence from './Intelligence.jsx'
 import PlannerTrace from './PlannerTrace.jsx'
 import RunSteps from './RunSteps.jsx'
 
@@ -186,6 +187,8 @@ export default function App() {
           <h2>🧠 Planner Execution Trace <span className="count">(each generation run: LangGraph nodes, LLM cost, retrievals — newest first)</span></h2>
           <div className="body"><PlannerTrace project={project} paused={!auto} /></div>
         </div>
+
+        <Intelligence d={d} />
 
         <div className="panel">
           <h2>📟 Live Logs <span className="count">(device agent and planner reasoning, side by side — both stream independently)</span></h2>

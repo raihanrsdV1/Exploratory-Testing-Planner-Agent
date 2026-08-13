@@ -78,6 +78,7 @@ def main() -> None:
         risk_context=risk,
         anomaly_context=anomaly,
         failure_context=context_builders.build_failure_context(PROJECT, recent),
+        requirements_context=context_builders.build_requirements_context(PROJECT),
     )
 
     OUT.parent.mkdir(parents=True, exist_ok=True)

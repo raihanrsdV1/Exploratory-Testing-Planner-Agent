@@ -1,18 +1,18 @@
 import os
 import requests
 from dotenv import load_dotenv
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from settings import PROJECT, SRS_PATH, FIGMA_PATH  # noqa: E402
 
 load_dotenv()
 
 BASE_GATEWAY = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
 BASE_RAG = os.getenv("RAG_URL", "http://127.0.0.1:9010").rstrip("/")
-PROJECT = os.getenv("PROJECT", "contacts-app")
-SRS_PATH = os.getenv("SRS_PATH", "./data/inputs/Sample-Contacts-App-SRS.txt")
-FIGMA_PATH = os.getenv("FIGMA_PATH", "./data/inputs/GENERATED_JSON.json")
 
 
 def post(url: str, payload: dict):
-    r = requests.post(url, json=payload, timeout=1800)
+    r = requests.post(url, json=payload, timeout=5400)
     r.raise_for_status()
     return r.json()
 

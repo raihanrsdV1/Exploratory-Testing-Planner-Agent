@@ -163,12 +163,32 @@ def control_labels(key_set: Iterable[str], limit: int = 10) -> list[str]:
             continue
         rid, _cls, cd, click = parts[0], parts[1], parts[2], parts[3]
         label = cd.strip() or rid.split("/")[-1].strip()
-        if not label or _looks_like_resource_id(label) and "/" in label:
+        # Drop empty and id-shaped labels. The previous form
+        # (`not label or _looks_like_resource_id(label) and "/" in label`) parsed
+        # as `not label or (id_shaped and "/" in label)`, and `label` is already
+        # the tail after split("/"), so the id check could never fire.
+        if not label or _looks_like_resource_id(label):
             continue
         bucket = clickable if click == "1" else other
         if label not in bucket:
             bucket.append(label)
     return (clickable + other)[:limit]
+
+
+def containment(key_set_a: list[str], key_set_b: list[str]) -> float:
+    """Overlap coefficient — how completely the SMALLER control set sits inside the larger.
+
+    Jaccard treats a mid-render capture as a different screen because the chrome
+    that had not painted yet counts against it. Containment asks the question that
+    actually matters for partial observations: is everything I saw also present
+    there? It is 1.0 for the same screen caught at two render stages, and stays
+    low for screens that genuinely differ.
+    """
+    a, b = set(key_set_a or []), set(key_set_b or [])
+    m = min(len(a), len(b))
+    if not m:
+        return 0.0
+    return len(a & b) / m
 
 
 def similarity(key_set_a: list[str], key_set_b: list[str]) -> float:
@@ -205,49 +225,54 @@ def is_same_state(
 
 # Resource-id substrings that mark a screen-defining container (strong first),
 # element-level noise to skip, and id-part words to drop when humanizing.
-_STRONG_HINTS = ("fragment", "activity", "editor", "container", "screen", "main", "home", "page",
-                 "dialog", "sheet", "permission", "grant")
-_WEAK_HINTS = ("list", "detail", "picker", "settings", "search", "directory", "view")
+_STRONG_HINTS = ("fragment", "activity", "editor", "screen", "main", "home", "page", "pager")
+_WEAK_HINTS = ("list", "detail", "picker", "settings", "search", "directory", "view", "container")
 _NOISE_WORDS = ("divider", "separator", "spacer", "icon", "button", "label", "title",
                 "header", "footer", "chip", "item", "row", "text", "image", "box", "bar")
+# Wrapper ids describe layout, not the screen. "contact_list_detail_container"
+# made a contact DETAIL screen read as "Contact List", colliding with the real
+# list; the suffix is dropped so the content word wins.
+_WRAPPER_SUFFIXES = ("_container", "_wrapper", "_layout", "_root", "_scroller",
+                     "_scroll_view", "_view_group", "_anchor", "_host")
 _ID_STRIP = {"fragment", "activity", "scroller", "container", "root", "layout",
-             "view", "content", "id", "android", "below", "above", "gh"}
+             "view", "content", "id", "android", "below", "above", "gh", "host",
+             "wrapper", "anchor", "group"}
 
 
 def _label_from_resource_ids(resource_ids: list[str]) -> str:
     """Humanize a screen-defining resource-id, e.g. '.../contact_editor_fragment' -> 'Contact Editor'.
 
-    Prefers strong screen-defining ids (fragment/editor/container/...) over weaker
-    ones, and skips element-level ids (dividers, buttons, ...) that don't name a screen.
+    Ids that merely wrap layout (``*_container``, ``*_root``) are considered only
+    after real content ids, because a wrapper often names the parent concept
+    rather than the screen — ``contact_list_detail_container`` on a contact detail
+    screen produced the label "Contact List", which then collided with the actual
+    contacts list.
     """
     def humanize(idpart: str) -> str:
+        for suf in _WRAPPER_SUFFIXES:
+            if idpart.endswith(suf):
+                idpart = idpart[: -len(suf)]
+                break
         words = [w for w in re.split(r"[_\-]", idpart) if w and w.lower() not in _ID_STRIP]
-        # Keep it short enough to read on a graph node.
-        return " ".join(w.capitalize() for w in words[:3]) if words else ""
+        return " ".join(w.capitalize() for w in words) if words else ""
 
-    # Rank candidates instead of taking the first match: a screen usually contains
-    # several screen-ish ids (e.g. a generic 'container' plus a specific
-    # 'contact_editor_fragment'), and the most SPECIFIC one names it best.
-    for hints in (_STRONG_HINTS, _WEAK_HINTS):
-        best, best_score = "", -1
+    def candidates(wrappers: bool):
         for rid in resource_ids:
             idpart = rid.split(":id/")[-1].split("/")[-1].lower()
             if not idpart or any(n in idpart for n in _NOISE_WORDS):
                 continue
-            if not any(h in idpart for h in hints):
-                continue
-            lbl = humanize(idpart)
-            if not lbl:
-                continue
-            # More surviving words = more specific. Prefer app-owned ids over the
-            # framework's generic 'android:' ones, which are identical everywhere.
-            score = len(lbl.split()) * 2
-            if not rid.startswith("android:"):
-                score += 3
-            if score > best_score:
-                best, best_score = lbl, score
-        if best:
-            return best
+            is_wrapper = any(idpart.endswith(sfx) for sfx in _WRAPPER_SUFFIXES)
+            if is_wrapper == wrappers:
+                yield idpart
+
+    # Content ids first, wrappers only as a fallback; strong hints before weak.
+    for wrappers in (False, True):
+        for hints in (_STRONG_HINTS, _WEAK_HINTS):
+            for idpart in candidates(wrappers):
+                if any(h in idpart for h in hints):
+                    lbl = humanize(idpart)
+                    if lbl:
+                        return lbl
     return ""
 
 
@@ -262,27 +287,46 @@ def _looks_like_resource_id(text: str) -> bool:
     return ":id/" in t or t.startswith("android:") or ("/" in t and " " not in t)
 
 
+# Chrome that appears on nearly every screen. Naming a state after one of these
+# produced an app map reading "Back #4 -> Back #2 -> Back #4" — technically
+# distinct states, but the labels said nothing about WHERE the agent was, which
+# is the whole point of the map.
+_CHROME_WORDS = {
+    "back", "cancel", "close", "navigate up", "up", "ok", "done", "next", "previous",
+    "menu", "more options", "overflow", "save", "discard", "delete", "yes", "no",
+    "search", "settings", "help", "share", "edit", "add", "new", "open",
+}
+
+
+def _is_chrome(text: str) -> bool:
+    return (text or "").strip().lower() in _CHROME_WORDS
+
+
 def _derive_label(activity: str, texts: list[str], resource_ids: list[str] | None = None) -> str:
     """A short, human-readable name for the state (for the graph + dashboard).
 
-    Prefers a genuine text/content-description hint; falls back to a humanized
-    screen-defining resource-id (mobilerun's recorded elements often carry only
-    ids), then the activity name, then a generic default. Id-shaped "text" is
-    ignored so it can't outrank the far more descriptive resource-id path.
+    Structure first: a screen-defining resource-id (``contact_editor_fragment``)
+    identifies WHERE we are, whereas the first visible text is usually a button
+    that appears on every screen. Ranking text first named states after their
+    navigation chrome and made the app map unreadable, so text is now only a
+    fallback and generic chrome words are rejected outright.
     """
-    hint = next((t for t in texts if 1 < len(t) <= 24 and not _looks_like_resource_id(t)), "")
-    if hint:
-        base = activity.rsplit(".", 1)[-1].rsplit("/", 1)[-1] if activity else ""
-        base = base.replace("Activity", "").replace("Fragment", "").strip()
-        return f"{base} · {hint}" if base else hint
     rid_label = _label_from_resource_ids(resource_ids or [])
     if rid_label:
         return rid_label
+
+    hint = next(
+        (t for t in texts
+         if 1 < len(t) <= 24 and not _looks_like_resource_id(t) and not _is_chrome(t)),
+        "",
+    )
     if activity:
         short = activity.rsplit(".", 1)[-1].rsplit("/", 1)[-1]
         short = short.replace("Activity", "").replace("Fragment", "").strip()
         if short:
-            return short
+            return f"{short} · {hint}" if hint else short
+    if hint:
+        return hint
     return "Screen"
 
 

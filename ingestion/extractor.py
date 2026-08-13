@@ -333,35 +333,85 @@ def _chunk_sections(text: str, max_chars: int = 1800) -> list[str]:
     return chunks or [text]
 
 
+def _canonical_ref(rid: str) -> str:
+    """Canonical form of a requirement id, for cross-pass comparison.
+
+    The model is not deterministic about prefixes: the same clause comes back as
+    "3.2.1.3.2" from one pass and "FR-3.2.1.3.2" from another. Comparing raw ids
+    let both survive, which inflated the requirement count (24 one run, 33 the
+    next) and split coverage across duplicate nodes.
+    """
+    r = (rid or "").strip()
+    r = re.sub(r"^(FR|NFR|REQ|US|R)[-_ ]?", "", r, flags=re.IGNORECASE)
+    return r.strip().lower()
+
+
+def _text_key(text: str) -> str:
+    """Fingerprint of a requirement's wording, so the same clause under two ids merges."""
+    t = re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower())
+    return " ".join(t.split())[:120]
+
+
 def _merge_extractions(parts: list[dict]) -> dict:
-    """Merge per-section extractions: dedup requirements by id, entities by name, rules."""
+    """Merge per-section extractions, deduping on BOTH id and wording.
+
+    Deduping by id alone is not enough: passes disagree about id format, so the
+    same requirement arrives under two ids. We therefore key on the canonical id
+    *and* on a fingerprint of the text, and prefer the id without a synthetic
+    prefix so the graph ends up with one stable scheme.
+    """
     title = ""
     reqs: dict[str, dict] = {}
     order: list[str] = []
+    by_text: dict[str, str] = {}     # text fingerprint -> canonical key already stored
     entities: dict[str, dict] = {}
     rules: dict[tuple, dict] = {}
+
     for p in parts:
         title = title or p.get("document_title", "")
         for r in p.get("requirements", []):
-            rid = r["id"]
-            # If the same id recurs with different text, keep the longer (fuller) text.
-            if rid not in reqs:
-                reqs[rid] = r
-                order.append(rid)
-            elif len(r.get("text", "")) > len(reqs[rid].get("text", "")):
-                reqs[rid] = {**reqs[rid], **r}
+            key = _canonical_ref(r.get("id", ""))
+            tkey = _text_key(r.get("text", ""))
+            existing_key = key if key in reqs else by_text.get(tkey)
+
+            if existing_key is None:
+                reqs[key] = r
+                order.append(key)
+                if tkey:
+                    by_text[tkey] = key
+                continue
+
+            cur = reqs[existing_key]
+            # Keep the fuller wording, and prefer the un-prefixed id as canonical.
+            merged = {**cur, **r} if len(r.get("text", "")) > len(cur.get("text", "")) else {**r, **cur}
+            cur_id, new_id = str(cur.get("id", "")), str(r.get("id", ""))
+            prefixed = lambda x: bool(re.match(r"^(FR|NFR|REQ|US|R)[-_ ]", x, flags=re.IGNORECASE))
+            merged["id"] = new_id if (prefixed(cur_id) and not prefixed(new_id)) else cur_id
+            # Union the acceptance criteria rather than losing one pass's work.
+            acc = list(dict.fromkeys((cur.get("acceptance") or []) + (r.get("acceptance") or [])))
+            if acc:
+                merged["acceptance"] = acc
+            reqs[existing_key] = merged
+
         for e in p.get("entities", []):
             entities.setdefault(e["name"].lower(), e)
         for v in p.get("validation_rules", []):
-            key = (v.get("requirement_id", ""), _slug(v.get("rule", ""))[:60])
+            key = (_canonical_ref(v.get("requirement_id", "")), _slug(v.get("rule", ""))[:60])
             rules.setdefault(key, v)
+
+    # Point every rule at the canonical id its requirement ended up with.
+    canon_id = {_canonical_ref(reqs[k].get("id", "")): reqs[k].get("id", "") for k in order}
+    for v in rules.values():
+        c = _canonical_ref(v.get("requirement_id", ""))
+        if c in canon_id:
+            v["requirement_id"] = canon_id[c]
+
     return {
         "document_title": title or "Requirements",
         "requirements": [reqs[i] for i in order],
         "entities": list(entities.values()),
         "validation_rules": list(rules.values()),
     }
-
 
 def _attach_confidence(extraction: dict, overrides: dict | None, default: float) -> dict:
     """Stamp confidence + needs_review on each requirement and its rules."""
@@ -409,8 +459,15 @@ def extract_multipass(text: str, model_call: ModelCall, max_new_tokens: int = 40
             result = model_call(EXTRACTION_PROMPT + ch, max_new_tokens, False)
             parsed = json.loads(_extract_json(result.get("answer", "") or ""))
             parts.append(_normalize_extraction(parsed))
-        except Exception:
-            continue  # skip a bad section; other sections still contribute
+        except Exception as e:
+            # A skipped section means its requirements are simply absent from the
+            # graph, with nothing downstream indicating they were ever expected.
+            try:
+                from observability import degradations
+                degradations.record("srs_section_skipped", degradations.MAJOR, detail=str(e))
+            except Exception:
+                pass
+            continue
     if not any(p.get("requirements") for p in parts):
         raise ValueError("multi-pass extraction produced no requirements")
 
@@ -439,12 +496,70 @@ def extract_multipass(text: str, model_call: ModelCall, max_new_tokens: int = 40
     return merged
 
 
+
+# ── Best-of-N extraction ─────────────────────────────────────────────────────
+
+def _extraction_score(d: dict) -> float:
+    """Deterministic quality score for one candidate extraction.
+
+    Rewards decomposition and testability (requirements that carry acceptance
+    criteria and validation rules) and penalises the duplicate-under-two-ids
+    failure the multi-pass merge is prone to.
+    """
+    reqs = d.get("requirements") or []
+    rules = d.get("validation_rules") or []
+    with_acc = sum(1 for r in reqs if r.get("acceptance"))
+    texts = [_text_key(r.get("text", "")) for r in reqs if r.get("text")]
+    dupes = len(texts) - len(set(texts))
+    entities = len(d.get("entities") or [])
+    return (2.0 * with_acc) + len(reqs) + (1.5 * len(rules)) + (0.25 * entities) - (3.0 * dupes)
+
+
+SELECT_PROMPT = """You are choosing the best requirements extraction for QA test planning.
+
+Several candidate extractions of the SAME document are given. Pick the ONE that is
+most complete, most decomposed (one testable behaviour per requirement), has the
+most useful acceptance criteria, and has no duplicated requirements.
+
+Answer with STRICT JSON only: {"best": <zero-based index>, "why": "<one line>"}
+
+CANDIDATES:
+"""
+
+
+def _select_best(candidates: list[dict], model_call: ModelCall | None) -> dict:
+    """Pick the strongest candidate: model judgement, deterministic score as fallback."""
+    if len(candidates) == 1:
+        return candidates[0]
+    ranked = sorted(candidates, key=_extraction_score, reverse=True)
+    if model_call is None:
+        return ranked[0]
+    try:
+        summary = []
+        for i, c in enumerate(candidates):
+            reqs = c.get("requirements") or []
+            summary.append(
+                f"[{i}] requirements={len(reqs)} "
+                f"with_acceptance={sum(1 for r in reqs if r.get('acceptance'))} "
+                f"rules={len(c.get('validation_rules') or [])}\n"
+                + "\n".join(f"   - [{r.get('id')}] {str(r.get('text',''))[:110]}" for r in reqs[:12])
+            )
+        raw = model_call(SELECT_PROMPT + "\n\n".join(summary), 800, False).get("answer", "") or ""
+        idx = int(json.loads(_extract_json(raw)).get("best", -1))
+        if 0 <= idx < len(candidates):
+            return candidates[idx]
+    except Exception:
+        pass
+    return ranked[0]
+
+
 def extract(
     text: str,
     model_call: ModelCall | None = None,
     require_model: bool = False,
     max_new_tokens: int = 4000,
     multipass: bool = True,
+    samples: int = 1,
 ) -> tuple[dict, str]:
     """
     Convenience wrapper. Returns (extraction, source) where source is
@@ -454,11 +569,20 @@ def extract(
     """
     if model_call is not None:
         if multipass:
-            try:
-                return extract_multipass(text, model_call, max_new_tokens), "multipass"
-            except Exception:
-                if require_model:
-                    raise
+            # Sample the extraction several times and keep the best. The model is
+            # not deterministic here, and this artefact underpins every later
+            # decision, so paying for N attempts once is cheaper than planning a
+            # whole session on a weak one.
+            candidates: list[dict] = []
+            for _ in range(max(1, samples)):
+                try:
+                    candidates.append(extract_multipass(text, model_call, max_new_tokens))
+                except Exception:
+                    continue
+            if candidates:
+                return _select_best(candidates, model_call), "multipass"
+            if require_model:
+                raise ValueError("multi-pass extraction produced no candidates")
         try:
             return extract_with_model(text, model_call, max_new_tokens), "model"
         except Exception:

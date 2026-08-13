@@ -34,36 +34,21 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-# ── Load .env from project root ──────────────────────────────────────────────
-load_dotenv()
+# ── Configuration ────────────────────────────────────────────────────────────
+# Every tunable lives in settings.py (single source of truth); nothing in this
+# file reads the environment directly.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from settings import (  # noqa: E402
+    GATEWAY_URL, RAG_URL, PROJECT, APP_NAME, TOP_K, DEBUG_TRACE,
+    GEMINI_API_KEY, OPENROUTER_API_KEY,
+    EXECUTOR_LLM_PROVIDER, EXECUTOR_LLM_MODEL, EXECUTOR_TIMEOUT, EXECUTOR_ROUNDS,
+    EXECUTOR_MAX_STEPS, EXECUTOR_MAX_TOKENS, EXECUTOR_CONTEXT_WINDOW,
+    SELF_HEAL, TARGET_APP_PACKAGE, LOGTAIL_SOURCE_TOKEN, EXECUTOR_VISION, CLEAN_SLATE,
+    DEVICE_RESET, DATA_PROVIDER_PACKAGES, DEVICE_RESET_SCOPE,
+)
 
-# ── Planner Gateway config ───────────────────────────────────────────────────
-GATEWAY_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
-RAG_URL = os.getenv("RAG_URL", "http://127.0.0.1:9010").rstrip("/")
-PROJECT = os.getenv("PROJECT", "contacts-app")
-APP_NAME = os.getenv("APP_NAME", "contacts app")
-TOP_K = int(os.getenv("TOP_K", "8"))
-DEBUG_TRACE = os.getenv("DEBUG_TRACE", "1").strip().lower() not in {"0", "false", "no"}
-
-# ── Executor-specific config ─────────────────────────────────────────────────
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-EXECUTOR_LLM_PROVIDER = os.getenv("EXECUTOR_LLM_PROVIDER", "GoogleGenAI")
-EXECUTOR_LLM_MODEL = os.getenv("EXECUTOR_LLM_MODEL", "gemini-2.5-pro")
-EXECUTOR_TIMEOUT = int(os.getenv("EXECUTOR_TIMEOUT", "120"))
-EXECUTOR_ROUNDS = int(os.getenv("EXECUTOR_ROUNDS", "2"))
-EXECUTOR_MAX_STEPS = int(os.getenv("EXECUTOR_MAX_STEPS", "30"))
-# LlamaIndex defaults the device LLM to 256 output tokens / 3900 context. At 256 the
-# agent's tool call gets cut off mid-argument, so it can never signal completion and
-# every run burns to EXECUTOR_MAX_STEPS and is logged as a failure.
-EXECUTOR_MAX_TOKENS = int(os.getenv("EXECUTOR_MAX_TOKENS", "4000"))
-EXECUTOR_CONTEXT_WINDOW = int(os.getenv("EXECUTOR_CONTEXT_WINDOW", "128000"))
-# WP7 self-healing: attempt one adaptive recovery on a recoverable failure.
-SELF_HEAL = os.getenv("SELF_HEAL", "1").strip().lower() not in {"0", "false", "no"}
-TARGET_APP_PACKAGE = os.getenv("TARGET_APP_PACKAGE", "com.android.contacts")
-
-# ── Logtail / Better Stack live logging ──────────────────────────────────────
-LOGTAIL_SOURCE_TOKEN = os.getenv("LOGTAIL_SOURCE_TOKEN", "")
+GATEWAY_URL = GATEWAY_URL.rstrip("/")
+RAG_URL = RAG_URL.rstrip("/")
 
 logger = logging.getLogger("executor")
 logger.setLevel(logging.INFO)
@@ -91,6 +76,40 @@ _LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 os.makedirs(_LOG_DIR, exist_ok=True)
 MOBILERUN_LOG = os.path.join(_LOG_DIR, "mobilerun.log")
 _mobilerun_file_attached = False
+
+
+class _StreamReassemblingHandler(logging.FileHandler):
+    """Join mobilerun's token-by-token stream back into readable lines.
+
+    mobilerun emits each generated token as its own log record (with
+    ``extra={"stream": True}``), which turned the log into a column of single
+    words and made the agent's reasoning impossible to follow. Streamed records
+    are buffered and flushed as one line when the stream ends or a normal record
+    arrives.
+    """
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._buf: list[str] = []
+
+    def _flush_buffer(self) -> None:
+        if not self._buf:
+            return
+        text = "".join(self._buf).strip()
+        self._buf.clear()
+        if text:
+            rec = logging.LogRecord("mobilerun", logging.INFO, "", 0, "%s", (text,), None)
+            super().emit(rec)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if getattr(record, "stream", False):
+            self._buf.append(record.getMessage())
+            return
+        if getattr(record, "stream_end", False):
+            self._flush_buffer()
+            return
+        self._flush_buffer()
+        super().emit(record)
 
 
 def _attach_mobilerun_file_log():
@@ -259,6 +278,25 @@ def log_verdict_only(tc: dict, verdict: str, notes: str) -> dict:
 # 2. TEST CASE → DROIDRUN GOAL TRANSLATION
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Preconditions the tester can only OBSERVE, never establish. The planner has
+# emitted these for tests that did not need them ("no existing contacts" for a
+# field-validation test), and mobilerun then abandoned the run after two actions
+# without exercising the behaviour at all. Such a precondition is worse than none.
+_UNACHIEVABLE_PRECONDITION = (
+    "no existing contact", "empty database", "clean state", "no contacts",
+    "database is empty", "fresh install", "no data exists", "sim card",
+    "signed in", "logged in to cloud", "cloud account", "no items",
+)
+
+
+def filter_preconditions(preconditions: list[str]) -> tuple[list[str], list[str]]:
+    """Split preconditions into (keep, dropped-as-unachievable)."""
+    keep, dropped = [], []
+    for p in preconditions or []:
+        (dropped if any(k in str(p).lower() for k in _UNACHIEVABLE_PRECONDITION) else keep).append(p)
+    return keep, dropped
+
+
 def build_droidrun_goal(test_case: dict) -> str:
     """
     Convert the planner's structured JSON test case into a natural language
@@ -286,9 +324,15 @@ def build_droidrun_goal(test_case: dict) -> str:
         goal_parts.append(f"Navigate to the '{screen}' screen if not already there.")
 
     # Preconditions as context
-    if preconditions:
-        pre_text = " ".join(preconditions)
-        goal_parts.append(f"Preconditions: {pre_text}")
+    kept_pre, dropped_pre = filter_preconditions(preconditions)
+    if dropped_pre:
+        print(f"   ✂️  Dropped unachievable precondition(s): {dropped_pre}")
+    if kept_pre:
+        goal_parts.append(f"Preconditions (create these yourself if missing): {' '.join(kept_pre)}")
+    goal_parts.append(
+        "The app has just been reset to a clean state. If the test needs data to exist, "
+        "CREATE it as your first steps. Do not abandon the test because data is missing."
+    )
 
     # Steps — numbered imperatives
     if steps:
@@ -323,6 +367,7 @@ _RECOVERY = {
     "PERMISSION_DENIED": {"action": "grant the required permission/precondition, then retry", "retry": True},
     # Budget exhaustion, not app misbehaviour: the agent simply ran out of steps.
     # No retry — the retry gets the same budget and would exhaust it again.
+    "NAVIGATION_LIVELOCK": {"action": "the agent cycled the same screens; try a different entry point or a simpler goal", "retry": False},
     "STEP_LIMIT_EXCEEDED": {"action": "ran out of steps before finishing; raise EXECUTOR_MAX_STEPS or simplify the test", "retry": False},
 }
 
@@ -398,6 +443,116 @@ def _learned_nav_hint(test_case: dict) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # 2b. LIVE APP MODEL — feed the executor's real trajectory into the graph (WP1)
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+# ── Navigation livelock detection ─────────────────────────────────────────────
+# A stuck agent cycles a few screens until the step budget runs out and is then
+# mislabelled STEP_LIMIT_EXCEEDED ("needed more steps") when it actually needed a
+# different plan.
+#
+# Repeating screens is NOT sufficient evidence of being stuck. A legitimate test
+# such as "add 10 contacts and observe the list" is structurally
+# List -> Editor -> List -> Editor ... — only two distinct states over many steps.
+# Detecting on state repetition alone aborts that valid test.
+#
+# The discriminator is PROGRESS, not novelty of screens: while adding contacts the
+# on-screen content keeps changing (new names typed, list grows), whereas a truly
+# stuck agent sees the same content over and over. State identity deliberately
+# ignores text so that scrolling does not fork a state; progress detection needs
+# exactly that discarded text, so it is tracked separately here.
+LIVELOCK_WINDOW = 12      # observations to look back over
+LIVELOCK_UNIQUE = 3       # distinct states at/below which the screens look cyclic
+LIVELOCK_CONTENT = 2      # distinct content fingerprints at/below which nothing is changing
+
+
+def is_livelocked(signatures: list[str],
+                  contents: list[str] | None = None,
+                  window: int = LIVELOCK_WINDOW,
+                  max_unique: int = LIVELOCK_UNIQUE,
+                  max_content: int = LIVELOCK_CONTENT) -> bool:
+    """True only when the screens cycle AND their content has stopped changing.
+
+    ``contents`` are per-observation fingerprints of the visible text. When they
+    are not supplied the check degrades to the screen-only heuristic.
+    """
+    if len(signatures) < window:
+        return False
+    if len(set(signatures[-window:])) > max_unique:
+        return False            # still visiting varied screens — not cycling
+    if contents is None:
+        return True             # no progress signal available; fall back
+    if len(contents) < window:
+        return False
+    # Content still changing => the agent is doing work on a repeating screen.
+    return len(set(contents[-window:])) <= max_content
+
+
+def _state_signature(elements) -> str:
+    """Structural fingerprint of an observation — identity only, text ignored."""
+    try:
+        from mobilerun.macro.state import normalize_ui_state
+        from ingestion import app_state
+        return app_state.abstract_state(normalize_ui_state(elements)).get("signature", "")
+    except Exception:
+        return ""
+
+
+def _content_fingerprint(elements) -> str:
+    """Hash of the visible text — the progress signal state identity throws away.
+
+    Recorded observations carry ``text`` but no clickable/content-description
+    fields, so text is the only content channel available.
+    """
+    import hashlib
+
+    def walk(n):
+        out = []
+        if isinstance(n, list):
+            for x in n:
+                out += walk(x)
+        elif isinstance(n, dict):
+            t = str(n.get("text") or n.get("label") or "").strip()
+            if t:
+                out.append(t)
+            out += walk(n.get("children") or [])
+        return out
+
+    try:
+        texts = walk(elements)
+        return hashlib.sha1("\u241f".join(texts).encode("utf-8")).hexdigest()[:16]
+    except Exception:
+        return ""
+
+
+
+def reset_device_app() -> None:
+    """Put the app back to a known state before a test runs.
+
+    Tests that create data (contacts, drafts) leave it behind, so by the sixth run
+    the app held 30 contacts and any test whose setup assumed an empty app could
+    never satisfy it. Resetting also clears half-filled forms, which previously
+    leaked into the next test.
+    """
+    import subprocess
+    if DEVICE_RESET == "none" or not TARGET_APP_PACKAGE:
+        return
+    try:
+        if DEVICE_RESET == "pm_clear":
+            # The UI package first, then the providers that actually hold the data.
+            for pkg in (TARGET_APP_PACKAGE, *DATA_PROVIDER_PACKAGES):
+                subprocess.run(["adb", "shell", "pm", "clear", pkg],
+                               capture_output=True, timeout=60)
+        else:
+            subprocess.run(["adb", "shell", "am", "force-stop", TARGET_APP_PACKAGE],
+                           capture_output=True, timeout=30)
+        subprocess.run(["adb", "shell", "monkey", "-p", TARGET_APP_PACKAGE,
+                        "-c", "android.intent.category.LAUNCHER", "1"],
+                       capture_output=True, timeout=60)
+        time.sleep(2)  # let the launcher settle before the first observation
+        print(f"   🧹 Device reset ({DEVICE_RESET}) for {TARGET_APP_PACKAGE}")
+    except Exception as e:
+        cloud_log("warning", f"Device reset failed: {e}")
+
 
 async def _safe_screenshot(driver):
     """Best-effort current-device screenshot (bytes), or None."""
@@ -548,7 +703,9 @@ async def execute_test_on_device(test_case: dict) -> dict:
     """
     # Lazy import so the script doesn't crash during --help / preflight
     from mobilerun import MobileAgent, AndroidDriver, load_llm, MobileConfig, AgentConfig
-    from mobilerun.config_manager.config_manager import LoggingConfig
+    from mobilerun.config_manager.config_manager import (
+        LoggingConfig, FastAgentConfig, ManagerConfig, ExecutorConfig,
+    )
     _attach_mobilerun_file_log()  # tee mobilerun's live logs to logs/mobilerun.log
 
     goal = build_droidrun_goal(test_case)
@@ -572,10 +729,14 @@ async def execute_test_on_device(test_case: dict) -> dict:
         expected_result=test_case.get("expected_result", ""),
     )
 
+    if DEVICE_RESET_SCOPE == "test":
+        reset_device_app()
+
     start_time = time.time()
     agent = None
     driver = None
     observations = []  # (elements_list, screenshot_bytes) captured per observed UI state
+    livelocked = False
 
     try:
         # Set up device driver (connects to default adb device)
@@ -600,7 +761,15 @@ async def execute_test_on_device(test_case: dict) -> dict:
         # Create and run the agent. Trajectory capture is enabled so we can feed the
         # real per-step UI states + screenshots into the Live App Model (WP1).
         config = MobileConfig(
-            agent=AgentConfig(max_steps=EXECUTOR_MAX_STEPS),
+            agent=AgentConfig(
+                max_steps=EXECUTOR_MAX_STEPS,
+                # Screenshots go to the sub-agents that decide and act. Costs image
+                # tokens per step, but it is the only signal on screens whose
+                # accessibility tree exposes no usable control names.
+                fast_agent=FastAgentConfig(vision=EXECUTOR_VISION),
+                manager=ManagerConfig(vision=EXECUTOR_VISION),
+                executor=ExecutorConfig(vision=EXECUTOR_VISION),
+            ),
             logging=LoggingConfig(
                 save_trajectory="all",
                 trajectory_path="logs/trajectories",
@@ -623,14 +792,37 @@ async def execute_test_on_device(test_case: dict) -> dict:
         # observed UI state (mobilerun only screenshots itself in vision mode; our
         # text model doesn't, so we capture per-state screenshots ourselves here).
         handler = agent.run()
+        sigs: list[str] = []
+        contents: list[str] = []
         try:
             from mobilerun.agent.common.events import RecordUIStateEvent
             async for ev in handler.stream_events():
                 if isinstance(ev, RecordUIStateEvent):
+                    elements = getattr(ev, "ui_state", None)
                     shot = await _safe_screenshot(driver)
-                    observations.append((getattr(ev, "ui_state", None), shot))
+                    observations.append((elements, shot))
+                    sigs.append(_state_signature(elements))
+                    contents.append(_content_fingerprint(elements))
+                    if is_livelocked(sigs, contents):
+                        livelocked = True
+                        print(f"   🔁 Livelock: last {LIVELOCK_WINDOW} observations cycled "
+                              f"{len(set(sigs[-LIVELOCK_WINDOW:]))} screens — aborting")
+                        cloud_log("warning", f"Test {tc_id} livelocked; aborting early",
+                                  test_case_id=tc_id, observations=len(sigs))
+                        await handler.cancel_run()
+                        break
         except Exception as e:
             cloud_log("warning", f"Event streaming issue for {tc_id}: {e}")
+        if livelocked:
+            duration = time.time() - start_time
+            notes = (f"Agent livelocked: cycled {len(set(sigs[-LIVELOCK_WINDOW:]))} screens with "
+                     f"{len(set(contents[-LIVELOCK_WINDOW:]))} distinct content states over the last "
+                     f"{LIVELOCK_WINDOW} observations — no progress. Aborted after {duration:.1f}s.")
+            exec_path = _record_observations(observations, tc_id,
+                                            driver_shot=await _safe_screenshot(driver))
+            _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path,
+                           error_type="NAVIGATION_LIVELOCK", error_message=notes)
+            return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
         result = await handler
 
         duration = time.time() - start_time
@@ -854,6 +1046,66 @@ def preflight():
 # 6. MAIN LOOP
 # ──────────────────────────────────────────────────────────────────────────────
 
+
+def _export_batch_csv(path: str | None = None) -> str:
+    """Write one row per executed test: outcome, attribution, and the path walked.
+
+    Batch results otherwise live only in Neo4j and are wiped by the next clean
+    slate, so every run's evidence is lost as soon as the following run starts.
+    """
+    import csv
+    from datetime import datetime
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = path or os.path.join(_LOG_DIR, f"batch_{PROJECT}_{stamp}.csv")
+    try:
+        logs = requests.get(f"{RAG_URL}/execution/logs",
+                            params={"project": PROJECT, "limit": 500}, timeout=60).json().get("logs", [])
+        graph = requests.get(f"{RAG_URL}/appmodel/graph",
+                             params={"project": PROJECT}, timeout=60).json()
+        tests = requests.get(f"{RAG_URL}/tests/recent",
+                             params={"project": PROJECT, "limit": 500}, timeout=60).json().get("tests", [])
+    except Exception as e:
+        print(f"  ⚠️  CSV export failed: {e}")
+        return ""
+
+    label = {n["id"]: n.get("label", "?") for n in graph.get("nodes", [])}
+    meta = {t.get("id"): t for t in tests}
+    APP_FAULT = {"ASSERTION_FAILURE", "CRASH"}
+    AGENT_FAULT = {"TIMEOUT", "ELEMENT_NOT_FOUND", "NAVIGATION_FAILURE", "NAVIGATION_LIVELOCK"}
+
+    with open(out, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["test_id", "title", "area", "verdict", "error_type", "attribution",
+                    "device_steps", "states_visited", "distinct_states", "duration_s",
+                    "requirement_ids", "route", "error_message", "created_at"])
+        for e in sorted(logs, key=lambda x: x.get("created_at") or ""):
+            tid = e.get("test_case_id", "")
+            t = meta.get(tid, {})
+            et = e.get("error_type") or ""
+            attribution = ("pass" if e.get("verdict") in ("pass", "passed")
+                           else "app" if (et in APP_FAULT or not et)
+                           else "agent" if et in AGENT_FAULT else "environment")
+            ids = e.get("path") or []
+            route, prev = [], None
+            for pid in ids:
+                lbl = label.get(pid, "?")
+                if lbl != prev:
+                    route.append(lbl)
+                    prev = lbl
+            w.writerow([
+                tid, t.get("title") or e.get("title", ""), t.get("area", ""),
+                e.get("verdict", ""), et, attribution,
+                e.get("device_steps", 0), e.get("states_visited", 0), len(set(ids)),
+                round((e.get("duration_ms") or 0) / 1000, 1),
+                "|".join(t.get("requirement_ids") or []) if isinstance(t.get("requirement_ids"), list) else "",
+                " -> ".join(route), (e.get("error_message") or "")[:300],
+                e.get("created_at", ""),
+            ])
+    print(f"\n  📄 Batch CSV: {out}  ({len(logs)} runs)")
+    return out
+
+
 async def main(rounds: int = EXECUTOR_ROUNDS):
     """
     Main executor loop:
@@ -863,6 +1115,33 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
       4. Repeat for N rounds
     """
     preflight()
+
+    if CLEAN_SLATE:
+        _print_header("CLEAN SLATE — resetting execution history")
+        # Every batch must start from the same graph state or runs are not
+        # comparable: leftover tests skew dedup, coverage and risk, and leftover
+        # UIStates make the app model look richer than this run earned.
+        try:
+            r = requests.post(f"{RAG_URL}/project/reset", json={
+                "project": PROJECT, "delete_tests": True,
+                # The app model MUST be cleared too. Leaving it credits this run
+                # with screens an earlier run discovered, so "states mapped" and
+                # every path in the report describe a graph this batch did not
+                # build — and the dashboard shows a map before any test has run.
+                "delete_appmodel": True,
+                # Knowledge (SRS/Figma) is ingested separately and is not part of
+                # what a run earns, so it is preserved.
+                "delete_srs": False, "delete_figma": False,
+            }, timeout=120)
+            r.raise_for_status()
+            print(f"  reset: {r.json().get('deleted')}")
+        except Exception as e:
+            print(f"  ⚠️  reset failed: {e}")
+
+    if DEVICE_RESET_SCOPE == "suite":
+        # One wipe for the whole run: every suite starts from an identical device,
+        # while state still accumulates between tests within the run.
+        reset_device_app()
 
     results_log = []
 
@@ -1041,6 +1320,8 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
             print(f"  - {t.get('id')} | {t.get('verdict')} | {t.get('title')}")
     except Exception as e:
         print(f"  ⚠️  Could not fetch recent tests: {e}")
+
+    _export_batch_csv()
 
 
 if __name__ == "__main__":

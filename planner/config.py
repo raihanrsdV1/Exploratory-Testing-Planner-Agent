@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+import settings as _s
+
 from fastapi import HTTPException
 from dotenv import load_dotenv
 
@@ -40,9 +42,16 @@ MAX_SRS_CHARS = 500_000
 #   exploit  — drill into areas that have already broken (defect-prone depth)
 #   explore  — push into untested areas (coverage breadth)
 #   balanced — investigate failures first, then expand (default; today's behaviour)
-EXPLORATION_MODE = (os.getenv("EXPLORATION_MODE") or "balanced").strip().lower()
-if EXPLORATION_MODE not in {"exploit", "explore", "balanced"}:
-    EXPLORATION_MODE = "balanced"
+EXPLORATION_MODE = _s.EXPLORATION_MODE
+
+
+# ── Prompt budget (planner/budget.py) ────────────────────────────────────────
+# One global ceiling for the generation prompt, replacing the old scattered
+# per-block caps. Blocks are filled priority-first, so the budget is spent on the
+# oracle (business rules), the UI controls, and what past tests proved, before it
+# is spent on lower-value context. Raise for richer prompts, lower to cut cost;
+# every call pays this, so it is the main cost dial in the system.
+PROMPT_BUDGET_TOKENS = _s.PROMPT_BUDGET_TOKENS
 
 
 def check_gateway_auth(authorization: str | None) -> None:
