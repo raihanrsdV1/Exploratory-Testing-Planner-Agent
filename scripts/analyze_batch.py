@@ -31,9 +31,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from settings import PROJECT, RAG_URL, GATEWAY_URL as GATEWAY  # noqa: E402
 
 # Attribution → is this evidence about the APP, or about our agent/environment?
-APP_FAULT = {"ASSERTION_FAILURE", "CRASH"}
-AGENT_FAULT = {"TIMEOUT", "ELEMENT_NOT_FOUND", "NAVIGATION_FAILURE"}
-ENV_FAULT = {"PRECONDITION_NOT_MET", "PERMISSION_DENIED", "STEP_LIMIT_EXCEEDED"}
+# Imported, never redefined: a local copy drifted from the executor's and made
+# autonomy read 100% when it was 67%.
+from settings import APP_FAULT, AGENT_FAULT, ENV_FAULT  # noqa: E402,F401
 
 RUBRIC = [
     "grounding",        # cites a real requirement / uses real UI control names
@@ -192,13 +192,26 @@ def main() -> int:
     except Exception:
         deg = {}
     print("\n=== SILENT FALLBACKS DURING THIS SUITE ===")
+    # Counts come from the shared sink, so executor-side degradations are
+    # included — they used to be invisible here because the executor and the API
+    # are separate processes and this read only the API's in-memory copy.
+    try:
+        from observability import degradations as _dg
+        _local = _dg.snapshot(limit=200)
+        if _local.get("total") and not deg.get("total"):
+            deg = _local
+    except Exception:
+        pass
     if not deg.get("total"):
         print("  none — no capability was silently lost")
     else:
         print(f"  {deg['total']} fallback(s), worst severity: {deg.get('worst_severity')}")
         if deg.get("trustworthy") is False:
             print("  *** RESULTS SHOULD NOT BE TRUSTED ***")
-        for e in (deg.get("events") or [])[:8]:
+        counts = deg.get("counts") or {}
+        for kind, n in sorted(counts.items(), key=lambda kv: -kv[1])[:8]:
+            print(f"    x{n:<5} {kind}")
+        for e in (deg.get("events") or [])[:6]:
             print(f"    [{e.get('severity')}] {e.get('kind')}: {e.get('detail','')[:100]}")
 
     print(f"\nreview sheet -> {args.csv}")

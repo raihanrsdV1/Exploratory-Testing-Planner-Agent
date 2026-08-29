@@ -47,3 +47,5 @@ pids/
 .idea/
 *.swp
 *.swo
+.env.bak.*
+.env.*.bak

@@ -84,8 +84,13 @@ def bootstrap_context(state: AgentState) -> AgentState:
     done_areas = [str(t.get("area", "")) for t in recent_tests if t.get("area")]
     failure_context = context_builders.build_failure_context(project, recent_tests)
     requirements_context = context_builders.build_requirements_context(project)
-    figma_screens = brief.get("screen_index", []) if isinstance(brief, dict) else []
-    figma_overview = rag_client.get_figma_overview(project)
+    # Honour ENABLED_SOURCES here, not just when advertising sources to the
+    # retrieval planner. These two feed the generation prompt directly, so
+    # reading them unconditionally let a disabled design file describe screens
+    # the shipped app does not have — and the planner wrote tests against them.
+    _figma_on = sources_registry.is_enabled("figma_ui")
+    figma_screens = (brief.get("screen_index", []) if isinstance(brief, dict) else []) if _figma_on else []
+    figma_overview = rag_client.get_figma_overview(project) if _figma_on else []
     fallback_screens = context_builders.pick_relevant_screens(figma_screens, done_areas, recent_tests)
     coverage_map = coverage.compute_coverage_map(recent_tests, figma_screens)
 

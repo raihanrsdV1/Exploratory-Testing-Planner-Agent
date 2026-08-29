@@ -6,6 +6,7 @@ These are app-agnostic: every label/screen/area comes from the ingested graph.
 
 from __future__ import annotations
 
+import settings as _settings
 from . import rag_client
 
 
@@ -286,6 +287,27 @@ def build_requirements_context(project: str, limit_rules: int = 40) -> str:
     uncovered = cov.get("uncovered_requirements") or []
     total = cov.get("total_requirements") or 0
     covered = cov.get("covered_requirements") or 0
+
+    # Never advertise a requirement we have forbidden. This list is framed as
+    # "prefer these — each one you cover raises coverage", so an out-of-scope
+    # requirement appearing here directly contradicts the session constraints
+    # that forbid it — and because nothing is covered at the start of a run, the
+    # forbidden ones sit at the very top as the highest-value targets. Coverage
+    # pressure beat the constraint: the planner generated an account-registration
+    # and a seller-only test while signed in as a buyer, and livelocked trying to
+    # reach a screen that role cannot open.
+    excluded = 0
+    if _settings.OUT_OF_SCOPE:
+        terms = [t.lower() for t in _settings.OUT_OF_SCOPE]
+        kept = []
+        for r in uncovered:
+            hay = f"{r.get('ref_id','')} {r.get('feature','')} {r.get('text','')}".lower()
+            if any(t in hay for t in terms):
+                excluded += 1
+            else:
+                kept.append(r)
+        uncovered = kept
+
     if not (uncovered or rules):
         return ""
 
@@ -295,7 +317,8 @@ def build_requirements_context(project: str, limit_rules: int = 40) -> str:
     ]
     if uncovered:
         lines.append("")
-        lines.append("UNTESTED requirements (prefer these — each one you cover raises coverage):")
+        note = f" ({excluded} out-of-scope requirement(s) withheld)" if excluded else ""
+        lines.append(f"UNTESTED requirements (prefer these — each one you cover raises coverage){note}:")
         for r in uncovered[:20]:
             lines.append(f"- [{r.get('ref_id','?')}] ({r.get('feature','')}) {str(r.get('text',''))[:240]}")
 

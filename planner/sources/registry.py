@@ -44,6 +44,19 @@ def enabled_sources() -> list[KnowledgeSource]:
     return [s for s in _SOURCES if s.name in allowed]
 
 
+def is_enabled(name: str) -> bool:
+    """True when `name` is permitted by settings.ENABLED_SOURCES.
+
+    Callers that read a source directly — rather than through the registry —
+    must consult this. Advertising a source only to the retrieval planner is not
+    enough: content pulled straight into the generation prompt bypasses the
+    registry entirely, and a disabled design file then supplies screens that do
+    not exist in the shipped app.
+    """
+    allowed = set(getattr(_settings, "ENABLED_SOURCES", ()) or ())
+    return (not allowed) or ((name or "").strip().lower() in allowed)
+
+
 def available_sources(brief: dict) -> list[KnowledgeSource]:
     """Sources that actually have ingested data for this project."""
     return [s for s in enabled_sources() if s.is_available(brief or {})]

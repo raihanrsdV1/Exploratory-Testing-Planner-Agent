@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI-Based Autonomous Exploratory Testing Agent — Progress Report</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 14mm; }
+
+  :root{
+    --ink:#15191E; --ink-2:#333C45; --muted:#5E6B75;
+    --rule:#D5DDE2; --rule-2:#B9C5CC;
+    --surface:#FFFFFF; --surface-2:#F3F6F8;
+    --accent:#0D6360;
+    --signal:#9A5B08; --signal-soft:#FBF1E1;
+    --good:#166534; --good-soft:#E8F3EB;
+    --bad:#991B1B;  --bad-soft:#FAEAEA;
+    --serif: "Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans: "Helvetica Neue",Helvetica,Arial,sans-serif;
+    --mono: "SF Mono",Menlo,Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+  html,body{margin:0;padding:0}
+  body{background:var(--surface);color:var(--ink);font-family:var(--sans);
+       font-size:10.2pt;line-height:1.52;-webkit-font-smoothing:antialiased}
+
+  /* ── title ─────────────────────────────────────────────────── */
+  .mast{border-bottom:2.2pt solid var(--ink);padding-bottom:11pt;margin-bottom:15pt}
+  .eyebrow{font-family:var(--mono);font-size:7.6pt;letter-spacing:.15em;text-transform:uppercase;
+           color:var(--accent);margin-bottom:9pt}
+  h1{font-family:var(--serif);font-weight:600;font-size:25pt;line-height:1.1;margin:0 0 8pt;letter-spacing:-.01em}
+  .standfirst{font-size:11.4pt;color:var(--ink-2);margin:0;max-width:44em;line-height:1.5}
+  .meta{display:flex;gap:7mm;flex-wrap:wrap;font-family:var(--mono);font-size:7.8pt;color:var(--muted);margin-top:12pt}
+
+  .toc{border-top:0.6pt solid var(--rule);border-bottom:0.6pt solid var(--rule);
+       padding:8pt 0;margin-bottom:18pt;break-inside:avoid}
+  .toc ol{list-style:none;margin:0;padding:0;column-count:3;column-gap:8mm;font-size:8.8pt}
+  .toc li{margin:0 0 3pt;break-inside:avoid}
+  .toc a{color:var(--ink-2);text-decoration:none}
+  .toc .num{font-family:var(--mono);color:var(--accent);margin-right:5pt}
+
+  /* ── sections ──────────────────────────────────────────────── */
+  section{margin-bottom:19pt}
+  .sub{font-family:var(--mono);font-size:7.4pt;color:var(--accent);letter-spacing:.11em;
+       text-transform:uppercase;margin-bottom:4pt;break-after:avoid}
+  h2{font-family:var(--serif);font-size:16.5pt;font-weight:600;margin:0 0 7pt;
+     letter-spacing:-.005em;break-after:avoid;break-before:avoid}
+  h3{font-size:10.4pt;font-weight:700;margin:14pt 0 5pt;break-after:avoid}
+  p{margin:0 0 8pt;max-width:46em;orphans:2;widows:2}
+  ul,ol.body{margin:0 0 8pt;padding-left:15pt;max-width:46em}
+  li{margin-bottom:4pt}
+  code{font-family:var(--mono);font-size:.85em;background:var(--surface-2);
+       padding:0.5pt 3pt;border-radius:2.5pt;border:0.5pt solid var(--rule)}
+  a{color:var(--accent);text-decoration:none;border-bottom:0.5pt solid var(--rule-2)}
+  strong{font-weight:700} em{font-style:italic}
+  .lede{font-size:10.8pt;color:var(--ink-2);border-left:2.4pt solid var(--accent);
+        padding-left:9pt;margin:0 0 12pt;max-width:44em;break-before:avoid;break-inside:avoid}
+
+  /* ── stat line (typographic, not cards) ────────────────────── */
+  .figures{display:flex;margin:12pt 0 14pt;break-inside:avoid;
+           border-top:0.6pt solid var(--rule-2);border-bottom:0.6pt solid var(--rule-2);
+           padding:8pt 0}
+  .figures div{flex:1 1 0;padding:0 9pt;border-left:0.5pt solid var(--rule)}
+  .figures div:first-child{padding-left:0;border-left:none}
+  .figures b{display:block;font-family:var(--mono);font-size:14.5pt;font-weight:600;
+             font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.1}
+  .figures span{display:block;font-size:7.5pt;color:var(--muted);margin-top:3pt;line-height:1.35}
+  .figures .hi b{color:var(--accent)}
+
+  /* ── tables ────────────────────────────────────────────────── */
+  table{width:100%;border-collapse:collapse;font-size:8.9pt;margin:9pt 0 12pt}
+  thead{display:table-header-group} tr{break-inside:avoid}
+  th{text-align:left;font-family:var(--mono);font-size:7.2pt;letter-spacing:.1em;text-transform:uppercase;
+     color:var(--muted);font-weight:700;padding:5pt 6pt;border-bottom:1pt solid var(--rule-2);
+     background:var(--surface-2);white-space:nowrap}
+  td{padding:5pt 6pt;border-bottom:0.5pt solid var(--rule);vertical-align:top;line-height:1.42}
+  td.m{font-family:var(--mono);font-size:8pt}
+  td.n{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  caption{caption-side:bottom;text-align:left;font-size:8pt;color:var(--muted);padding-top:5pt}
+
+  .pill{display:inline-block;font-family:var(--mono);font-size:7pt;font-weight:700;
+        padding:1pt 5pt;border-radius:8pt;white-space:nowrap;line-height:1.5}
+  .pill.done{background:var(--good-soft);color:var(--good);border:0.6pt solid var(--good)}
+  .pill.part{background:var(--signal-soft);color:var(--signal);border:0.6pt solid var(--signal)}
+  .pill.open{background:var(--bad-soft);color:var(--bad);border:0.6pt solid var(--bad)}
+
+  /* ── per-requirement entries ───────────────────────────────── */
+  .req{break-inside:avoid;margin:0 0 11pt;padding-left:11pt;border-left:1.6pt solid var(--rule-2);max-width:46em}
+  .req.met{border-left-color:var(--good)}
+  .req.partial{border-left-color:var(--signal)}
+  .req .hd{display:flex;justify-content:space-between;align-items:baseline;gap:6mm;margin-bottom:3pt}
+  .req .id{font-family:var(--mono);font-size:8.6pt;font-weight:700;color:var(--ink)}
+  .req .id em{font-family:var(--sans);font-style:normal;font-weight:600;color:var(--ink-2);margin-left:6pt;font-size:9.4pt}
+  .req dl{margin:0;font-size:9.1pt;line-height:1.48}
+  .req dt{float:left;clear:left;font-family:var(--mono);font-size:7.2pt;letter-spacing:.08em;
+          text-transform:uppercase;color:var(--muted);font-weight:700;width:52pt;padding-top:1.6pt}
+  .req dd{margin:0 0 3pt 52pt}
+
+  /* ── callouts ──────────────────────────────────────────────── */
+  .panel{background:var(--surface-2);border:0.7pt solid var(--rule);border-radius:4pt;
+         padding:9pt 11pt;margin:11pt 0;break-inside:avoid;max-width:46em}
+  .panel.warn{border-left:2.6pt solid var(--signal);background:var(--signal-soft)}
+  .panel h4{font-family:var(--mono);font-size:7.4pt;letter-spacing:.1em;text-transform:uppercase;
+            color:var(--ink-2);margin:0 0 5pt;font-weight:700}
+  .panel p{margin-bottom:6pt;font-size:9.6pt} .panel p:last-child{margin-bottom:0}
+
+  /* ── figures ───────────────────────────────────────────────── */
+  figure{margin:12pt 0;padding:9pt 8pt 6pt;border:0.7pt solid var(--rule);border-radius:4pt;
+         break-inside:avoid;background:var(--surface)}
+  figure svg{width:100%;height:auto;display:block;color:var(--ink)}
+  figure img{width:100%;height:auto;display:block;border:0.5pt solid var(--rule-2);border-radius:3pt}
+  figcaption{font-size:8.2pt;color:var(--muted);margin-top:7pt;line-height:1.45;
+             text-align:center;max-width:42em;margin-left:auto;margin-right:auto}
+  figcaption b{color:var(--ink-2)}
+
+  /* ── ledger ────────────────────────────────────────────────── */
+  .ledger{font-family:var(--mono);font-size:8.3pt;background:var(--surface-2);
+          border:0.7pt solid var(--rule);border-radius:4pt;padding:9pt 11pt;margin:10pt 0;
+          break-inside:avoid;max-width:46em;line-height:1.7}
+  .ledger .row{display:flex;justify-content:space-between;gap:6mm}
+  .ledger .row span:last-child{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .ledger hr{border:none;border-top:0.6pt solid var(--rule-2);margin:5pt 0}
+  .ledger .tot{font-weight:700;color:var(--accent)}
+
+  footer{border-top:1pt solid var(--rule-2);margin-top:20pt;padding-top:10pt;font-size:8.4pt;color:var(--muted)}
+  footer strong{color:var(--ink-2)}
+  footer ol{padding-left:14pt;margin-top:5pt} footer li{margin-bottom:3.5pt}
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div class="eyebrow">Progress Report &nbsp;·&nbsp; against ETA-TR-2026-001</div>
+  <h1>AI-Based Autonomous Exploratory<br>Testing Agent</h1>
+  <p class="standfirst">How each roadmap requirement was fulfilled, the architecture as built,
+  measured results with their caveats, and an honest account of what had to be fixed to make the
+  numbers mean anything.</p>
+  <div class="meta">
+    <span>13 August 2026</span><span>Branch <code>raihan-working</code></span>
+    <span>~14,400 LOC Python · 63 endpoints · 23 graph node types</span>
+  </div>
+</header>
+
+<div class="toc">
+  <ol>
+    <li><span class="num">1</span><a href="#summary">Summary</a></li>
+    <li><span class="num">2</span><a href="#delivered">Requirement-by-requirement</a></li>
+    <li><span class="num">3</span><a href="#architecture">Architecture</a></li>
+    <li><span class="num">4</span><a href="#graph">Knowledge graph</a></li>
+    <li><span class="num">5</span><a href="#tokens">Prompt &amp; token economics</a></li>
+    <li><span class="num">6</span><a href="#results">Test campaigns &amp; results</a></li>
+    <li><span class="num">7</span><a href="#challenges">Challenges</a></li>
+    <li><span class="num">8</span><a href="#sota">Positioning</a></li>
+    <li><span class="num">9</span><a href="#next">What we need from you</a></li>
+  </ol>
+</div>
+
+<!-- ══════════════════════ 1 ══════════════════════ -->
+<section id="summary">
+  <div class="sub">1 · Summary</div>
+  <h2>Where the system stands</h2>
+  <p class="lede">All eight roadmap requirements have working implementations, verifiable on a live
+  dashboard. The agent tests any Android application with no documentation at all, and uses an SRS,
+  a UI guide or defect history when they exist. The decisive work this period was not adding
+  capability — it was making the system's own reporting trustworthy.</p>
+
+  <div class="figures">
+    <div class="hi"><b>10/10</b><span>work packages implemented</span></div>
+    <div class="hi"><b>100%</b><span>autonomy, final campaign</span></div>
+    <div><b>36%</b><span>on-device pass rate</span></div>
+    <div><b>98</b><span>device executions to date</span></div>
+    <div><b>~1&cent;</b><span>model cost per test executed</span></div>
+  </div>
+
+  <p>The single most important number is <strong>autonomy: 100%</strong>. In the final 25-test
+  campaign, not one execution was lost to a failure of our own agent — every outcome was either the
+  application behaving correctly or the application doing something the specification did not
+  predict. Two campaigns earlier that figure was effectively zero. Until it was high, no
+  defect-discovery number could mean anything, because "the test failed" and "the agent got lost"
+  were indistinguishable.</p>
+
+  <div class="panel warn">
+    <h4>Read this before quoting any defect number</h4>
+    <p>The run produced <strong>16 candidate defects (64%)</strong>. That is <em>not</em> a
+    defect-discovery rate — each is an assertion that did not hold and needs human confirmation, and
+    some will prove to be tests whose expectations were wrong. Precision and recall cannot be
+    computed at all until we run against <strong>seeded defects with known ground truth</strong>,
+    which is the first thing we are asking you for (§9).</p>
+  </div>
+</section>
+
+<!-- ══════════════════════ 2 ══════════════════════ -->
+<section id="delivered">
+  <div class="sub">2 · Requirement-by-requirement</div>
+  <h2>How each roadmap requirement was fulfilled</h2>
+  <p class="lede">For each requirement: what was built, and what evidence exists that it works. All
+  graph writes, endpoints and prompt blocks named below are live in the running system; the
+  screenshots on the following pages show them populated by a real campaign.</p>
+
+  <div class="req met">
+    <div class="hd"><span class="id">ETA-REQ-301<em>Defect history as a knowledge source</em></span>
+      <span class="pill part">built · awaiting data</span></div>
+    <dl>
+      <dt>Built</dt><dd><code>Defect</code> nodes with severity, area and root-cause category;
+        <code>POST /ingest/defects</code>, <code>GET /defects/summary</code>,
+        <code>/defects/prone-areas</code>, <code>/defects/context</code>. Defect density weights the
+        retrieval score, and a <code>## Defect History Context</code> block (2,000-char budget) is
+        injected into generation.</dd>
+      <dt>Evidence</dt><dd>Pipeline runs end to end on synthetic defects. On real data it is
+        <strong>dormant</strong> — the dashboard reports "0 defects · this signal contributes nothing
+        to test generation", which is deliberate honesty rather than a silent zero.</dd>
+    </dl>
+  </div>
+
+  <div class="req met">
+    <div class="hd"><span class="id">ETA-REQ-302<em>Navigation tree memory</em></span>
+      <span class="pill done">met</span></div>
+    <dl>
+      <dt>Built</dt><dd><code>NavTreeNode</code> with shortest-path merge on re-observation and an
+        <code>avoid</code> flag set when a node's success/visit ratio falls below 0.3.
+        <code>/navtree/record-path</code>, <code>/retrieve-path</code>, <code>/failed-paths</code>;
+        two prompt blocks — learned route, and known failed routes.</dd>
+      <dt>Evidence</dt><dd><strong>123 nodes learned, 95 marked avoid, max depth 42</strong> after a
+        single campaign. Median device steps fell from 50 to 9 across campaigns, which is the
+        behavioural signature this requirement asks for.</dd>
+    </dl>
+  </div>
+
+  <div class="req met">
+    <div class="hd"><span class="id">ETA-REQ-303<em>Experiential learning from execution</em></span>
+      <span class="pill done">met</span></div>
+    <dl>
+      <dt>Built</dt><dd>Five persisted stores fed by one executor write: <code>ExecutionLog</code>
+        (full action/screen trajectory, error type, environment), <code>ErrorPattern</code> (mined
+        recurring signatures), <code>StrategyMemory</code> (effectiveness, decay-weighted with a
+        90-day half-life), <code>CoverageHeatmap</code> (snapshotted for trend analysis) and
+        <code>Session</code> (continuity across calls).</dd>
+      <dt>Evidence</dt><dd>25 execution logs with full routes; three error patterns mined
+        automatically — <code>ASSERTION_FAILURE@Name ×12</code>,
+        <code>ASSERTION_FAILURE@Quick Contact ×3</code>, <code>CRASH@Contact Editor ×1</code>;
+        strategy score 0.64 over 16/25 applications.</dd>
+    </dl>
+  </div>
+
+  <div class="req partial">
+    <div class="hd"><span class="id">ETA-REQ-304<em>Multi-dimensional knowledge graph</em></span>
+      <span class="pill part">single-app validated</span></div>
+    <dl>
+      <dt>Built</dt><dd><code>Profile</code> / <code>Platform</code> / <code>Application</code> nodes
+        with <code>TARGETS_*</code> and <code>TESTS_APPLICATION</code> edges; optional dimension
+        parameters on every ingest and retrieval route, defaulting to today's behaviour;
+        <code>MAY_APPLY_TO {transfer_confidence}</code> for cross-dimension transfer; a
+        <code>## Target Environment</code> prompt block.</dd>
+      <dt>Evidence</dt><dd>Filtering and partitioning verified; <strong>cross-application transfer is
+        not yet validated</strong> because every campaign so far has run against one application.</dd>
+    </dl>
+  </div>
+
+  <div class="req met">
+    <div class="hd"><span class="id">ETA-REQ-305<em>Self-healing execution</em></span>
+      <span class="pill done">met</span></div>
+    <dl>
+      <dt>Built</dt><dd>Eight-way failure classification with per-category recovery — alternate
+        navigation route, wait-and-retry, extended timeout, restart-from-checkpoint, or log-as-defect
+        — with the outcome of the recovery attempt written back to the execution log. A retry carries
+        a <code>## Previous Failure Context</code> block so the second attempt is informed.</dd>
+      <dt>Evidence</dt><dd>Zero agent-attributable failures in the final campaign (§6). Livelock
+        detection was added to this classifier and is the one part still misfiring (§7).</dd>
+    </dl>
+  </div>
+
+  <div class="req met">
+    <div class="hd"><span class="id">ETA-REQ-306<em>Regression risk scoring</em></span>
+      <span class="pill done">met</span></div>
+    <dl>
+      <dt>Built</dt><dd><code>FeatureArea.regression_risk_score</code> computed from defect density,
+        historical failure ratio, recency and navigation instability; exposed at
+        <code>GET /risk/scores</code> and injected as <code>## Regression Risk Assessment</code> so
+        high-risk areas attract more generation attention.</dd>
+      <dt>Evidence</dt><dd>Two areas scored from live history —
+        <code>contact_management/_validation</code> at 0.28, <code>contact_search</code> at 0.08 —
+        matching where failures actually clustered.</dd>
+    </dl>
+  </div>
+
+  <div class="req met">
+    <div class="hd"><span class="id">ETA-REQ-307<em>Test quality &amp; feedback loop</em></span>
+      <span class="pill done">met</span></div>
+    <dl>
+      <dt>Built</dt><dd>Embedding-cosine semantic dedup (Jaccard retained as a cheap pre-filter) so a
+        reworded duplicate is rejected; per-test defect-discovery rate, execution stability and
+        coverage contribution; strategy scores reinforced when a test exposes a real defect. The
+        eight-way attribution taxonomy (§6) is what makes any of these measurable.</dd>
+      <dt>Evidence</dt><dd>A dedicated duplicate-check LLM stage runs on every generation (visible in
+        the planner trace). Effectiveness scores are stored per test and exported in the batch CSV.</dd>
+    </dl>
+  </div>
+
+  <div class="req met">
+    <div class="hd"><span class="id">ETA-REQ-308<em>Anomaly detection</em></span>
+      <span class="pill done">met</span></div>
+    <dl>
+      <dt>Built</dt><dd><code>AnomalyAlert</code> nodes from an engine over execution history:
+        failure-rate spikes against a rolling baseline, newly-appearing error types, duration
+        regressions and unstable navigation paths. Alerts are surfaced to generation so the next test
+        investigates them.</dd>
+      <dt>Evidence</dt><dd>One high-severity alert raised unprompted:
+        <em>"Failure rate on 'Quick Contact' jumped to 75% over the last 4 runs (baseline 0%). Probe
+        this area for an emerging regression."</em> Nothing about that area was configured by us.</dd>
+    </dl>
+  </div>
+
+  <figure>
+    <img src="img/ui5.jpg" alt="Dashboard intelligence panels showing defect intelligence empty, regression risk for two areas, one high-severity anomaly, strategy memory, navigation memory with 123 nodes and 95 avoid, and three mined error patterns.">
+    <figcaption><b>Requirements 301–308, live.</b> Every learning layer has an operator-visible
+    surface, including when it is empty — defect intelligence states plainly that it is contributing
+    nothing, rather than rendering a zero that looks like a result.</figcaption>
+  </figure>
+
+  <div class="req met">
+    <div class="hd"><span class="id">YOUR CORRECTION<em>No knowledge source may be a hard dependency</em></span>
+      <span class="pill done">met</span></div>
+    <dl>
+      <dt>Built</dt><dd>A pluggable source registry — each source implements
+        <code>summary_block</code> / <code>retrieve</code> / <code>prompt_block</code>, and the
+        planner iterates registered sources instead of a hardcoded list. Correctness signals form a
+        cascade: SRS validation rules → defect-history patterns → UI-guide affordances → generic
+        exploratory heuristics, so there is always a bug oracle even with zero documents. Each source
+        can be switched off from a single settings file.</dd>
+      <dt>Evidence</dt><dd>Verified with source subsets {SRS+UI, UI-only, none}: each still yields a
+        valid grounded test, and the blocks belonging to removed sources vanish from the prompt. The
+        Figma source is currently disabled by choice — its design guide did not match the shipped
+        application, so live device observation is more accurate.</dd>
+    </dl>
+  </div>
+
+  <div class="req met">
+    <div class="hd"><span class="id">TEAM REQUIREMENT<em>Must work on any generic Android app</em></span>
+      <span class="pill done">met</span></div>
+    <dl>
+      <dt>Built</dt><dd>The Live App Model (§4) builds a navigable UI map purely from on-device
+        accessibility trees and screenshots. Nothing in the planner, prompts or ingestion encodes
+        knowledge of Contacts, of a vendor, or of a document layout — a deliberate constraint we had
+        to enforce twice after catching ourselves keying on the sample SRS's numbering scheme.</dd>
+      <dt>Evidence</dt><dd>12 UI states and 44 transitions discovered autonomously with the Figma
+        guide switched off entirely. Target package and project are configuration, not code.</dd>
+    </dl>
+  </div>
+
+</section>
+
+<!-- ══════════════════════ 3 ══════════════════════ -->
+<section id="architecture">
+  <div class="sub">3 · Architecture</div>
+  <h2>Four processes, one database</h2>
+  <p class="lede">The planner decides what to test; the executor drives the device; neither talks to
+  the other. Everything they share passes through the knowledge graph, and every LLM call is
+  stateless — "learning" means the graph grew, never that a model remembered.</p>
+
+  <figure>
+    <svg viewBox="0 0 780 252" role="img" aria-label="The planner reads context from the knowledge graph and writes a test case; the test case reaches the executor via the gateway; the executor runs it on a device and writes observations and a verdict back to the graph, where a single write fans out into execution history, navigation memory and strategy memory.">
+      <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+      <g font-family="Menlo,monospace" font-size="11" fill="currentColor">
+        <rect x="8" y="86" width="132" height="62" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <text x="74" y="110" text-anchor="middle">PLANNER</text>
+        <text x="74" y="126" text-anchor="middle" font-size="9.5">LangGraph + LLM</text>
+        <rect x="300" y="74" width="160" height="86" rx="6" fill="none" stroke="#0D6360" stroke-width="2.2"/>
+        <text x="380" y="104" text-anchor="middle" fill="#0D6360">KNOWLEDGE GRAPH</text>
+        <text x="380" y="122" text-anchor="middle" font-size="9.5" fill="#0D6360">Neo4j · 23 node types</text>
+        <text x="380" y="138" text-anchor="middle" font-size="9.5" fill="#0D6360">the only channel</text>
+        <rect x="620" y="86" width="152" height="62" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <text x="696" y="110" text-anchor="middle">EXECUTOR</text>
+        <text x="696" y="126" text-anchor="middle" font-size="9.5">mobilerun · real device</text>
+        <path d="M298 100 L142 100" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#a)"/>
+        <text x="220" y="93" text-anchor="middle" font-size="9">reads context</text>
+        <path d="M140 134 L296 134" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#a)"/>
+        <text x="220" y="148" text-anchor="middle" font-size="9">writes TestCase</text>
+        <path d="M140 70 C 320 18, 540 18, 690 80" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#a)"/>
+        <text x="415" y="32" text-anchor="middle" font-size="9">test case (JSON) via gateway</text>
+        <path d="M618 118 L464 118" fill="none" stroke="#9A5B08" stroke-width="1.9" marker-end="url(#a)"/>
+        <text x="541" y="111" text-anchor="middle" font-size="9" fill="#9A5B08">observations + verdict</text>
+        <rect x="452" y="190" width="320" height="48" rx="6" fill="none" stroke="#9A5B08" stroke-width="1.3" stroke-dasharray="4 3"/>
+        <text x="612" y="210" text-anchor="middle" font-size="9.5" fill="#9A5B08">one write fans out server-side</text>
+        <text x="612" y="226" text-anchor="middle" font-size="9" fill="#9A5B08">ExecutionLog · NavTree · StrategyMemory</text>
+        <path d="M545 190 L470 162" fill="none" stroke="#9A5B08" stroke-width="1.3" marker-end="url(#a)"/>
+      </g>
+    </svg>
+    <figcaption>A single executor write to <code>/execution/log</code> updates the execution record,
+    navigation memory and strategy scores atomically. The executor knows about none of them, so the
+    device driver can be replaced without the planner changing.</figcaption>
+  </figure>
+
+  <p>This separation is what makes the roadmap's "every cycle makes it smarter" requirement
+  structural rather than aspirational: there is exactly one place where experience enters the system,
+  so the learning layers cannot drift apart from one another.</p>
+
+  <figure>
+    <img src="img/ui6.jpg" alt="Dashboard showing device agent logs and planner reasoning side by side, a table of 25 generated test cases with verdicts, and a list of 16 candidate defects.">
+    <figcaption><b>Both halves observable at once.</b> The device agent and the planner stream
+    independently — left, the device stepping through a test; right, the LangGraph nodes with their
+    per-call latency and token counts. Making the planner's reasoning visible is how several of the
+    defects in §7 were found.</figcaption>
+  </figure>
+</section>
+
+<!-- ══════════════════════ 4 ══════════════════════ -->
+<section id="graph">
+  <div class="sub">4 · Knowledge graph</div>
+  <h2>How the app model is built, and how a screen is judged unique</h2>
+  <p class="lede">With no design guide, the only reliable knowledge is what the application shows.
+  The agent builds its own map by observing the running device — and the hard part is deciding
+  whether a screen it just saw is one it has already mapped.</p>
+
+  <p>Each observation is reduced to a <strong>structural signature</strong>: package, activity,
+  whether a modal surface is open, and the set of controls keyed by
+  <code>(resource_id, class, content-description, clickable)</code>. Free text, list contents, row
+  counts and scroll position are discarded. Two properties follow for free — scrolling a contact list
+  past different people is the <em>same</em> state, and a light-to-dark theme switch is the
+  <em>same</em> state, because the view hierarchy never changed. Identity is structural rather than
+  visual precisely because a vision model would call a dark screen a new screen.</p>
+
+  <figure>
+    <svg viewBox="0 0 760 252" role="img" aria-label="A four-stage cascade decides whether an observed screen is already known: exact signature match, Jaccard similarity above 0.90, containment above 0.95 for partially rendered screens, and a perceptual image hash as a last resort. A match increments the visit count; no match creates a new state node.">
+      <defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+      <g font-family="Menlo,monospace" font-size="11" fill="currentColor">
+        <rect x="6" y="96" width="116" height="52" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <text x="64" y="117" text-anchor="middle">observation</text>
+        <text x="64" y="133" text-anchor="middle" font-size="9">a11y tree + shot</text>
+        <line x1="122" y1="122" x2="160" y2="122" stroke="currentColor" stroke-width="1.4" marker-end="url(#b)"/>
+        <rect x="164" y="88" width="120" height="68" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <text x="224" y="110" text-anchor="middle">signature</text>
+        <text x="224" y="126" text-anchor="middle" font-size="9">control key-set,</text>
+        <text x="224" y="140" text-anchor="middle" font-size="9">text discarded</text>
+        <line x1="284" y1="122" x2="318" y2="122" stroke="currentColor" stroke-width="1.4" marker-end="url(#b)"/>
+        <rect x="326" y="14" width="212" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <text x="432" y="32" text-anchor="middle">1 · exact signature</text>
+        <text x="432" y="46" text-anchor="middle" font-size="9">fast path</text>
+        <rect x="326" y="66" width="212" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <text x="432" y="84" text-anchor="middle">2 · Jaccard &#8805; 0.90</text>
+        <text x="432" y="98" text-anchor="middle" font-size="9">minor dynamic variation</text>
+        <rect x="326" y="118" width="212" height="44" rx="6" fill="none" stroke="#0D6360" stroke-width="2.2"/>
+        <text x="432" y="136" text-anchor="middle" fill="#0D6360">3 · containment &#8805; 0.95</text>
+        <text x="432" y="152" text-anchor="middle" font-size="9" fill="#0D6360">screen caught mid-render</text>
+        <rect x="326" y="174" width="212" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <text x="432" y="192" text-anchor="middle">4 · perceptual hash</text>
+        <text x="432" y="206" text-anchor="middle" font-size="9">only when the tree is too thin</text>
+        <path d="M320 122 L320 34 L324 34" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#b)"/>
+        <path d="M320 122 L324 86" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#b)"/>
+        <path d="M320 122 L324 140" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#b)"/>
+        <path d="M320 122 L320 194 L324 194" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#b)"/>
+        <line x1="538" y1="34" x2="594" y2="58" stroke="currentColor" stroke-width="1.2" marker-end="url(#b)"/>
+        <line x1="538" y1="86" x2="594" y2="70" stroke="currentColor" stroke-width="1.2" marker-end="url(#b)"/>
+        <line x1="538" y1="140" x2="594" y2="84" stroke="currentColor" stroke-width="1.2" marker-end="url(#b)"/>
+        <rect x="598" y="42" width="156" height="56" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <text x="676" y="66" text-anchor="middle">KNOWN state</text>
+        <text x="676" y="83" text-anchor="middle" font-size="9">visit_count += 1</text>
+        <path d="M432 214 L432 234 L594 234" fill="none" stroke="#9A5B08" stroke-width="1.5" marker-end="url(#b)"/>
+        <rect x="598" y="208" width="156" height="52" rx="6" fill="none" stroke="#9A5B08" stroke-width="2.2"/>
+        <text x="676" y="230" text-anchor="middle" fill="#9A5B08">NEW state</text>
+        <text x="676" y="247" text-anchor="middle" font-size="9" fill="#9A5B08">node + edge + screenshot</text>
+      </g>
+    </svg>
+    <figcaption>Stage 3 is our addition. <b>Jaccard</b> is |A&nbsp;&cap;&nbsp;B|/|A&nbsp;&cup;&nbsp;B|
+    — symmetric, so it penalises a screen captured before its late-painting chrome appeared and forks
+    a duplicate (0.52 on a real pair). <b>Containment</b> is |A&nbsp;&cap;&nbsp;B|/min(|A|,|B|), which
+    scores that same subset relationship 1.00 and merges correctly. Applying it above a minimum
+    control count took the mapped-state count on an identical workload from <b>42 down to 12</b>.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="img/ui1.jpg" alt="Live dashboard showing 25 tests, 36% pass rate, 16 bugs found, 33 requirements, 12 app states; below, a force-directed graph of the self-built app model with named states such as Contacts, Contact Editor and Name, alongside a captured device screenshot.">
+    <figcaption><b>The Live App Model, self-built.</b> 12 states and 44 transitions the agent reached
+    by itself, with no design guide supplied. Each node retains its screenshot and visit count; the
+    labels are derived from content resource-ids rather than window chrome.</figcaption>
+  </figure>
+
+  <p>The graph holds <strong>23 node types</strong>. From the specification: <code>Requirement</code>,
+  <code>ValidationRule</code>, <code>Entity</code>, <code>Chunk</code>, <code>SRSVersion</code>. From
+  the device: <code>UIState</code> joined by <code>TRANSITIONS_TO</code>. From experience:
+  <code>ExecutionLog</code>, <code>NavTreeNode</code>, <code>ErrorPattern</code>,
+  <code>StrategyMemory</code>, <code>AnomalyAlert</code>, <code>CoverageHeatmap</code>,
+  <code>Session</code>. Test-to-requirement traceability runs through explicit <code>COVERS</code>
+  edges, which is what lets requirement coverage be a first-class metric rather than a proxy such as
+  activity coverage. Current contents: 33 requirements, 38 validation rules, 48 entities, 25 test
+  cases, 12 UI states, 123 navigation nodes.</p>
+</section>
+
+<!-- ══════════════════════ 5 ══════════════════════ -->
+<section id="tokens">
+  <div class="sub">5 · Prompt &amp; token economics</div>
+  <h2>Spending tokens where they change the outcome</h2>
+  <p class="lede">Every generation call rebuilds its prompt from the graph, from scratch. Nothing is
+  remembered between calls, so the prompt <em>is</em> the agent's entire working memory — which makes
+  what goes into it, and what gets dropped from it, an architectural decision rather than a detail.</p>
+
+  <figure>
+    <svg viewBox="0 0 780 286" role="img" aria-label="Sources in the knowledge graph feed three assembly steps — retrieval rounds, the coverage map, and context builders — which compose a generation prompt of about 5,800 tokens made of three parts: a fixed 14 percent, a bounded 42 percent, and a growing 45 percent that scales with how much testing has happened.">
+      <defs><marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+      <g font-family="Menlo,monospace" font-size="9.5" fill="currentColor">
+        <text x="8" y="14" font-size="8" fill="#5E6B75">SOURCES (Neo4j + device)</text>
+        <rect x="8" y="24" width="150" height="30" rx="4" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="83" y="43" text-anchor="middle">SRS + requirements</text>
+        <rect x="8" y="60" width="150" height="30" rx="4" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="83" y="79" text-anchor="middle">Live App Model</text>
+        <rect x="8" y="96" width="150" height="30" rx="4" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="83" y="115" text-anchor="middle">Defect history</text>
+        <rect x="8" y="132" width="150" height="30" rx="4" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="83" y="151" text-anchor="middle">Execution history</text>
+        <rect x="8" y="168" width="150" height="30" rx="4" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="83" y="187" text-anchor="middle">NavTree · Risk · Anomaly</text>
+
+        <path d="M158 39 C 180 39, 180 111, 200 111" fill="none" stroke="currentColor" stroke-width="0.9"/>
+        <path d="M158 75 C 180 75, 180 111, 200 111" fill="none" stroke="currentColor" stroke-width="0.9"/>
+        <path d="M158 111 L200 111" fill="none" stroke="currentColor" stroke-width="0.9"/>
+        <path d="M158 147 C 180 147, 180 111, 200 111" fill="none" stroke="currentColor" stroke-width="0.9"/>
+        <path d="M158 183 C 180 183, 180 111, 200 111" fill="none" stroke="currentColor" stroke-width="0.9"/>
+        <line x1="200" y1="111" x2="222" y2="111" stroke="currentColor" stroke-width="1.2" marker-end="url(#c)"/>
+
+        <text x="228" y="14" font-size="8" fill="#5E6B75">ASSEMBLY (every call)</text>
+        <rect x="228" y="42" width="152" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="304" y="57" text-anchor="middle">retrieval rounds</text>
+        <text x="304" y="70" text-anchor="middle" font-size="8">2–3 planning LLM calls</text>
+        <rect x="228" y="94" width="152" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="304" y="109" text-anchor="middle">coverage map</text>
+        <text x="304" y="122" text-anchor="middle" font-size="8">+ exploration directive</text>
+        <rect x="228" y="146" width="152" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="304" y="161" text-anchor="middle">context builders</text>
+        <text x="304" y="174" text-anchor="middle" font-size="8">learned + failure context</text>
+        <path d="M380 59 C 400 59, 400 111, 418 111" fill="none" stroke="currentColor" stroke-width="0.9"/>
+        <path d="M380 111 L418 111" fill="none" stroke="currentColor" stroke-width="0.9"/>
+        <path d="M380 163 C 400 163, 400 111, 418 111" fill="none" stroke="currentColor" stroke-width="0.9"/>
+        <line x1="418" y1="111" x2="442" y2="111" stroke="currentColor" stroke-width="1.2" marker-end="url(#c)"/>
+
+        <text x="450" y="14" font-size="8" fill="#5E6B75">GENERATION PROMPT &#8776; 5,800 TOKENS</text>
+        <rect x="450" y="22" width="322" height="34" rx="4" fill="#F3F6F8" stroke="currentColor" stroke-width="1"/>
+        <text x="462" y="37">FIXED &nbsp;14%</text>
+        <text x="462" y="50" font-size="8" fill="#5E6B75">role · mindset · heuristics · output contract</text>
+        <rect x="450" y="60" width="322" height="92" rx="4" fill="#F3F6F8" stroke="#0D6360" stroke-width="1.6"/>
+        <text x="462" y="76" fill="#0D6360">BOUNDED &nbsp;42%</text>
+        <text x="462" y="91" font-size="8" fill="#5E6B75">business rules · screens · live controls</text>
+        <text x="462" y="105" font-size="8" fill="#5E6B75">defect history · risk · anomalies · strategies</text>
+        <text x="462" y="119" font-size="8" fill="#5E6B75">failed navigation routes</text>
+        <text x="462" y="140" font-size="8" fill="#0D6360">priority-ordered; P0 blocks never dropped</text>
+        <rect x="450" y="156" width="322" height="76" rx="4" fill="#F3F6F8" stroke="#9A5B08" stroke-width="1.6"/>
+        <text x="462" y="172" fill="#9A5B08">GROWS &nbsp;45%</text>
+        <text x="462" y="187" font-size="8" fill="#5E6B75">executed test titles &#8594; blocks duplicates</text>
+        <text x="462" y="201" font-size="8" fill="#5E6B75">what previous tests already proved</text>
+        <text x="462" y="220" font-size="8" fill="#9A5B08">the only parts that scale with session length</text>
+
+        <line x1="450" y1="248" x2="772" y2="248" stroke="#B9C5CC" stroke-width="0.8"/>
+        <text x="450" y="264" font-size="8.5" fill="#5E6B75">plateaus at &#8776; 8k tokens &#8212; 0.8% of the 1M window</text>
+        <text x="450" y="277" font-size="8.5" fill="#5E6B75">the system is cap-limited, not context-limited</text>
+      </g>
+    </svg>
+    <figcaption>Measured on a live project after 22 executed tests: <b>23,081 characters ≈ 5,770
+    tokens</b>. Only two blocks scale with session length, both capped, so the prompt plateaus around
+    8k tokens and never approaches the context window.</figcaption>
+  </figure>
+
+  <h3>Where the money actually goes — measured, not estimated</h3>
+  <p>Cost is derived from the live billing ledger rather than a model price card — spend in a billing
+  window divided by executions in that same window, so every figure includes retrieval, generation,
+  dedup and device calls:</p>
+
+  <p><strong>Running a test is close to free. Reading the specification is not.</strong> That is the
+  whole finding, and it is the opposite of what we assumed. The three models in the system differ in
+  price by two orders of magnitude:</p>
+
+  <table>
+    <thead><tr><th>Model</th><th>Role</th><th class="n">$/M in</th><th class="n">$/M out</th><th class="n">Calls per campaign</th></tr></thead>
+    <tbody>
+      <tr><td class="m">qwen3.7-flash</td><td>planner loop</td><td class="n">0.030</td><td class="n">0.130</td><td class="n">108</td></tr>
+      <tr><td class="m">qwen3-vl-32b-instruct</td><td>device agent (vision)</td><td class="n">0.104</td><td class="n">0.416</td><td class="n">~250</td></tr>
+      <tr><td class="m">qwen3.8-max</td><td>SRS extraction</td><td class="n"><strong>2.000</strong></td><td class="n"><strong>6.000</strong></td><td class="n">~22 <em>(once per document)</em></td></tr>
+    </tbody>
+    <caption>Live prices from the provider's model API. The extraction model is 19&times; the device
+    agent on input and 14&times; on output — and it is the only one that runs without an output cap.</caption>
+  </table>
+
+  <div class="ledger">
+    <div class="row"><span>balance inherited at handover</span><span>$6.500</span></div>
+    <div class="row"><span>balance now (verified via billing API)</span><span>$3.815</span></div>
+    <div class="row"><span>our spend to date · 88 device executions</span><span>$2.685</span></div>
+    <hr>
+    <div class="row"><span>device agent · 10.1 steps/test &#215; ~6k tokens</span><span>~$0.0076&nbsp;&nbsp;(0.8&cent;)</span></div>
+    <div class="row"><span>planner · 108 calls / 384k tokens &#247; 25 tests</span><span>~$0.0006&nbsp;&nbsp;(0.06&cent;)</span></div>
+    <div class="row tot"><span>&#8594; cost per test executed</span><span>~$0.008&nbsp;&nbsp;(~1&cent;)</span></div>
+    <div class="row tot"><span>&#8594; one 25-test campaign</span><span>~$0.20</span></div>
+    <hr>
+    <div class="row"><span>most recent billing day, total</span><span>$2.042</span></div>
+    <div class="row"><span>less both campaigns (34 executions)</span><span>&#8722;&nbsp;~$0.24</span></div>
+    <div class="row tot"><span>&#8594; one SRS ingestion</span><span>~$1.80</span></div>
+  </div>
+
+  <p>The per-test figure is built from measured quantities, not price-card arithmetic: 10.1 device
+  steps per test (232 stored observations across 23 runs), an accessibility tree averaging 4,686
+  bytes (~1,170 tokens) per step, a 1080&#215;1920 screenshot, and the planner's 384k tokens logged
+  across 108 calls. It is corroborated independently by the ingestion-free portion of our total
+  spend, which lands at the same figure.</p>
+
+  <div class="panel warn">
+    <h4>Why one document read costs as much as 200 tests</h4>
+    <p>The asymmetry is by construction. <code>extract()</code> runs a multi-pass extraction
+    <strong>once per sample</strong> — three samples, kept because this artefact underpins every
+    later decision — and each pass splits the specification into ~1,800-character sections and issues
+    <strong>one uncapped call per section</strong>, plus a synthesis and a self-critique call. A final
+    judge call selects the best candidate. On an 8k-character specification that is roughly
+    <strong>22 calls on the most expensive model in the system, with no output ceiling</strong>; the
+    ingest log ends in a 1,800-second timeout, consistent with that volume.</p>
+    <p>The quality argument for paying it once is sound. What is missing is metering: nothing caps
+    the output length, nothing reduces the sample count once the extraction has stabilised, and
+    nothing prevents an unchanged document from being read again from scratch.</p>
+  </div>
+
+  <h3>What this means for scaling</h3>
+  <p>Two costs that behave completely differently. <strong>Ingestion is one-time per document</strong>
+  at ~$1.80 and is paid again only when the specification changes — or, as happened repeatedly during
+  development, when we re-ingest to test a change to the ingestion itself. <strong>Testing is ~1&cent;
+  per test</strong> and scales linearly. A nightly regression suite of 500 tests is roughly
+  <strong>$4</strong>, and 2,000 tests roughly <strong>$16</strong>, on top of an ingestion that does
+  not repeat.</p>
+  <p>That also relocates the optimisation target. Within a test execution the device agent is ~92% of
+  the cost and the planner ~8%, so navigation memory cutting median steps from 50 to 9 was a real
+  saving. But against total project spend, <strong>extraction is the dominant line item</strong>, and
+  the levers there are capping its output length, reducing the sample count from three, or caching
+  extraction per document hash so an unchanged specification is never re-read. None of these are
+  implemented; all are straightforward.</p>
+
+  <h3>Three decisions that keep the cost where it is</h3>
+  <ul>
+    <li><strong>Tiered models.</strong> Business logic is extracted from the specification
+    <em>once</em>, but everything downstream depends on it — so that step uses a large reasoning
+    model with no token cap and best-of-3 sampling, judged for the best result. The per-test planner
+    loop then runs on a model roughly 60&times; cheaper, and the device agent on a mid-size vision
+    model.</li>
+    <li><strong>One global prompt budget, filled by priority.</strong> A dozen independent caps (120
+    titles, 25 findings, 8,000 characters of requirements) were replaced by a single token budget
+    filled highest-value-first: the bug oracle and on-screen controls are priority 0 and never
+    dropped, background context truncates only when the ceiling is genuinely reached. The ceiling
+    moved from ~8k to 50k tokens, and every cap that silently discarded data is gone.</li>
+    <li><strong>Vision only where it pays.</strong> The device agent gets screenshots because judging
+    whether an expected result actually occurred is the weakest link. The planner gets none — it
+    reasons about structure, which text conveys better and far more cheaply. At measured volumes
+    vision turned out to be inexpensive: about 0.07&cent; per step, so it is not a cost concern.</li>
+  </ul>
+</section>
+
+<!-- ══════════════════════ 6 ══════════════════════ -->
+<section id="results">
+  <div class="sub">6 · Test campaigns &amp; results</div>
+  <h2>Every campaign we have run</h2>
+  <p class="lede">Six campaigns, 98 device executions, all preserved on disk as full step-by-step
+  trajectories. Each campaign changed one thing about the agent and was measured against the same
+  application and the same specification.</p>
+
+  <table>
+    <thead><tr><th>Campaign</th><th class="n">Tests</th><th class="n">Wall</th><th>What changed</th><th>Outcome</th></tr></thead>
+    <tbody>
+      <tr><td class="m">24 Jul · 22:25</td><td class="n">6</td><td class="n">67m</td><td>first end-to-end wiring</td><td>pre-instrumentation smoke run</td></tr>
+      <tr><td class="m">25 Jul · 01:42</td><td class="n">4</td><td class="n">14m</td><td>graph write-back</td><td>pre-instrumentation smoke run</td></tr>
+      <tr><td class="m">12 Aug · 22:42</td><td class="n">25</td><td class="n">107m</td><td>first full campaign with attribution</td><td><strong>0% pass</strong> — 82% of device steps unparseable</td></tr>
+      <tr><td class="m">13 Aug · 03:03</td><td class="n">29</td><td class="n">84m</td><td>non-reasoning vision model; livelock detector</td><td><strong>9% → 20% pass</strong>, autonomy 91% → 96%</td></tr>
+      <tr><td class="m">13 Aug · 19:02</td><td class="n">9</td><td class="n">16m</td><td>—</td><td><strong>cancelled by us</strong> after spotting bad preconditions and unreadable logs</td></tr>
+      <tr><td class="m">13 Aug · 19:55</td><td class="n">25</td><td class="n">61m</td><td>precondition filter, containment matching, device reset, log reassembly</td><td><strong>36% pass · 100% autonomy · 0 silent fallbacks</strong></td></tr>
+    </tbody>
+    <caption>Reconstructed from on-disk trajectory directories, one per device execution. The fifth
+    campaign was aborted deliberately — inspecting a run and stopping it is cheaper than letting a
+    known-bad configuration produce 25 misleading results.</caption>
+  </table>
+
+  <h3>Why campaigns stop at 25 tests</h3>
+  <p>25 is a deliberate ceiling, not a technical limit — the agent will run indefinitely. Three
+  reasons hold it there for now.</p>
+  <p><strong>The budget pressure is re-ingestion, not test volume.</strong> A 25-test campaign costs
+  about $0.20, so length is not what constrained us — we have spent $2.69 of an inherited $6.50
+  prepaid balance, and the great majority of that went on re-reading the specification each time we
+  changed how ingestion works (~$1.80 a time), not on running tests. Nearly every improvement in the
+  table above came from <em>changing</em> the agent between campaigns rather than from running a
+  longer one, and each of those changes to the ingestion path cost far more than the campaign that
+  followed it.</p>
+  <p><strong>25 is what one engineer can review by hand.</strong> Until we have seeded defects, the
+  only way to know whether a "candidate defect" is real — and whether the test was checking the right
+  requirement in the first place — is to read every test, its route and its verdict. That is a
+  couple of hours for 25 tests and infeasible for 200. Every campaign therefore exports a review
+  sheet with blank rubric columns for exactly this purpose.</p>
+  <p><strong>The prompt's dedup memory saturates near this scale.</strong> Executed-test titles are
+  capped at 120 and prior findings at 25; past those, older entries drop out and the planner can
+  regenerate a test it has already tried. Raising the caps is nearly free at current sizes, but we
+  would rather raise them deliberately once we can measure the effect than discover the regression
+  in a 200-test run.</p>
+
+  <h3>The final campaign</h3>
+  <div class="figures">
+    <div><b>9</b><span>passed</span></div>
+    <div><b>16</b><span>candidate defects, unvalidated</span></div>
+    <div class="hi"><b>0</b><span>agent failures</span></div>
+    <div class="hi"><b>0</b><span>silent fallbacks</span></div>
+    <div><b>122s</b><span>mean per test</span></div>
+    <div><b>12</b><span>UI states mapped</span></div>
+  </div>
+
+  <figure>
+    <img src="img/ui2.jpg" alt="Dashboard listing each test's real route through the app, for example Smartspace Card Pager to Contacts to Contact Editor to Name, with per-run state counts, step counts, durations and error types; below it a planner execution trace with per-call latency, LLM call counts and token totals.">
+    <figcaption><b>Every run's real route is retained.</b> Route, state count, step count, duration
+    and error type per test — this is what makes a failure reviewable rather than merely counted. The
+    planner trace beneath it accounts for every LLM call and its token cost.</figcaption>
+  </figure>
+
+  <h3>How outcomes are attributed</h3>
+  <p>A failed run is not a discovered defect. Every execution falls into one of eight categories, and
+  only two are evidence about the application:</p>
+  <table>
+    <thead><tr><th style="width:46%">Outcome category</th><th>Attributed to</th><th>Candidate defect?</th></tr></thead>
+    <tbody>
+      <tr><td class="m">ASSERTION_FAILURE, CRASH</td><td>The application</td><td><span class="pill done">yes</span></td></tr>
+      <tr><td class="m">NAVIGATION_FAILURE, ELEMENT_NOT_FOUND,<br>TIMEOUT, NAVIGATION_LIVELOCK</td><td>Our agent</td><td><span class="pill open">no — lowers autonomy</span></td></tr>
+      <tr><td class="m">PRECONDITION_NOT_MET, PERMISSION_DENIED,<br>STEP_LIMIT_EXCEEDED</td><td>The environment</td><td><span class="pill open">no — excluded</span></td></tr>
+    </tbody>
+  </table>
+  <p>This taxonomy is why the numbers above can be read at all. It resolves the question that made
+  the project hard to measure honestly: a task the agent could not complete may be a genuine defect,
+  a limitation of the agent, or an impossible precondition — and those three must never be summed.</p>
+
+  <figure>
+    <img src="img/ui3.jpg" alt="A device step trace showing each action the agent took — clicking Skip, clicking Create contact, typing Jane, typing Doe — each with the agent's stated reasoning, for example noting that the Contacts app is showing a setup screen and it will skip to reach the main list.">
+    <figcaption><b>Step-level reasoning is recorded, not just the verdict.</b> Each device action
+    carries the agent's justification, so a wrong outcome can be traced to the step where its
+    understanding diverged. Recovering this was itself a fix — the device agent streams one token per
+    log record, which arrived shredded until we reassembled the stream.</figcaption>
+  </figure>
+
+  <p>Each campaign also exports a machine-readable CSV — test id, title, verdict, error type,
+  attribution, device steps, distinct states, duration, cited requirement ids and the full screen
+  route — plus a review sheet with blank rubric columns. Before this, run data lived only in the
+  graph and was destroyed by the next clean-slate wipe.</p>
+</section>
+
+<!-- ══════════════════════ 7 ══════════════════════ -->
+<section id="challenges">
+  <div class="sub">7 · Challenges</div>
+  <h2>What had to be fixed</h2>
+  <p class="lede">Most of this period's engineering went into defects in our own system that were
+  invisible precisely because the system handled them gracefully. Every one was found by inspecting
+  real output, not by reading code.</p>
+
+  <table>
+    <thead><tr><th style="width:26%">Defect</th><th style="width:42%">How it stayed hidden</th><th>Consequence</th></tr></thead>
+    <tbody>
+      <tr><td><strong>86% of the SRS discarded at ingestion</strong></td><td>Chunking kept only lines matching a requirement-ID pattern and dropped every prose paragraph; the endpoint reported success.</td><td>Retrieval served headings without the requirements under them</td></tr>
+      <tr><td><strong>A deleted document kept serving requirements</strong></td><td>Ingestion appended rather than replaced, keyed by filename. 17 of 19 chunks came from a file removed weeks earlier.</td><td>The model cited requirements that no longer existed</td></tr>
+      <tr><td><strong>State identity overwritten on merge</strong></td><td>A near-match adopted the newcomer's signature, so a later identical observation no longer matched and forked.</td><td>Self-inflicted state explosion — 42 states where 12 were real</td></tr>
+      <tr><td><strong>Requirement coverage read 0% for days</strong></td><td>The one call that creates <code>COVERS</code> edges sat inside a bare <code>except: pass</code>.</td><td>Traceability, our main differentiator, appeared not to work</td></tr>
+      <tr><td><strong>The device reset reset nothing</strong></td><td>It cleared the app package, but contact data lives in a separate content provider. The command returned "Success".</td><td>33 contacts accumulated; clean-state tests unsatisfiable</td></tr>
+      <tr><td><strong>Reasoning tokens starved the answer</strong></td><td>A 2,048-token output cap was consumed by a reasoning model's private scratchpad, truncating the JSON mid-object.</td><td>A stronger model produced <em>fewer</em> requirements than a weaker one</td></tr>
+    </tbody>
+  </table>
+
+  <div class="panel warn">
+    <h4>The principle we adopted: degrade, but never quietly</h4>
+    <p>Removing the error handling would be the wrong lesson — one malformed screen must not end a
+    two-hour unattended run. Instead every fallback now records what capability was lost and at what
+    severity, surfaced on the dashboard and in the end-of-run report. A run that "succeeded" while
+    operating on worse data is visibly marked untrustworthy. The final campaign reported
+    <strong>zero silent fallbacks</strong> — a statement that is only meaningful because the
+    mechanism to detect them exists.</p>
+  </div>
+
+  <h3>Three lessons worth carrying forward</h3>
+  <p><strong>A model that reasons in-band breaks a strict output parser.</strong> The device model's
+  <code>&lt;think&gt;</code> output corrupted tool-call parsing, so 82% of steps did nothing — the
+  agent narrated intentions and never acted. This presents as "the agent is bad at the task", not as
+  a parsing error, which is why it survived a whole campaign. A non-reasoning vision model took parse
+  failures to zero and the median step count from 50 to 9.</p>
+  <p><strong>Fixing a false positive invites a false negative.</strong> Livelock detection originally
+  aborted any run that revisited a few screens, which killed the legitimate test <em>"add ten
+  contacts and observe the list"</em> — structurally two screens alternating. Adding a
+  content-progress signal fixed that and introduced the opposite error: an agent retyping the same
+  field forever looks like progress because the text keeps changing. One run cycled 43 observations
+  across 5 states for the full budget and was recorded as a crash. Still open.</p>
+  <p><strong>Generality has to be enforced, not assumed.</strong> An early fix to the chunker still
+  keyed on the sample SRS's numbering conventions — a system that works on documents shaped like
+  ours, not a generic one. It was rewritten to know nothing about requirement conventions and to
+  retain 100% of source text regardless of format.</p>
+</section>
+
+<!-- ══════════════════════ 8 ══════════════════════ -->
+<section id="sota">
+  <div class="sub">8 · Positioning</div>
+  <h2>Relationship to published work</h2>
+
+  <p><strong>What we adopt.</strong> Our structural signature is a re-derivation of <em>STOAT</em>
+  (ESEC/FSE 2017), which treats only structurally different pages as distinct states. Threshold-based
+  similarity over a state abstraction is standard — <em>Judge</em> (ACM TOSEM) treats abstraction as
+  a first-class problem, and Jaccard with a tuned threshold appears in Android GUI testing at
+  0.75–0.82 against our 0.90. <em>APE</em> (ICSE 2019) refines its abstraction at runtime rather than
+  fixing it in advance, which is where our cascade is heading. Attribution before measurement follows
+  recent LLM GUI-agent evaluation work.</p>
+
+  <p><strong>Where we differ.</strong> Three things, stated conservatively:</p>
+  <ul>
+    <li><strong>Requirement-traceable exploratory testing.</strong> The literature measures activity
+    or code coverage; none of it can state which <em>requirement</em> a generated test exercises. Our
+    <code>COVERS</code> edges plus SRS drift detection make requirement coverage a first-class metric
+    for an exploratory agent — an intersection we have not found occupied.</li>
+    <li><strong>Multi-source graceful degradation as an architecture.</strong> Related work assumes a
+    fixed input, usually the APK alone. Our source registry runs identically with a specification, a
+    UI guide, defect history, any subset, or none.</li>
+    <li><strong>Containment matching for partial observations.</strong> A standard set measure, but
+    we did not find it used this way in GUI testing. We present it as our adaptation, not as
+    established practice.</li>
+  </ul>
+
+  <div class="panel">
+    <h4>A check we ran on ourselves</h4>
+    <p>We re-validated the sources this design leans on. <em>STOAT</em>, <em>APE</em>,
+    <em>GPTDroid</em> (ICSE 2024) and <em>Judge</em> are peer-reviewed at top-tier venues. Several
+    recent GUI-agent papers we drew framing from are <strong>unrefereed arXiv preprints</strong> with
+    very small benchmarks; we treat their methods as informative and their numbers as not yet a
+    baseline, and do not cite them as evidence for our own claims.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════ 9 ══════════════════════ -->
+<section id="next">
+  <div class="sub">9 · What we need from you</div>
+  <h2>Two requests, and what they unblock</h2>
+  <p class="lede">Both remaining gaps in the roadmap are blocked on inputs we cannot produce
+  ourselves. Neither is large, and each converts a capability we have already built from "implemented"
+  into "demonstrated".</p>
+
+  <h3>1 — A defect or issue-tracker export</h3>
+  <p>ETA-REQ-301 is fully built and completely dormant: no defect data has ever been ingested, so
+  defect-density-weighted exploration has never actually influenced a test. An export from any
+  application we can also run against — id, title, area or component, severity, status, and ideally
+  the resolution or root cause — would activate it immediately. Format is flexible; the ingestion
+  endpoint already normalises. Even a few hundred historical issues would let us show tests skewing
+  toward defect-prone areas versus a no-defect baseline, which is the requirement's stated acceptance
+  criterion.</p>
+
+  <h3>2 — A build with seeded defects, for precision and recall</h3>
+  <p>This is the more important of the two. Every quality number in this report is bounded by the
+  fact that <strong>we have no ground truth</strong>: we can say a test failed, and we can say the
+  agent did not cause the failure, but we cannot say whether a real defect exists, and we cannot
+  detect a defect the agent <em>missed</em>. Recall is currently unmeasurable in principle.</p>
+  <p>What would fix it is a build of a target application with <strong>8–12 known defects
+  deliberately introduced</strong> and a list of what they are and where — a relaxed validation rule,
+  a broken duplicate check, a dropped required field, an incorrect boundary. With that we run three
+  arms against a fixed budget: the full agent, the agent with its memory layers disabled, and a
+  random-exploration baseline. That produces <strong>precision, recall and F1 against ground
+  truth</strong>, and the ablation gives direct evidence for the roadmap's central claim that every
+  execution cycle makes the agent smarter. The measurement infrastructure is already built and the
+  campaigns are cheap — under $1 of model spend for all three arms, since the specification only
+  needs ingesting once. We can also seed the defects ourselves if you
+  can point us at a suitable application and confirm that is acceptable.</p>
+
+  <h3>3 — Scope guidance on the specification</h3>
+  <p>Smaller, but it distorts a headline metric. The sample SRS contains activation and SIM-region
+  requirements that may not be reachable through the application interface at all. While they remain
+  in the denominator they depress requirement coverage permanently regardless of how well the agent
+  performs. A note on which requirement classes are considered in scope for UI testing would let us
+  report that figure honestly.</p>
+
+  <h3>Known open issues on our side</h3>
+  <table>
+    <thead><tr><th style="width:30%">Issue</th><th>Consequence</th><th>Priority</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Requirement coverage reads 2 of 33</strong></td><td>Traceability works mechanically, but few generated tests cite requirement ids, so our main differentiator is under-demonstrated</td><td><span class="pill open">high</span></td></tr>
+      <tr><td><strong>Livelock false negative</strong></td><td>An agent repeating one action indefinitely is recorded as a crash, inflating the apparent defect count</td><td><span class="pill part">high</span></td></tr>
+      <tr><td><strong>Planner invents cross-screen premises</strong></td><td>Tests occasionally target controls that do not exist on the screen named in the step, wasting executions</td><td><span class="pill part">medium</span></td></tr>
+      <tr><td><strong>Impoverished observations</strong></td><td>Recorded UI events omit clickable, content-description and package, weakening state identity and screen labelling</td><td><span class="pill part">medium</span></td></tr>
+      <tr><td><strong>Extraction is non-deterministic</strong></td><td>The same document yields different requirement counts between runs, breaking reproducibility of any experiment built on it</td><td><span class="pill part">medium</span></td></tr>
+      <tr><td><strong>Cross-application transfer unvalidated</strong></td><td>ETA-REQ-304 is built but every campaign has run against one application</td><td><span class="pill part">medium</span></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  <strong>Primary references</strong>
+  <ol>
+    <li>Su et al., <em>Guided, Stochastic Model-Based GUI Testing of Android Apps</em> (STOAT), ESEC/FSE 2017.</li>
+    <li>Gu et al., <em>Practical GUI Testing of Android Applications via Model Abstraction and Refinement</em> (APE), ICSE 2019.</li>
+    <li><em>Judge: Effective State Abstraction for Guiding Automated Web GUI Testing</em>, ACM TOSEM.</li>
+    <li>Liu et al., <em>Make LLM a Testing Expert</em> (GPTDroid), ICSE 2024.</li>
+    <li><em>Beyond Static GUI Agent: Evolving LLM-based GUI Testing via Dynamic Memory</em>, ASE 2025.</li>
+  </ol>
+  <p style="margin-top:9pt">Account balance ($3.815 remaining) and model prices read from the
+  OpenRouter API, 13 August 2026. The per-test figure is built bottom-up from live prices and
+  measured payloads — step counts and accessibility-tree sizes from
+  <code>logs/trajectories/</code>, planner token totals from the gateway log — and is accurate to
+  roughly ±0.3&cent;; the ingestion figure is obtained by subtracting those from a billing day and
+  carries wider uncertainty, perhaps ±$0.30. Campaign history
+  reconstructed from <code>logs/trajectories/</code>. Final results exported to
+  <code>logs/batch_contacts-app_20260813_205801.csv</code>. Prompt composition measured with
+  <code>scripts/dump_prompt.py</code>.</p>
+</footer>
+
+</body>
+</html>

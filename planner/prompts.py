@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 
+import settings as _settings
 from ingestion import ui_normalizer
 
 from . import budget, config, coverage, context_builders, model_client, textutil
@@ -286,6 +287,28 @@ def build_testcase_prompt(
         "",
     ]
 
+    # Session identity and hard exclusions. Both are priority-0 facts: a test
+    # written for a role the device is not signed in as, or for a flow the agent
+    # provably cannot finish, is wasted before it is executed.
+    _session = _settings.app_session_block()
+    _oos = [a for a in _settings.OUT_OF_SCOPE if a]
+    if _session or _oos:
+        parts += ["## Session Constraints — these override every other instruction"]
+        if _session:
+            parts += [f"- {_session}"]
+        if _oos:
+            parts += [
+                "- The following areas are OUT OF SCOPE. Never generate a test whose "
+                "steps or preconditions require them, even when the requirements below "
+                "describe them and even when they look untested:",
+                *[f"    - {a}" for a in _oos],
+                "  They are excluded because completing them needs something outside the "
+                "agent's control (an SMS code, an identity document, an admin approval, "
+                "or a phone number that is spent on first use) — not because they are "
+                "unimportant. Treat them as already satisfied and test what they unlock.",
+            ]
+        parts += [""]
+
     # WP6 (REQ-304.5) — steer steps to the target environment's interaction model.
     if target_env:
         parts += [
@@ -422,13 +445,13 @@ def build_testcase_prompt(
         "3. PREFER negative, boundary, and state-transition tests over happy-path positive tests.",
         "4. Steps MUST reference actual UI element names from the UI context — no invented labels.",
         "5. The 'rationale' field MUST name the specific defect class or risk this test is designed to expose.",
-        "5b. 'preconditions' MUST be things the tester can CREATE from a fresh app "
-        "(e.g. 'create a contact named X first'). NEVER state environmental assumptions "
-        "the tester can only check and not establish — 'no existing contacts', "
-        "'contacts exist on SIM', 'user is signed in to cloud'. The app starts in a clean "
-        "state each run; if your test needs data, the FIRST STEPS must create it. A test "
-        "that depends on an unachievable precondition is abandoned without testing anything, "
-        "which is worse than no test at all.",
+        "5b. 'preconditions' MUST be things the tester can CREATE through the UI in this "
+        "test's own first steps. NEVER state an environmental assumption the tester can "
+        "only observe and not establish — the absence of data, data held on another "
+        "device or account, or a state reached outside this app. If your test needs data "
+        "to exist, the FIRST STEPS must create it through the UI. A test that depends on "
+        "an unachievable precondition is abandoned without testing anything, which is "
+        "worse than no test at all.",
         "6. The 'area' field MUST align with the Exploration Directive — do not default to the easiest area.",
         "7. 'requirement_ids' MUST contain ids copied EXACTLY from the '## Requirements You May Cite' "
         "list above. Never invent an id or guess a format. Use [] if none apply.",

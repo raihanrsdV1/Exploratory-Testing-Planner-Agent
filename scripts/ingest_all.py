@@ -38,11 +38,24 @@ def main():
         "source_path": SRS_PATH,
     }))
 
-    print("\n[3] Ingesting Figma")
-    print(post(f"{BASE_GATEWAY}/figma/ingest", {
-        "project": PROJECT,
-        "source_path": FIGMA_PATH,
-    }))
+    # Only ingest a design file when one is configured AND the source is enabled.
+    # Ingesting another app's design file supplies screens the app under test does
+    # not have, and the planner then writes tests against them — which is exactly
+    # what happened when the Contacts Figma landed in a livestock-marketplace
+    # project and the first generated test was about a Contacts List.
+    from planner.sources import registry as _registry  # noqa: E402
+    if not FIGMA_PATH:
+        print("\n[3] Figma: skipped — FIGMA_PATH not set")
+    elif not _registry.is_enabled("figma_ui"):
+        print("\n[3] Figma: skipped — 'figma_ui' not in ENABLED_SOURCES")
+    elif not os.path.exists(FIGMA_PATH):
+        print(f"\n[3] Figma: skipped — {FIGMA_PATH} does not exist")
+    else:
+        print("\n[3] Ingesting Figma")
+        print(post(f"{BASE_GATEWAY}/figma/ingest", {
+            "project": PROJECT,
+            "source_path": FIGMA_PATH,
+        }))
 
     print("\n[4] Graph stats")
     print(get(f"{BASE_RAG}/graph/stats", {"project": PROJECT}))

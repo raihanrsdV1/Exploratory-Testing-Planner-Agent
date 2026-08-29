@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exploratory Testing Agent — System &amp; Code Review</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 14mm; }
+
+  :root{
+    --ink:#15191E; --ink-2:#333C45; --muted:#5E6B75;
+    --rule:#D5DDE2; --rule-2:#B9C5CC;
+    --surface:#FFFFFF; --surface-2:#F3F6F8;
+    --accent:#0D6360;
+    --signal:#9A5B08; --signal-soft:#FBF1E1;
+    --good:#166534; --good-soft:#E8F3EB;
+    --bad:#991B1B;  --bad-soft:#FAEAEA;
+    --serif: "Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans: "Helvetica Neue",Helvetica,Arial,sans-serif;
+    --mono: "SF Mono",Menlo,Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+  html,body{margin:0;padding:0}
+  body{background:var(--surface);color:var(--ink);font-family:var(--sans);
+       font-size:10.2pt;line-height:1.52;-webkit-font-smoothing:antialiased}
+
+  /* ── title ─────────────────────────────────────────────────── */
+  .mast{border-bottom:2.2pt solid var(--ink);padding-bottom:11pt;margin-bottom:15pt}
+  .eyebrow{font-family:var(--mono);font-size:7.6pt;letter-spacing:.15em;text-transform:uppercase;
+           color:var(--accent);margin-bottom:9pt}
+  h1{font-family:var(--serif);font-weight:600;font-size:25pt;line-height:1.1;margin:0 0 8pt;letter-spacing:-.01em}
+  .standfirst{font-size:11.4pt;color:var(--ink-2);margin:0;max-width:44em;line-height:1.5}
+  .meta{display:flex;gap:7mm;flex-wrap:wrap;font-family:var(--mono);font-size:7.8pt;color:var(--muted);margin-top:12pt}
+
+  .toc{border-top:0.6pt solid var(--rule);border-bottom:0.6pt solid var(--rule);
+       padding:8pt 0;margin-bottom:18pt;break-inside:avoid}
+  .toc ol{list-style:none;margin:0;padding:0;column-count:3;column-gap:8mm;font-size:8.8pt}
+  .toc li{margin:0 0 3pt;break-inside:avoid}
+  .toc a{color:var(--ink-2);text-decoration:none}
+  .toc .num{font-family:var(--mono);color:var(--accent);margin-right:5pt}
+
+  /* ── sections ──────────────────────────────────────────────── */
+  section{margin-bottom:19pt}
+  .sub{font-family:var(--mono);font-size:7.4pt;color:var(--accent);letter-spacing:.11em;
+       text-transform:uppercase;margin-bottom:4pt;break-after:avoid}
+  h2{font-family:var(--serif);font-size:16.5pt;font-weight:600;margin:0 0 7pt;
+     letter-spacing:-.005em;break-after:avoid;break-before:avoid}
+  h3{font-size:10.4pt;font-weight:700;margin:14pt 0 5pt;break-after:avoid}
+  p{margin:0 0 8pt;max-width:46em;orphans:2;widows:2}
+  ul,ol.body{margin:0 0 8pt;padding-left:15pt;max-width:46em}
+  li{margin-bottom:4pt}
+  code{font-family:var(--mono);font-size:.85em;background:var(--surface-2);
+       padding:0.5pt 3pt;border-radius:2.5pt;border:0.5pt solid var(--rule)}
+  a{color:var(--accent);text-decoration:none;border-bottom:0.5pt solid var(--rule-2)}
+  strong{font-weight:700} em{font-style:italic}
+  .lede{font-size:10.8pt;color:var(--ink-2);border-left:2.4pt solid var(--accent);
+        padding-left:9pt;margin:0 0 12pt;max-width:44em;break-before:avoid;break-inside:avoid}
+
+  /* ── stat line (typographic, not cards) ────────────────────── */
+  .figures{display:flex;margin:12pt 0 14pt;break-inside:avoid;
+           border-top:0.6pt solid var(--rule-2);border-bottom:0.6pt solid var(--rule-2);
+           padding:8pt 0}
+  .figures div{flex:1 1 0;padding:0 9pt;border-left:0.5pt solid var(--rule)}
+  .figures div:first-child{padding-left:0;border-left:none}
+  .figures b{display:block;font-family:var(--mono);font-size:14.5pt;font-weight:600;
+             font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.1}
+  .figures span{display:block;font-size:7.5pt;color:var(--muted);margin-top:3pt;line-height:1.35}
+  .figures .hi b{color:var(--accent)}
+
+  /* ── tables ────────────────────────────────────────────────── */
+  table{width:100%;border-collapse:collapse;font-size:8.9pt;margin:9pt 0 12pt}
+  thead{display:table-header-group} tr{break-inside:avoid}
+  th{text-align:left;font-family:var(--mono);font-size:7.2pt;letter-spacing:.1em;text-transform:uppercase;
+     color:var(--muted);font-weight:700;padding:5pt 6pt;border-bottom:1pt solid var(--rule-2);
+     background:var(--surface-2);white-space:nowrap}
+  td{padding:5pt 6pt;border-bottom:0.5pt solid var(--rule);vertical-align:top;line-height:1.42}
+  td.m{font-family:var(--mono);font-size:8pt}
+  td.n{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  caption{caption-side:bottom;text-align:left;font-size:8pt;color:var(--muted);padding-top:5pt}
+
+  .pill{display:inline-block;font-family:var(--mono);font-size:7pt;font-weight:700;
+        padding:1pt 5pt;border-radius:8pt;white-space:nowrap;line-height:1.5}
+  .pill.done{background:var(--good-soft);color:var(--good);border:0.6pt solid var(--good)}
+  .pill.part{background:var(--signal-soft);color:var(--signal);border:0.6pt solid var(--signal)}
+  .pill.open{background:var(--bad-soft);color:var(--bad);border:0.6pt solid var(--bad)}
+
+  /* ── per-requirement entries ───────────────────────────────── */
+  .req{break-inside:avoid;margin:0 0 11pt;padding-left:11pt;border-left:1.6pt solid var(--rule-2);max-width:46em}
+  .req.met{border-left-color:var(--good)}
+  .req.partial{border-left-color:var(--signal)}
+  .req .hd{display:flex;justify-content:space-between;align-items:baseline;gap:6mm;margin-bottom:3pt}
+  .req .id{font-family:var(--mono);font-size:8.6pt;font-weight:700;color:var(--ink)}
+  .req .id em{font-family:var(--sans);font-style:normal;font-weight:600;color:var(--ink-2);margin-left:6pt;font-size:9.4pt}
+  .req dl{margin:0;font-size:9.1pt;line-height:1.48}
+  .req dt{float:left;clear:left;font-family:var(--mono);font-size:7.2pt;letter-spacing:.08em;
+          text-transform:uppercase;color:var(--muted);font-weight:700;width:52pt;padding-top:1.6pt}
+  .req dd{margin:0 0 3pt 52pt}
+
+  /* ── callouts ──────────────────────────────────────────────── */
+  .panel{background:var(--surface-2);border:0.7pt solid var(--rule);border-radius:4pt;
+         padding:9pt 11pt;margin:11pt 0;break-inside:avoid;max-width:46em}
+  .panel.warn{border-left:2.6pt solid var(--signal);background:var(--signal-soft)}
+  .panel h4{font-family:var(--mono);font-size:7.4pt;letter-spacing:.1em;text-transform:uppercase;
+            color:var(--ink-2);margin:0 0 5pt;font-weight:700}
+  .panel p{margin-bottom:6pt;font-size:9.6pt} .panel p:last-child{margin-bottom:0}
+
+  /* ── figures ───────────────────────────────────────────────── */
+  figure{margin:12pt 0;padding:9pt 8pt 6pt;border:0.7pt solid var(--rule);border-radius:4pt;
+         break-inside:avoid;background:var(--surface)}
+  figure svg{width:100%;height:auto;display:block;color:var(--ink)}
+  figure img{width:100%;height:auto;display:block;border:0.5pt solid var(--rule-2);border-radius:3pt}
+  figcaption{font-size:8.2pt;color:var(--muted);margin-top:7pt;line-height:1.45;
+             text-align:center;max-width:42em;margin-left:auto;margin-right:auto}
+  figcaption b{color:var(--ink-2)}
+
+  /* ── ledger ────────────────────────────────────────────────── */
+  .ledger{font-family:var(--mono);font-size:8.3pt;background:var(--surface-2);
+          border:0.7pt solid var(--rule);border-radius:4pt;padding:9pt 11pt;margin:10pt 0;
+          break-inside:avoid;max-width:46em;line-height:1.7}
+  .ledger .row{display:flex;justify-content:space-between;gap:6mm}
+  .ledger .row span:last-child{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .ledger hr{border:none;border-top:0.6pt solid var(--rule-2);margin:5pt 0}
+  .ledger .tot{font-weight:700;color:var(--accent)}
+
+  footer{border-top:1pt solid var(--rule-2);margin-top:20pt;padding-top:10pt;font-size:8.4pt;color:var(--muted)}
+  footer strong{color:var(--ink-2)}
+  footer ol{padding-left:14pt;margin-top:5pt} footer li{margin-bottom:3.5pt}
+</style>
+<style>
+  .sev{display:inline-block;font-family:var(--mono);font-size:7pt;font-weight:700;
+       padding:1pt 5pt;border-radius:3pt;white-space:nowrap;line-height:1.5}
+  .sev.hi{background:var(--bad-soft);color:var(--bad);border:0.6pt solid var(--bad)}
+  .sev.md{background:var(--signal-soft);color:var(--signal);border:0.6pt solid var(--signal)}
+  .sev.ok{background:var(--good-soft);color:var(--good);border:0.6pt solid var(--good)}
+  .dec{break-inside:avoid;margin:0 0 10pt;padding-left:11pt;border-left:1.6pt solid var(--rule-2);max-width:46em}
+  .dec h4{margin:0 0 3pt;font-size:9.8pt;font-weight:700}
+  .dec p{margin:0 0 3pt;font-size:9.1pt;line-height:1.46}
+  .dec .tw{font-family:var(--mono);font-size:7.2pt;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700}
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div class="eyebrow">Engineering Review &nbsp;·&nbsp; ETA-TR-2026-001</div>
+  <h1>Autonomous Exploratory Testing Agent<br>System Capabilities &amp; Code Review</h1>
+  <p class="standfirst">What the system does, where every piece of it lives, the design decisions
+  behind it, and a full-codebase audit of what is still wrong.</p>
+  <div class="meta">
+    <span>28 August 2026</span><span>Branch <code>raihan-working</code></span>
+    <span>14,490 LOC Python · 74 endpoints · 24 graph node types</span>
+  </div>
+</header>
+
+<div class="toc">
+  <ol>
+    <li><span class="num">1</span><a href="#cap">What the system does</a></li>
+    <li><span class="num">2</span><a href="#map">Where the code lives</a></li>
+    <li><span class="num">3</span><a href="#model">Data model</a></li>
+    <li><span class="num">4</span><a href="#dec">Decisions taken</a></li>
+    <li><span class="num">5</span><a href="#audit">Code audit</a></li>
+    <li><span class="num">6</span><a href="#open">Decisions still to take</a></li>
+  </ol>
+</div>
+
+<section id="cap">
+  <div class="sub">1 · Capabilities</div>
+  <h2>What the system does</h2>
+  <p class="lede">Six capabilities, each independently useful and each with a concrete artefact you
+  can point at. The system reads a specification, builds its own map of a live application, writes
+  tests traceable to requirements, runs them on a real device, learns from what happened, and
+  reports with failures correctly attributed.</p>
+
+  <table>
+    <thead><tr><th style="width:22%">Capability</th><th style="width:44%">What it actually does</th><th>Evidence it works</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Specification ingestion</strong></td><td>Any text/PDF/DOCX spec → <code>Requirement</code>, <code>ValidationRule</code> and <code>Entity</code> nodes via multi-pass LLM extraction with per-section synthesis and self-critique. Format-agnostic: it knows nothing about numbering conventions.</td><td>99.9% text retention; 96 requirement ids from a 9k-char spec</td></tr>
+      <tr><td><strong>Self-built UI map</strong></td><td>Observes the running device and builds <code>UIState</code> nodes joined by <code>TRANSITIONS_TO</code>, deduped by a four-stage identity cascade. Needs no design file.</td><td>12 states / 44 transitions discovered autonomously</td></tr>
+      <tr><td><strong>Requirement-traceable generation</strong></td><td>A LangGraph loop retrieves from the graph over 2–3 rounds, then emits one test as JSON with explicit <code>COVERS</code> edges to the requirements it exercises.</td><td>25 tests per campaign; semantic dedup rejects rewordings</td></tr>
+      <tr><td><strong>Real-device execution</strong></td><td>Translates the test into a natural-language goal for a vision-language device agent driving a physical device or emulator, capturing a full step-by-step trajectory.</td><td>98 executions retained as on-disk trajectories</td></tr>
+      <tr><td><strong>Experiential learning</strong></td><td>Six layers fed by one executor write: execution logs, navigation memory, error patterns, strategy effectiveness, coverage heatmap, anomaly alerts.</td><td>123 nav nodes / 95 avoid; 3 mined error patterns; 1 unprompted anomaly alert</td></tr>
+      <tr><td><strong>Attributed reporting</strong></td><td>Every run classified into eight categories so application defects, agent limitations and environment problems are never summed. Exports CSV + review sheet.</td><td>100% autonomy measurable; 0 silent fallbacks</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="map">
+  <div class="sub">2 · Code map</div>
+  <h2>Where every piece lives</h2>
+  <p class="lede">Four processes. The planner and executor never talk to each other — everything they
+  share goes through Neo4j, which is what makes the learning loop structural rather than incidental.</p>
+
+  <table>
+    <thead><tr><th style="width:30%">Path</th><th class="n">LOC</th><th>Responsibility</th></tr></thead>
+    <tbody>
+      <tr><td class="m" colspan="3"><strong>KNOWLEDGE SERVICE — port 9010, sole owner of Neo4j</strong></td></tr>
+      <tr><td class="m">rag_api/main.py</td><td class="n">2,835</td><td>52 endpoints; ingestion, hybrid retrieval (vector + keyword + RRF), the state-identity cascade, app model, coverage</td></tr>
+      <tr><td class="m">rag_api/learning.py</td><td class="n">353</td><td>Error patterns, strategy memory, coverage heatmap, sessions, knowledge decay</td></tr>
+      <tr><td class="m">rag_api/defects.py</td><td class="n">381</td><td>Defect ingestion, density weighting, prone-area ranking</td></tr>
+      <tr><td class="m">rag_api/anomalies.py</td><td class="n">241</td><td>Failure-rate spikes, time regressions, new error types, path instability</td></tr>
+      <tr><td class="m">rag_api/navtree.py</td><td class="n">220</td><td>Shortest-path retention, avoid flags, cross-test reuse</td></tr>
+      <tr><td class="m">rag_api/dimensions.py</td><td class="n">179</td><td>Profile/platform/application partitioning and transfer</td></tr>
+      <tr><td class="m">rag_api/risk.py · metrics.py · embeddings.py</td><td class="n">~400</td><td>Regression risk scoring, effectiveness metrics, embedding backends</td></tr>
+      <tr><td class="m" colspan="3"><strong>PLANNER — decides what to test</strong></td></tr>
+      <tr><td class="m">planner/langgraph_agent.py</td><td class="n">561</td><td>The retrieve → generate → dedup state graph</td></tr>
+      <tr><td class="m">planner/prompts.py</td><td class="n">494</td><td>Prompt assembly, session constraints, output contract</td></tr>
+      <tr><td class="m">planner/pipeline.py</td><td class="n">434</td><td>Ingestion orchestration, tiered-model selection</td></tr>
+      <tr><td class="m">planner/context_builders.py</td><td class="n">315</td><td>Learned-context and failure-context blocks</td></tr>
+      <tr><td class="m">planner/budget.py</td><td class="n">121</td><td>Priority-first token budget; P0 never dropped</td></tr>
+      <tr><td class="m">planner/sources/</td><td class="n">~300</td><td>Pluggable source registry — srs, live_ui, defects, navtree, figma</td></tr>
+      <tr><td class="m" colspan="3"><strong>EXECUTOR — drives the device</strong></td></tr>
+      <tr><td class="m">clients/executor_runner.py</td><td class="n">1,344</td><td>Goal building, device agent, failure classification, livelock detection, observation recording, CSV export</td></tr>
+      <tr><td class="m" colspan="3"><strong>SHARED</strong></td></tr>
+      <tr><td class="m">ingestion/extractor.py</td><td class="n">595</td><td>Multi-pass extraction, synthesis, self-critique, candidate selection</td></tr>
+      <tr><td class="m">ingestion/app_state.py</td><td class="n">372</td><td>Structural signature, Jaccard, containment, perceptual hash, labelling</td></tr>
+      <tr><td class="m">settings.py</td><td class="n">317</td><td>Single source of truth for every tunable</td></tr>
+      <tr><td class="m">observability/</td><td class="n">~350</td><td>Structured logging, tracing, metrics, degradation tracking</td></tr>
+      <tr><td class="m">gateway/main.py</td><td class="n">637</td><td>22 endpoints; thin router + dashboard data</td></tr>
+      <tr><td class="m">dashboard-react/src/</td><td class="n">811</td><td>Live app model graph, execution paths, planner trace, intelligence panels</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="model">
+  <div class="sub">3 · Data model</div>
+  <h2>24 node types, three origins</h2>
+  <table>
+    <thead><tr><th style="width:20%">Origin</th><th>Node types</th></tr></thead>
+    <tbody>
+      <tr><td><strong>From the specification</strong></td><td class="m">Requirement · ValidationRule · Entity · Chunk · SRS · SRSVersion · FeatureArea</td></tr>
+      <tr><td><strong>From the device</strong></td><td class="m">UIState · UIElement · FigmaScreen</td></tr>
+      <tr><td><strong>From experience</strong></td><td class="m">ExecutionLog · NavTreeNode · ErrorPattern · StrategyMemory · CoverageHeatmap · Session · AnomalyAlert · Defect · TestCase · TestRun</td></tr>
+      <tr><td><strong>Partitioning</strong></td><td class="m">Project · Profile · Platform · Application</td></tr>
+    </tbody>
+  </table>
+  <p>Traceability runs on explicit <code>COVERS</code> edges from <code>TestCase</code> to
+  <code>Requirement</code>. That single edge type is what lets requirement coverage be a first-class
+  metric instead of a proxy such as activity or code coverage — the distinguishing property of this
+  system relative to the GUI-testing literature.</p>
+</section>
+
+<section id="dec">
+  <div class="sub">4 · Decisions taken</div>
+  <h2>Design decisions, and what each one cost</h2>
+  <p class="lede">Every decision below bought something and gave something up. The tradeoff line
+  matters more than the decision — it is where the next problem will come from.</p>
+
+  <div class="dec">
+    <h4>1 · The graph is the only channel between planner and executor</h4>
+    <p>Neither process calls the other. Every LLM call is stateless; the prompt is rebuilt from Neo4j
+    from scratch each time. "Learning" means the graph grew, never that a model remembered.</p>
+    <p><span class="tw">Bought</span> One place where experience enters, so learning layers cannot
+    drift apart. The device driver is replaceable without touching the planner.<br>
+    <span class="tw">Cost</span> Every signal must be modelled as a node before it can influence
+    anything. Nothing can be passed informally.</p>
+  </div>
+
+  <div class="dec">
+    <h4>2 · State identity is structural, not visual</h4>
+    <p>A screen is reduced to package, activity, dialog flag and the set of controls keyed by
+    <code>(resource_id, class, content-description, clickable)</code>. Text, list contents and scroll
+    position are discarded.</p>
+    <p><span class="tw">Bought</span> Scrolling a list and switching to dark mode are both correctly
+    the <em>same</em> state, for free. A vision model would call a dark screen a new screen.<br>
+    <span class="tw">Cost</span> Frameworks that expose a thin accessibility tree degrade the
+    signature. On Flutter, <code>resource-id</code> appears on 1 node in 35 and <code>text</code> on
+    none — identity rests almost entirely on <code>content-description</code>.</p>
+  </div>
+
+  <div class="dec">
+    <h4>3 · A four-stage identity cascade, with containment as our own addition</h4>
+    <p>Exact signature → Jaccard ≥ 0.90 → containment ≥ 0.95 → perceptual hash. Jaccard is
+    |A∩B|/|A∪B| and penalises a screen captured mid-render; containment is |A∩B|/min(|A|,|B|) and
+    scores that same subset 1.00.</p>
+    <p><span class="tw">Bought</span> Mapped states on an identical workload fell from 42 to 12 — the
+    extra 30 were duplicates of screens already visited.<br>
+    <span class="tw">Cost</span> Containment can merge two genuinely different screens when one is a
+    strict subset of the other. See finding A-5.</p>
+  </div>
+
+  <div class="dec">
+    <h4>4 · Eight-way attribution before any measurement</h4>
+    <p>Only <code>ASSERTION_FAILURE</code> and <code>CRASH</code> are evidence about the application.
+    Agent failures lower autonomy; environment failures are excluded entirely.</p>
+    <p><span class="tw">Bought</span> The single thing that makes any number quotable. "The test
+    failed" and "the agent got lost" stop being the same event.<br>
+    <span class="tw">Cost</span> A backend 500 currently has nowhere to go and lands in the
+    application bucket. See finding A-6.</p>
+  </div>
+
+  <div class="dec">
+    <h4>5 · One global prompt budget, filled by priority</h4>
+    <p>A dozen independent caps were replaced by a single token ceiling filled highest-value-first.
+    The bug oracle and on-screen controls are priority 0 and never dropped.</p>
+    <p><span class="tw">Bought</span> Nothing important is dropped while something unimportant is
+    still present. Ceiling moved from ~8k to 50k tokens.<br>
+    <span class="tw">Cost</span> When the budget does bind, excess is discarded rather than
+    summarised — a test can be regenerated once its title ages out of the dedup list.</p>
+  </div>
+
+  <div class="dec">
+    <h4>6 · Tiered models: pay once for what everything depends on</h4>
+    <p>Extraction runs on a large model; the per-test planner loop on one ~30× cheaper; the device
+    agent on a mid-size vision model.</p>
+    <p><span class="tw">Bought</span> ~1&cent; per test executed. Planning is under half a cent.<br>
+    <span class="tw">Cost</span> Extraction became the dominant line item at ~$1.80 per document on
+    the flagship tier — 200 test executions to re-read one file. Now downgraded and capped to a few
+    cents, with per-document caching still unimplemented.</p>
+  </div>
+
+  <div class="dec">
+    <h4>7 · Degrade, but never quietly</h4>
+    <p>One malformed screen must not end a two-hour run, so fallbacks stay — but each records what
+    capability was lost, at what severity, surfaced on the dashboard and in the end-of-run report.</p>
+    <p><span class="tw">Bought</span> "Zero silent fallbacks" became a statement that means
+    something.<br>
+    <span class="tw">Cost</span> Only the sites that were instrumented are covered. The audit found
+    78 exception handlers that still swallow silently, four of them consequential.</p>
+  </div>
+
+  <div class="dec">
+    <h4>8 · No knowledge source is a hard dependency</h4>
+    <p>A pluggable registry where each source implements the same three methods, and a bug-oracle
+    cascade that bottoms out in generic heuristics.</p>
+    <p><span class="tw">Bought</span> The agent runs on an app with a spec, a UI guide, defect
+    history, any subset, or none at all.<br>
+    <span class="tw">Cost</span> Correctness signal degrades quietly as sources are removed; there is
+    no measure of how much oracle strength was lost.</p>
+  </div>
+
+  <div class="dec">
+    <h4>9 · Credentials go to the executor, role goes to the planner</h4>
+    <p>Recent addition for apps gated behind a login the agent cannot perform. The device agent
+    receives the password because it types it; the planner receives only the role name.</p>
+    <p><span class="tw">Bought</span> A secret never enters the 50k-token planning prompt that is
+    dumped, budgeted and traced everywhere.<br>
+    <span class="tw">Cost</span> The secret is still sent to a third-party model provider inside the
+    device goal. Acceptable for a provisioned test account; not for a real one.</p>
+  </div>
+</section>
+
+<section id="audit">
+  <div class="sub">5 · Code audit</div>
+  <h2>Full-codebase audit</h2>
+  <p class="lede">Every Python file parsed to an AST and checked for defect classes rather than read
+  selectively — 14,490 lines across 56 modules. Findings are ordered by consequence, and the first
+  one is reproducible on demand.</p>
+
+  <h3>A-1 · Livelock detection inverts under an import failure &nbsp;<span class="sev hi">critical</span></h3>
+  <p><code>clients/executor_runner.py:512, 539</code> — <code>_state_signature()</code> and
+  <code>_content_fingerprint()</code> both import from <code>mobilerun</code> inside a
+  <code>try</code> and <strong>return an empty string on any exception</strong>. If that import path
+  ever changes, every observation yields <code>""</code>, and empty strings are all equal.</p>
+
+  <figure>
+    <svg viewBox="0 0 760 168" role="img" aria-label="An import failure inside the state signature function makes every observation produce an empty string; identical empty strings make the livelock detector conclude the agent is cycling and has stopped making progress, so every test in the suite is aborted and autonomy falls to zero, with no error logged anywhere.">
+      <defs><marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+      <g font-family="Menlo,monospace" font-size="9.5" fill="currentColor">
+        <rect x="4" y="46" width="126" height="46" rx="5" fill="none" stroke="currentColor" stroke-width="1.1"/>
+        <text x="67" y="65" text-anchor="middle">import fails</text>
+        <text x="67" y="80" text-anchor="middle" font-size="8">mobilerun path moves</text>
+        <line x1="130" y1="69" x2="158" y2="69" stroke="currentColor" stroke-width="1.1" marker-end="url(#f)"/>
+
+        <rect x="160" y="46" width="140" height="46" rx="5" fill="none" stroke="currentColor" stroke-width="1.1"/>
+        <text x="230" y="65" text-anchor="middle">except: return ""</text>
+        <text x="230" y="80" text-anchor="middle" font-size="8">nothing logged</text>
+        <line x1="300" y1="69" x2="328" y2="69" stroke="currentColor" stroke-width="1.1" marker-end="url(#f)"/>
+
+        <rect x="330" y="46" width="150" height="46" rx="5" fill="none" stroke="currentColor" stroke-width="1.1"/>
+        <text x="405" y="65" text-anchor="middle">every sig == ""</text>
+        <text x="405" y="80" text-anchor="middle" font-size="8">set() size 1 &#8804; 3</text>
+        <line x1="480" y1="69" x2="508" y2="69" stroke="#9A5B08" stroke-width="1.4" marker-end="url(#f)"/>
+
+        <rect x="510" y="40" width="150" height="58" rx="5" fill="none" stroke="#9A5B08" stroke-width="1.6"/>
+        <text x="585" y="60" text-anchor="middle" fill="#9A5B08">is_livelocked()</text>
+        <text x="585" y="75" text-anchor="middle" font-size="8" fill="#9A5B08">returns True for</text>
+        <text x="585" y="88" text-anchor="middle" font-size="8" fill="#9A5B08">EVERY test</text>
+
+        <path d="M585 98 L585 128 L60 128 L60 96" fill="none" stroke="#991B1B" stroke-width="1.4" marker-end="url(#f)"/>
+        <text x="330" y="145" text-anchor="middle" font-size="9" fill="#991B1B">suite-wide abort as NAVIGATION_LIVELOCK &#8212; autonomy 0%, zero errors raised</text>
+      </g>
+    </svg>
+    <figcaption>Verified by execution: with twelve empty signatures and twelve empty content
+    fingerprints, <code>is_livelocked()</code> returns <b>True</b>. Thresholds are window 12, unique
+    3, content 2.</figcaption>
+  </figure>
+
+  <p>The failure presents as <em>"the agent got much worse"</em> rather than as a crash, which is the
+  hardest possible shape to diagnose — it is the same signature as the reasoning-model incident that
+  cost a full campaign. <strong>Fix:</strong> return a sentinel that cannot compare equal (a per-call
+  UUID) rather than <code>""</code>, and record a degradation. An unusable signature must never look
+  like a stable one.</p>
+
+  <h3>A-2 · The Live App Model can switch itself off &nbsp;<span class="sev hi">high</span></h3>
+  <p><code>clients/executor_runner.py:596</code> — <code>_record_observations()</code> begins with a
+  <code>try: from mobilerun.macro.state import normalize_ui_state / except: return []</code>. That
+  one handler disables the entire app-model build: no <code>UIState</code> nodes, no transitions, no
+  navigation memory, and therefore no data for REQ-302 or REQ-303. The run still reports success.
+  This is the identical shape to the <code>except: pass</code> that made requirement coverage read
+  0% for days.</p>
+
+  <h3>A-3 · Learned navigation degrades invisibly &nbsp;<span class="sev md">medium</span></h3>
+  <p><code>clients/executor_runner.py:454</code> — a failed <code>/navtree/retrieve-path</code> call
+  returns <code>""</code>, so the executor silently proceeds without the proven route. REQ-302's
+  central benefit — fewer steps on repeat visits — disappears with no signal, and the only symptom is
+  a step count that quietly stops improving.</p>
+
+  <h3>A-4 · Observations dropped mid-loop &nbsp;<span class="sev md">medium</span></h3>
+  <p><code>clients/executor_runner.py:607, 614</code> — <code>continue</code> on a normalisation or
+  base64 failure drops that observation from the app model. Partial, silent data loss: the resulting
+  transition graph has holes that are indistinguishable from screens the agent never reached.</p>
+
+  <h3>A-5 · Containment has no size-ratio guard &nbsp;<span class="sev md">medium</span></h3>
+  <p><code>rag_api/main.py:1899</code> — the guard requires only that the <em>smaller</em> control set
+  has ≥ 8 members. An 8-control screen whose controls all also appear on a 42-control screen scores
+  containment 1.00 and merges. Bucketing by package/activity/dialog limits the blast radius, but two
+  genuinely different views within one activity can still collapse.</p>
+  <p>This is the inverse of the fragmentation bug we fixed, and the more dangerous direction: state
+  fragmentation inflates a count and is obvious, whereas a false merge <strong>hides a screen</strong>
+  — any defect reachable only there becomes structurally undiscoverable. <strong>Fix:</strong> require
+  the larger set to be within a bounded ratio of the smaller (a configurable
+  <code>STATE_CONTAINMENT_MAX_RATIO</code>), and log every containment merge so the decision is
+  auditable rather than silent.</p>
+
+  <h3>A-6 · The taxonomy has no bucket for a backend failure &nbsp;<span class="sev md">medium</span></h3>
+  <p>All eight categories describe the app, the agent or the device. A server-side 500 is none of
+  those. Against Contacts this never arose — it is offline. Against a networked marketplace every
+  backend hiccup will currently land in <code>ASSERTION_FAILURE</code> and inflate the candidate-defect
+  count, which is precisely the measurement error the taxonomy exists to prevent.</p>
+
+  <h3>A-7 · Structural &nbsp;<span class="sev md">low</span></h3>
+  <p>Four functions exceed 220 lines — <code>build_testcase_prompt</code> (271),
+  <code>execute_test_on_device</code> (262), <code>ingest_figma</code> (244),
+  <code>_write_entity_graph</code> (228). None is defective, but each is long enough that the bugs we
+  have already found in this project would hide comfortably inside them, and none is unit-testable in
+  its current shape. The project has exactly one test file (<code>tests/test_app_state.py</code>,
+  11 checks) covering the one module that was easy to isolate.</p>
+
+  <h3>Verified clean</h3>
+  <table>
+    <thead><tr><th style="width:34%">Class</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Cypher injection</strong></td><td><span class="sev ok">clean</span> — the 9 dynamically-built queries interpolate only fixed dict lookups (<code>_DIM_LABEL</code>, <code>_DIM_REL</code>) and iterate a fixed <code>DIMENSIONS</code> tuple; every value is bound as <code>$param</code></td></tr>
+      <tr><td><strong>Bare <code>except:</code></strong></td><td><span class="sev ok">clean</span> — zero occurrences</td></tr>
+      <tr><td><strong>Mutable default arguments</strong></td><td><span class="sev ok">clean</span> — zero occurrences</td></tr>
+      <tr><td><strong>Division by zero</strong></td><td><span class="sev ok">clean</span> — all four <code>/ len(...)</code> sites guarded</td></tr>
+      <tr><td><strong>Unbounded HTTP calls</strong></td><td><span class="sev ok">clean</span> — every <code>requests</code> call carries a timeout</td></tr>
+      <tr><td><strong>Shared mutable globals</strong></td><td><span class="sev ok">clean</span> — the 23 module-level mutables are constant lookup tables; the 7 <code>global</code> statements are lazy-init caches</td></tr>
+      <tr><td><strong>Wasted judge call at N=1</strong></td><td><span class="sev ok">clean</span> — <code>_select_best</code> short-circuits on a single candidate</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="open">
+  <div class="sub">6 · Still to decide</div>
+  <h2>Decisions the system still needs</h2>
+  <p class="lede">Six open questions, ordered by how much they limit what we can claim. The first is
+  not a bug but a policy, and it is the root cause of every serious defect found in this project.</p>
+
+  <div class="dec">
+    <h4>1 · What is the standing policy on silent degradation?</h4>
+    <p>Every major defect this project has produced — 86% of a spec discarded, coverage reading 0%,
+    a device reset that reset nothing, and findings A-1 through A-4 above — is the same bug: an
+    exception handler that made the system continue with less capability and said nothing. The
+    degradation tracker fixed the sites we knew about; the audit shows 78 handlers still swallow
+    silently.</p>
+    <p><span class="tw">Proposal</span> Make silence the exception, not the default. Every
+    <code>except</code> that changes behaviour records a degradation, and a run with a critical
+    degradation refuses to report results as trustworthy. Enforce it in review rather than by
+    remembering.</p>
+  </div>
+
+  <div class="dec">
+    <h4>2 · How should an unusable signal be represented?</h4>
+    <p>A-1 exists because "I could not compute this" and "I computed this and it was empty" share a
+    representation. That pattern recurs: empty strings, empty lists and zeros all mean both
+    <em>absent</em> and <em>genuinely nothing</em>.</p>
+    <p><span class="tw">Proposal</span> Unavailable is <code>None</code> or a non-comparable
+    sentinel, never a falsy value of the normal type. Any comparison that could silently succeed on
+    absent data becomes a type error instead.</p>
+  </div>
+
+  <div class="dec">
+    <h4>3 · Should the taxonomy separate the system under test from its backend?</h4>
+    <p>A-6. Adding <code>BACKEND_ERROR</code> is easy; deciding what it <em>means</em> is not. A 500
+    is a real defect in the product, just not one the UI caused — so it should probably be reported
+    as a defect in its own class rather than excluded like an environment failure.</p>
+  </div>
+
+  <div class="dec">
+    <h4>4 · How do we prove state identity is correct rather than merely stable?</h4>
+    <p>We currently observe that state count fell from 42 to 12 and infer improvement. That is
+    consistent with correct merging and equally consistent with over-merging (A-5). There is no
+    ground truth for how many distinct screens the app actually has.</p>
+    <p><span class="tw">Proposal</span> Label the screens of one application by hand and measure the
+    cascade against it. Fifty labelled observations would convert a plausible story into a number,
+    and would price the containment threshold instead of guessing it.</p>
+  </div>
+
+  <div class="dec">
+    <h4>5 · What is the testing strategy for the agent itself?</h4>
+    <p>One test file, 11 checks, on 14,490 lines. We are building a testing tool that is largely
+    untested, and the four longest functions are the ones carrying the most logic.</p>
+    <p><span class="tw">Proposal</span> Extract the pure decision functions — attribution
+    classification, livelock detection, budget fitting, the identity cascade — and test those. They
+    are where the damaging bugs have actually been, and all four are pure and cheap to test. A-1
+    would have been caught by a single test asserting that unusable signatures do not compare equal.</p>
+  </div>
+
+  <div class="dec">
+    <h4>6 · When does requirement coverage become the headline metric?</h4>
+    <p>Requirement traceability is the property that distinguishes this work from the GUI-testing
+    literature, and it currently reads 2 of 33 — the mechanism works but few generated tests cite
+    ids. Until that number rises, the differentiator is asserted rather than demonstrated.</p>
+    <p><span class="tw">Proposal</span> Make citing a requirement id mandatory in the output contract
+    when the requirements block is non-empty, and treat an uncited test as a generation failure
+    rather than accepting it.</p>
+  </div>
+</section>
+
+<footer>
+  <p>Audit performed by AST traversal of all 56 Python modules (14,490 lines) on 28 August 2026,
+  checking for silent exception handling, mutable defaults, dynamic query construction, unguarded
+  division, missing request timeouts, shared mutable state and function length. Finding A-1 was
+  additionally reproduced by direct execution against <code>is_livelocked()</code>. Line references
+  are to branch <code>raihan-working</code>.</p>
+</footer>
+
+</body>
+</html>

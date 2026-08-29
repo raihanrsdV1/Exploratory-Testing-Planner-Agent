@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import traceback
+import uuid
 from datetime import datetime, timezone
 
 import requests
@@ -44,8 +45,12 @@ from settings import (  # noqa: E402
     EXECUTOR_LLM_PROVIDER, EXECUTOR_LLM_MODEL, EXECUTOR_TIMEOUT, EXECUTOR_ROUNDS,
     EXECUTOR_MAX_STEPS, EXECUTOR_MAX_TOKENS, EXECUTOR_CONTEXT_WINDOW,
     SELF_HEAL, TARGET_APP_PACKAGE, LOGTAIL_SOURCE_TOKEN, EXECUTOR_VISION, CLEAN_SLATE,
-    DEVICE_RESET, DATA_PROVIDER_PACKAGES, DEVICE_RESET_SCOPE,
+    DEVICE_RESET, DATA_PROVIDER_PACKAGES, DEVICE_RESET_SCOPE, CLEAN_SLATE_APPMODEL,
+    TARGET_APP_ONLY, DEVICE_FIXTURE_DIR, DEVICE_FIXTURE_DEST, COMPANION_PACKAGES,
+    UNACHIEVABLE_PRECONDITIONS,
+    app_login_block, app_identity_block, device_input_block, verification_block,
 )
+from observability import degradations  # noqa: E402
 
 GATEWAY_URL = GATEWAY_URL.rstrip("/")
 RAG_URL = RAG_URL.rstrip("/")
@@ -278,22 +283,15 @@ def log_verdict_only(tc: dict, verdict: str, notes: str) -> dict:
 # 2. TEST CASE → DROIDRUN GOAL TRANSLATION
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Preconditions the tester can only OBSERVE, never establish. The planner has
-# emitted these for tests that did not need them ("no existing contacts" for a
-# field-validation test), and mobilerun then abandoned the run after two actions
-# without exercising the behaviour at all. Such a precondition is worse than none.
-_UNACHIEVABLE_PRECONDITION = (
-    "no existing contact", "empty database", "clean state", "no contacts",
-    "database is empty", "fresh install", "no data exists", "sim card",
-    "signed in", "logged in to cloud", "cloud account", "no items",
-)
+# Unachievable preconditions are configured (settings.UNACHIEVABLE_PRECONDITIONS):
+# a phrase that is impossible in one app is ordinary setup in another.
 
 
 def filter_preconditions(preconditions: list[str]) -> tuple[list[str], list[str]]:
     """Split preconditions into (keep, dropped-as-unachievable)."""
     keep, dropped = [], []
     for p in preconditions or []:
-        (dropped if any(k in str(p).lower() for k in _UNACHIEVABLE_PRECONDITION) else keep).append(p)
+        (dropped if any(k in str(p).lower() for k in UNACHIEVABLE_PRECONDITIONS) else keep).append(p)
     return keep, dropped
 
 
@@ -316,8 +314,15 @@ def build_droidrun_goal(test_case: dict) -> str:
     # Build the goal instruction
     goal_parts = []
 
-    # Opening instruction — tell Droidrun which app to work with
-    goal_parts.append("Open the Contacts app on this device.")
+    # Which app to work with, and how to open it deterministically. Defined once
+    # in settings.app_identity_block() so every caller says the same thing.
+    goal_parts.append(app_identity_block())
+
+    # Credentials, when the app is gated behind a login the agent cannot create
+    # for itself (OTP to a phone we do not own, NID upload, admin approval).
+    login = app_login_block()
+    if login:
+        goal_parts.append(login)
 
     # Screen navigation
     if screen:
@@ -329,10 +334,21 @@ def build_droidrun_goal(test_case: dict) -> str:
         print(f"   ✂️  Dropped unachievable precondition(s): {dropped_pre}")
     if kept_pre:
         goal_parts.append(f"Preconditions (create these yourself if missing): {' '.join(kept_pre)}")
-    goal_parts.append(
-        "The app has just been reset to a clean state. If the test needs data to exist, "
-        "CREATE it as your first steps. Do not abandon the test because data is missing."
-    )
+    # Only claim a clean slate when one was actually taken. Telling the agent the
+    # app was reset when it was not sends it hunting for absent data.
+    if DEVICE_RESET == "pm_clear":
+        goal_parts.append(
+            "The app has just been reset to a clean state. If the test needs data to exist, "
+            "CREATE it as your first steps. Do not abandon the test because data is missing."
+        )
+    else:
+        goal_parts.append(
+            "The app keeps state from earlier tests. If the test needs data that is missing, "
+            "CREATE it as your first steps. Do not abandon the test because data is missing."
+        )
+
+    goal_parts.append(device_input_block())
+    goal_parts.append(verification_block())
 
     # Steps — numbered imperatives
     if steps:
@@ -435,8 +451,13 @@ def _learned_nav_hint(test_case: dict) -> str:
         if steps:
             path = "; ".join(f"{s.get('action','')}->{s.get('screen','')}" for s in steps)
             return f"Proven path to '{screen}': {path}"
-    except Exception:
-        pass
+    except Exception as e:
+        # Losing the learned route is REQ-302 quietly ceasing to pay off. The
+        # only symptom is a step count that stops improving, which is invisible
+        # unless it is said out loud.
+        _degrade("navtree_retrieval_failed", degradations.MAJOR,
+                      f"learned navigation paths unavailable ({e}); the executor "
+                      f"re-explores routes it has already proven")
     return ""
 
 
@@ -463,6 +484,16 @@ def _learned_nav_hint(test_case: dict) -> str:
 LIVELOCK_WINDOW = 12      # observations to look back over
 LIVELOCK_UNIQUE = 3       # distinct states at/below which the screens look cyclic
 LIVELOCK_CONTENT = 2      # distinct content fingerprints at/below which nothing is changing
+# Cyclic detection looks back further than the stationary check, because a long
+# cycle needs room to repeat: a period-5 loop takes 15 observations to show three
+# passes and cannot even fit in a 12-observation window. A real run cycled
+# Farm Profile -> Button -> My Products -> Farmer Market -> Menu and ran to the
+# 50-step wall unseen, because the first version of this check stopped at period 4.
+LIVELOCK_CYCLE_WINDOW = 24
+# Actions that SHOULD change the screen. A swipe/scroll is excluded: scrolling
+# past the end of a list changes nothing and that is correct behaviour.
+_STATE_CHANGING_ACTIONS = frozenset({"click", "tap", "press", "input_text", "type"})
+LIVELOCK_MAX_PERIOD = 6
 
 
 def is_livelocked(signatures: list[str],
@@ -477,6 +508,15 @@ def is_livelocked(signatures: list[str],
     """
     if len(signatures) < window:
         return False
+
+    # A short sequence repeated over and over is a loop no matter how much its
+    # content varies. Checking only the NUMBER of distinct values misses this:
+    # an agent cycling A->B->C->A->B->C produces three distinct screens and three
+    # distinct contents, reads as "varied", and runs until the step budget dies.
+    # That happened on a real run and burned all 50 steps.
+    if _is_cyclic(signatures[-LIVELOCK_CYCLE_WINDOW:], max_period=LIVELOCK_MAX_PERIOD):
+        return True
+
     if len(set(signatures[-window:])) > max_unique:
         return False            # still visiting varied screens — not cycling
     if contents is None:
@@ -487,14 +527,252 @@ def is_livelocked(signatures: list[str],
     return len(set(contents[-window:])) <= max_content
 
 
+def _dominant_action(actions: list[str], window: int = 8) -> str | None:
+    """The action the agent has been repeating, if it has been repeating one."""
+    tail = [a for a in (actions or [])[-window:] if a]
+    if len(tail) < 3:
+        return None
+    return tail[-1] if len(set(tail)) == 1 else None
+
+
+def classify_stuck(n_screens: int, n_content: int, duration: float,
+                   repeated_action: str | None = None) -> tuple[str, str]:
+    """Whose fault is "no progress" — ours or the app's?
+
+    Only ONE situation is safe to call an app defect: the agent repeatedly
+    performed an action that SHOULD change state, on a screen that never
+    changed, with no explanation offered. Everything else is ours.
+
+    Screen/content counts alone are NOT enough evidence, and assuming they were
+    got this wrong once. An agent that scrolls down eleven times at the bottom
+    of a form also produces "1 screen, 1 content" — but the app is behaving
+    correctly; scrolling past the end legitimately changes nothing, and the
+    'Next Step' button it wanted was disabled, which IS the app communicating.
+    That is our agent failing to look upward, not the app refusing.
+
+    So an app fault is claimed only when we know the repeated action was a
+    state-changing one (a tap/click). Without that evidence we blame ourselves,
+    because over-claiming defects is worse than under-claiming them.
+    """
+    stationary = n_screens <= 1 and n_content <= 1
+    actionable = (repeated_action or "").lower() in _STATE_CHANGING_ACTIONS
+    if stationary and actionable:
+        return ("APP_UNRESPONSIVE",
+                f"App did not respond: the screen was unchanged across the last "
+                f"{LIVELOCK_WINDOW} observations while the agent repeated a "
+                f"'{repeated_action}' action. No state change and no message "
+                f"explaining what is required. Aborted after {duration:.1f}s.")
+    return ("NAVIGATION_LIVELOCK",
+            f"Agent livelocked: cycled {n_screens} screens with {n_content} distinct "
+            f"content states over the last {LIVELOCK_WINDOW} observations — no "
+            f"progress. Aborted after {duration:.1f}s.")
+
+
+def _is_cyclic(seq: list[str], max_period: int = LIVELOCK_MAX_PERIOD, min_repeats: int = 3) -> bool:
+    """True when `seq` is a short pattern repeated at least `min_repeats` times.
+
+    Detects A-B-A-B-A-B and A-B-C-A-B-C, which distinct-value counting treats as
+    healthy exploration. A period of 1 (the same screen over and over) is left to
+    the content check, so a legitimately repeated action on one screen — adding
+    ten records — is not aborted.
+    """
+    n = len(seq)
+    for period in range(2, min(max_period, n // min_repeats) + 1):
+        span = period * min_repeats
+        if span > n:
+            break
+        tail = seq[-span:]
+        if len(set(tail)) < 2:
+            continue          # single repeated value: period-1, not our case
+        if all(tail[i] == tail[i % period] for i in range(span)):
+            return True
+    return False
+
+
+_DEGRADED_COUNTS: dict[str, int] = {}
+# Emit an event on these occurrence numbers only. Recording every occurrence
+# floods the report from a per-observation hot path; recording just the first
+# tells you something degraded but not whether it hit 3 observations or 300 —
+# which is the difference between a footnote and a void run.
+_DEGRADE_REPORT_AT = (1, 2, 5, 10, 25, 50, 100, 250, 500, 1000)
+
+
+def _degrade(kind: str, severity: str, detail: str) -> None:
+    """Count every occurrence; emit an event at widening intervals."""
+    n = _DEGRADED_COUNTS.get(kind, 0) + 1
+    _DEGRADED_COUNTS[kind] = n
+    if n not in _DEGRADE_REPORT_AT:
+        return
+    suffix = "" if n == 1 else f" [occurrence {n}]"
+    try:
+        degradations.record(kind, severity, detail=f"{detail}{suffix}", occurrences=n)
+    except Exception:
+        pass
+    cloud_log("warning", f"DEGRADED [{severity}] {kind} (x{n}): {detail}")
+
+
+def degradation_counts() -> dict[str, int]:
+    """Final per-kind occurrence counts, for the end-of-run report."""
+    return dict(_DEGRADED_COUNTS)
+
+
+def _unavailable(kind: str) -> str:
+    """A value guaranteed not to compare equal to any other value.
+
+    Returning "" from a failed fingerprint made every failed observation
+    identical — and identical observations are precisely what livelock
+    detection reads as "the agent is stuck going nowhere". A single import
+    error therefore turned EVERY test in a suite into a false
+    NAVIGATION_LIVELOCK, dropping autonomy to zero with nothing logged.
+    'I could not compute this' must never be representable as a value that
+    can accidentally equal another one.
+    """
+    return f"\x00{kind}:{uuid.uuid4().hex}"
+
+
+def adapt_driver_tree(tree) -> dict:
+    """Reshape ``AndroidDriver.get_ui_tree()`` output for ``normalize_ui_state``.
+
+    The driver returns ``{'a11y_tree': <root node dict>, 'phone_state':
+    {'packageName': ...}}`` but the normalizer expects a LIST of elements and a
+    phone_state keyed ``package``. Handed the raw output it walks a dict as if it
+    were a list, yields zero nodes, and reports package=None — so every observed
+    screen arrived with no controls, no content-descriptions and no package.
+
+    That is what made the app model useless on this app: states were labelled
+    ``android.view.View #2``, identity had nothing but class names to compare,
+    the package/activity bucket that keeps launcher and system UI apart was
+    empty, and every mined error pattern and anomaly was keyed to a meaningless
+    name. Wrapping the root node in a list and mapping ``packageName`` took the
+    same screen from 0 usable nodes to 24, with 7 content-descriptions and 12
+    clickable controls.
+    """
+    if not isinstance(tree, dict):
+        return tree
+    root = tree.get("a11y_tree")
+    if root is None and "elements" not in tree and "nodes" not in tree:
+        return tree                      # not driver output; pass through
+    ps = tree.get("phone_state") or {}
+    dc = tree.get("device_context") or {}
+    root_pkg = root.get("packageName") if isinstance(root, dict) else None
+    return {
+        "elements": [root] if isinstance(root, dict) else (root or []),
+        "phone_state": {
+            "package": (ps.get("packageName") or ps.get("package")
+                        or dc.get("packageName") or root_pkg or ""),
+            "activity": (ps.get("activityName") or ps.get("activity")
+                         or dc.get("activity") or ""),
+        },
+    }
+
+
+# uiautomator dump is racy while the UI animates; a couple of quick retries
+# turn a transient miss into a clean read instead of a degraded observation.
+_UI_TREE_ATTEMPTS = 3
+_UI_TREE_RETRY_DELAY = 0.6
+
+
+async def _assert_portal(driver) -> bool:
+    """Check the on-device portal is actually in use, and say so when it is not.
+
+    mobilerun defaults to portal_mode="auto": it tries the portal and silently
+    drops to ADB when it is missing. That fallback is not equivalent —
+    ``adb input text`` races the IME and drops characters, its clear-before-type
+    cannot verify itself and reports success having cleared nothing, and
+    ``uiautomator dump`` returns no XML while the screen animates. Every run we
+    had done was on that path, and nothing said so: a field holding
+    "Trust Dairy Farm 1" became "Trust Dairy  FarTest FTest Farm 1rm 1" while the
+    tool logged success, and the agent looked incompetent for it.
+
+    `portal_available` was a property sitting there returning False the whole
+    time. Nothing read it. Now a degraded device is a first-class, visible fact.
+    """
+    try:
+        await driver.ensure_connected()
+        ok = bool(getattr(driver, "portal_available", False))
+        keyboard = bool(getattr(driver, "_portal_keyboard_available", False))
+    except Exception as e:
+        _degrade("device_portal_check_failed", degradations.MAJOR,
+                      f"could not determine whether the device portal is active ({e})")
+        return False
+
+    if ok and keyboard:
+        print("   🔌 Device portal active (reliable text input + state feed)")
+        return True
+
+    # Try once to repair it before giving up. The portal probe can miss while the
+    # accessibility service is still starting, and a driver reconnected between
+    # rounds then spends the rest of the suite on the ADB path — which is how
+    # round 1 ran with the portal and round 2 silently did not.
+    try:
+        from mobilerun_core_local.driver.android.portal import ensure_portal_ready
+        await ensure_portal_ready(driver.device)
+        driver._connected = False           # force a fresh probe
+        await driver.ensure_connected()
+        ok = bool(getattr(driver, "portal_available", False))
+        keyboard = bool(getattr(driver, "_portal_keyboard_available", False))
+        if ok and keyboard:
+            print("   🔌 Device portal recovered after re-setup")
+            _degrade("device_portal_recovered", degradations.MINOR,
+                          "portal was inactive at connect and was re-established")
+            return True
+    except Exception as e:
+        cloud_log("warning", f"Portal re-setup failed: {e}")
+
+    _degrade(
+        "device_portal_unavailable", degradations.CRITICAL,
+        f"portal_available={ok} keyboard={keyboard}; falling back to ADB input, "
+        f"which drops characters, cannot reliably clear a field, and races "
+        f"uiautomator — text-entry results from this run are not trustworthy. "
+        f"Install it with mobilerun_core_local.driver.android.portal."
+        f"ensure_portal_ready(driver.device).",
+    )
+    return False
+
+
+async def _observe_device(driver, fallback):
+    """Current screen from the driver, falling back to the streamed event payload.
+
+    The event's ``ui_state`` is far poorer than what the driver can report, so we
+    ask the device directly and only fall back if that fails.
+    """
+    if driver is not None:
+        # `uiautomator dump` returns no XML while the screen is mid-animation,
+        # which during an active run is most of the time, and get_ui_tree() does
+        # not retry (mobilerun's own get_state does). One attempt therefore drops
+        # us onto the sparse event payload for transient reasons, and the app
+        # model silently loses that observation's controls and package.
+        last = None
+        for attempt in range(_UI_TREE_ATTEMPTS):
+            try:
+                return adapt_driver_tree(await driver.get_ui_tree())
+            except Exception as e:
+                last = e
+                if attempt + 1 < _UI_TREE_ATTEMPTS:
+                    await asyncio.sleep(_UI_TREE_RETRY_DELAY)
+        _degrade("driver_ui_tree_failed", degradations.MAJOR,
+                      f"cannot read the accessibility tree from the driver after "
+                      f"{_UI_TREE_ATTEMPTS} attempts ({last}); falling back to the "
+                      f"sparser event payload, which carries no content-descriptions "
+                      f"and no package")
+    return fallback
+
+
 def _state_signature(elements) -> str:
-    """Structural fingerprint of an observation — identity only, text ignored."""
+    """Structural fingerprint of an observation — identity only, text ignored.
+
+    On failure returns a unique sentinel, never "" — see _unavailable().
+    """
     try:
         from mobilerun.macro.state import normalize_ui_state
         from ingestion import app_state
-        return app_state.abstract_state(normalize_ui_state(elements)).get("signature", "")
-    except Exception:
-        return ""
+        sig = app_state.abstract_state(normalize_ui_state(elements)).get("signature", "")
+        return sig or _unavailable("empty_signature")
+    except Exception as e:
+        _degrade("state_signature_unavailable", degradations.CRITICAL,
+                      f"cannot fingerprint observations ({e}); livelock detection "
+                      f"and state identity are both blind for this run")
+        return _unavailable("state_signature_failed")
 
 
 def _content_fingerprint(elements) -> str:
@@ -519,9 +797,16 @@ def _content_fingerprint(elements) -> str:
 
     try:
         texts = walk(elements)
+        if not texts:
+            # A screen with genuinely no text is real, and stable across
+            # observations \u2014 that is a legitimate "no progress" signal.
+            return "\x01no-text"
         return hashlib.sha1("\u241f".join(texts).encode("utf-8")).hexdigest()[:16]
-    except Exception:
-        return ""
+    except Exception as e:
+        _degrade("content_fingerprint_unavailable", degradations.MAJOR,
+                      f"cannot fingerprint screen text ({e}); livelock detection "
+                      f"loses its progress signal")
+        return _unavailable("content_fingerprint_failed")
 
 
 
@@ -550,8 +835,49 @@ def reset_device_app() -> None:
                        capture_output=True, timeout=60)
         time.sleep(2)  # let the launcher settle before the first observation
         print(f"   🧹 Device reset ({DEVICE_RESET}) for {TARGET_APP_PACKAGE}")
+        seed_device_fixtures()
     except Exception as e:
         cloud_log("warning", f"Device reset failed: {e}")
+
+
+def seed_device_fixtures() -> None:
+    """Put test media back on the device after a reset.
+
+    `pm clear` removes the app's MediaStore contributions, and /sdcard/Pictures
+    is owned by the app's uid — so clearing the app deletes any images seeded
+    there. Every image-dependent test then fails for want of a file to pick,
+    which looks like an app defect and is actually the reset eating its own
+    fixtures. Re-seeding is part of resetting, not a separate manual step.
+    """
+    import subprocess
+    if not DEVICE_FIXTURE_DIR or not os.path.isdir(DEVICE_FIXTURE_DIR):
+        return
+    files = sorted(
+        f for f in os.listdir(DEVICE_FIXTURE_DIR)
+        if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+    )
+    if not files:
+        return
+    pushed = 0
+    for name in files:
+        src = os.path.join(DEVICE_FIXTURE_DIR, name)
+        dst = f"{DEVICE_FIXTURE_DEST.rstrip('/')}/{name}"
+        r = subprocess.run(["adb", "shell", "mkdir", "-p", DEVICE_FIXTURE_DEST],
+                           capture_output=True, timeout=30)
+        r = subprocess.run(["adb", "push", src, dst], capture_output=True, timeout=60)
+        if r.returncode != 0:
+            continue
+        # Without a media scan the file exists on disk but no picker can see it.
+        subprocess.run(["adb", "shell", "am", "broadcast",
+                        "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+                        "-d", f"file://{dst}"], capture_output=True, timeout=30)
+        pushed += 1
+    if pushed:
+        print(f"   🖼️  Seeded {pushed} test image(s) into {DEVICE_FIXTURE_DEST}")
+    else:
+        _degrade("device_fixtures_missing", degradations.MAJOR,
+                      f"could not seed test media from {DEVICE_FIXTURE_DIR}; "
+                      f"any test needing an image will fail for lack of a file")
 
 
 async def _safe_screenshot(driver):
@@ -577,7 +903,13 @@ def _record_observations(observations, tc_id: str = "", driver_shot: bytes | Non
         return []
     try:
         from mobilerun.macro.state import normalize_ui_state
-    except Exception:
+    except Exception as e:
+        # This one handler disables the ENTIRE Live App Model: no UIState nodes,
+        # no transitions, no navigation memory — i.e. the data source for
+        # REQ-302 and REQ-303 — while the run still reports success.
+        _degrade("live_app_model_disabled", degradations.CRITICAL,
+                      f"cannot import normalize_ui_state ({e}); no UI states, "
+                      f"transitions or navigation memory will be recorded")
         return []
 
     prev_id = None
@@ -588,14 +920,33 @@ def _record_observations(observations, tc_id: str = "", driver_shot: bytes | Non
             continue
         try:
             normalized = normalize_ui_state(elements)
-        except Exception:
+        except Exception as e:
+            # A dropped observation leaves a hole in the transition graph that
+            # is indistinguishable from a screen the agent never reached.
+            _degrade("observation_normalise_failed_x", degradations.MAJOR,
+                          f"dropping observations the app model cannot normalise ({e}); "
+                          f"the transition graph will have gaps")
             continue
+
+        # The app model must contain the APP, not whatever was on screen. Without
+        # this the launcher, the status bar and permission dialogs became "app
+        # states" — 3 of 10 in the first real run — and, because they share the
+        # (empty) package/activity bucket with real screens, they competed to
+        # match them on similarity too.
+        obs_pkg = ((normalized.get("phone_state") or {}).get("package") or "").strip()
+        if TARGET_APP_PACKAGE and obs_pkg and obs_pkg != TARGET_APP_PACKAGE:
+            if obs_pkg not in COMPANION_PACKAGES:
+                continue
+
         raw_shot = shot if shot else (driver_shot if i == last_i else None)
         shot_b64 = None
         if raw_shot:
             try:
                 shot_b64 = base64.b64encode(raw_shot).decode("ascii")
-            except Exception:
+            except Exception as e:
+                _degrade("screenshot_encode_failed", degradations.MINOR,
+                              f"state screenshots unavailable ({e}); the app model "
+                              f"will have nodes with no image")
                 shot_b64 = None
         try:
             resp = requests.post(
@@ -741,6 +1092,7 @@ async def execute_test_on_device(test_case: dict) -> dict:
     try:
         # Set up device driver (connects to default adb device)
         driver = AndroidDriver()
+        await _assert_portal(driver)
 
         # Determine which API key to use based on the provider
         if EXECUTOR_LLM_PROVIDER.lower() == "openrouter":
@@ -794,11 +1146,22 @@ async def execute_test_on_device(test_case: dict) -> dict:
         handler = agent.run()
         sigs: list[str] = []
         contents: list[str] = []
+        actions: list[str] = []
         try:
-            from mobilerun.agent.common.events import RecordUIStateEvent
+            from mobilerun.agent.common.events import RecordUIStateEvent, ToolExecutionEvent
             async for ev in handler.stream_events():
+                # Track WHAT the agent did, so a stall can be attributed. Repeating
+                # a tap on an unchanged screen is the app refusing; repeating a
+                # swipe at the end of a list is us failing to look elsewhere.
+                if isinstance(ev, ToolExecutionEvent):
+                    name = str(getattr(ev, "tool_name", "") or "")
+                    actions.append(name)
+                    continue
                 if isinstance(ev, RecordUIStateEvent):
-                    elements = getattr(ev, "ui_state", None)
+                    # Ask the device rather than trusting the event payload: the
+                    # streamed ui_state carries no content-descriptions, no
+                    # package and clickable=0 for everything.
+                    elements = await _observe_device(driver, getattr(ev, "ui_state", None))
                     shot = await _safe_screenshot(driver)
                     observations.append((elements, shot))
                     sigs.append(_state_signature(elements))
@@ -815,13 +1178,14 @@ async def execute_test_on_device(test_case: dict) -> dict:
             cloud_log("warning", f"Event streaming issue for {tc_id}: {e}")
         if livelocked:
             duration = time.time() - start_time
-            notes = (f"Agent livelocked: cycled {len(set(sigs[-LIVELOCK_WINDOW:]))} screens with "
-                     f"{len(set(contents[-LIVELOCK_WINDOW:]))} distinct content states over the last "
-                     f"{LIVELOCK_WINDOW} observations — no progress. Aborted after {duration:.1f}s.")
+            n_screens = len(set(sigs[-LIVELOCK_WINDOW:]))
+            n_content = len(set(contents[-LIVELOCK_WINDOW:]))
+            stuck_kind, notes = classify_stuck(n_screens, n_content, duration,
+                                               repeated_action=_dominant_action(actions))
             exec_path = _record_observations(observations, tc_id,
                                             driver_shot=await _safe_screenshot(driver))
             _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path,
-                           error_type="NAVIGATION_LIVELOCK", error_message=notes)
+                           error_type=stuck_kind, error_message=notes)
             return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
         result = await handler
 
@@ -1072,7 +1436,7 @@ def _export_batch_csv(path: str | None = None) -> str:
     label = {n["id"]: n.get("label", "?") for n in graph.get("nodes", [])}
     meta = {t.get("id"): t for t in tests}
     APP_FAULT = {"ASSERTION_FAILURE", "CRASH"}
-    AGENT_FAULT = {"TIMEOUT", "ELEMENT_NOT_FOUND", "NAVIGATION_FAILURE", "NAVIGATION_LIVELOCK"}
+    from settings import AGENT_FAULT  # single source of truth
 
     with open(out, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
@@ -1128,7 +1492,7 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
                 # with screens an earlier run discovered, so "states mapped" and
                 # every path in the report describe a graph this batch did not
                 # build — and the dashboard shows a map before any test has run.
-                "delete_appmodel": True,
+                "delete_appmodel": CLEAN_SLATE_APPMODEL,
                 # Knowledge (SRS/Figma) is ingested separately and is not part of
                 # what a run earns, so it is preserved.
                 "delete_srs": False, "delete_figma": False,

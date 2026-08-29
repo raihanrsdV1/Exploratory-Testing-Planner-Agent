@@ -191,6 +191,35 @@ def containment(key_set_a: list[str], key_set_b: list[str]) -> float:
     return len(a & b) / m
 
 
+def skeleton(key_set: list[str]) -> list[str]:
+    """The structural half of a control key: resource_id + class, no value.
+
+    A control's content-description is its *label* on a button and its *value*
+    on a form field: a dropdown reads "Select the type of animal" before use and
+    "Cow" after. Treating that as identity makes every step of a wizard a new
+    screen — one Add-Cattle form produced nine states. Stripping the description
+    leaves what the screen IS rather than what has been entered into it.
+    """
+    return ["\u241f".join(k.split("\u241f")[:2]) for k in (key_set or [])]
+
+
+def skeleton_containment(key_set_a: list[str], key_set_b: list[str]) -> float:
+    """Containment computed on skeletons only — same widgets, any values."""
+    return containment(skeleton(key_set_a), skeleton(key_set_b))
+
+
+def size_ratio(key_set_a: list[str], key_set_b: list[str]) -> float:
+    """How different the two control counts are (>= 1.0).
+
+    Containment scores a small set inside a large one as 1.0, so a nearly empty
+    screen matches everything. A ratio cap is what stops a 1-control blank
+    screen merging into a 20-control form.
+    """
+    a, b = len(set(key_set_a or [])), len(set(key_set_b or []))
+    lo, hi = min(a, b), max(a, b)
+    return (hi / lo) if lo else float("inf")
+
+
 def similarity(key_set_a: list[str], key_set_b: list[str]) -> float:
     """Jaccard over structural keys — the near-match score (mirrors mobilerun's
     ``compare_states`` node score, on our content-abstracted keys)."""
@@ -320,13 +349,19 @@ def _derive_label(activity: str, texts: list[str], resource_ids: list[str] | Non
          if 1 < len(t) <= 24 and not _looks_like_resource_id(t) and not _is_chrome(t)),
         "",
     )
+    # The on-screen hint wins outright when there is one. The activity is only a
+    # fallback: single-activity apps (every Flutter app) put the SAME activity on
+    # every screen, so prefixing with it labels the whole map "Main · ..." — no
+    # information, and actively harmful, because these labels are handed to the
+    # device agent as screen names to navigate to. It then hunts for a screen
+    # captioned "Main · Update Farm Info", which no app displays.
+    if hint:
+        return hint
     if activity:
         short = activity.rsplit(".", 1)[-1].rsplit("/", 1)[-1]
         short = short.replace("Activity", "").replace("Fragment", "").strip()
         if short:
-            return f"{short} · {hint}" if hint else short
-    if hint:
-        return hint
+            return short
     return "Screen"
 
 

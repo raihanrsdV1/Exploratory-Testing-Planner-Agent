@@ -12,7 +12,7 @@ from fastapi.responses import PlainTextResponse, FileResponse
 from neo4j import GraphDatabase
 from pydantic import BaseModel, Field
 
-from observability import setup_logging
+from observability import setup_logging, degradations
 from observability.middleware import RequestLoggingMiddleware
 
 from dotenv import load_dotenv
@@ -884,8 +884,17 @@ def _write_entity_graph(session, project: str, extraction: dict | None, now: str
                     """,
                     req_uid=req_uid, vec=req_vecs[i], project=project,
                 )
-            except Exception:
-                pass  # no vector index / older Neo4j
+            except Exception as e:
+                # Without this edge the requirement is orphaned from the text it
+                # came from, so retrieved chunks reach the planner carrying no
+                # requirement ids to cite — which reads downstream as poor
+                # requirement coverage rather than as a missing index.
+                degradations.record(
+                    "requirement_provenance_failed", degradations.MAJOR,
+                    detail=f"cannot link requirement to its source chunk ({e}); "
+                           f"retrieved context will carry no requirement ids",
+                    project=project,
+                )
 
         # Link requirement to its domain objects as Entity nodes.
         for obj in (r.get("objects", []) or []):
@@ -1857,6 +1866,9 @@ from settings import STATE_MERGE_THRESHOLD as _STATE_MERGE_THRESHOLD
 from settings import PHASH_MATCH_DISTANCE as _PHASH_MATCH_DISTANCE
 from settings import STATE_CONTAINMENT_THRESHOLD as _CONTAINMENT_THRESHOLD
 from settings import STATE_MIN_CONTROLS_FOR_CONTAINMENT as _MIN_CONTROLS_CONTAIN
+from settings import STATE_CONTAINMENT_MAX_RATIO as _CONTAIN_MAX_RATIO
+from settings import STATE_SKELETON_THRESHOLD as _SKELETON_THRESHOLD
+from settings import STATE_SKELETON_MIN_FULL as _SKELETON_MIN_FULL
 
 
 def _find_matching_state(session, project: str, ab=None, phash: str | None = None):
@@ -1898,11 +1910,36 @@ def _find_matching_state(session, project: str, ab=None, phash: str | None = Non
         ks = c.get("key_set") or []
         if min(len(ab["key_set"]), len(ks)) < _MIN_CONTROLS_CONTAIN:
             continue  # too small to be conclusive — a tiny set sits inside anything
+        # A 1-control blank screen is "contained" in every screen, so cap how
+        # different the two sizes may be before containment is allowed to merge.
+        if app_state.size_ratio(ab["key_set"], ks) > _CONTAIN_MAX_RATIO:
+            continue
         score = app_state.containment(ab["key_set"], ks)
         if score > best_c:
             best_c_id, best_c = c["id"], score
     if best_c_id and best_c >= _CONTAINMENT_THRESHOLD:
         return best_c_id, False
+
+    # 2c. Same widgets, different values. A control's content-description is its
+    # label on a button but its VALUE on a form field, so filling a multi-step
+    # form rewrites the key set and every step becomes a new state — one wizard
+    # produced nine. Comparing skeletons (resource_id + class) asks whether the
+    # same widgets are present, while the full-key floor keeps two genuinely
+    # different screens built from similar widget types apart.
+    best_s_id, best_s = None, 0.0
+    for c in candidates2:
+        ks = c.get("key_set") or []
+        if min(len(ab["key_set"]), len(ks)) < _MIN_CONTROLS_CONTAIN:
+            continue
+        if app_state.size_ratio(ab["key_set"], ks) > _CONTAIN_MAX_RATIO:
+            continue
+        if app_state.containment(ab["key_set"], ks) < _SKELETON_MIN_FULL:
+            continue
+        score = app_state.skeleton_containment(ab["key_set"], ks)
+        if score > best_s:
+            best_s_id, best_s = c["id"], score
+    if best_s_id and best_s >= _SKELETON_THRESHOLD:
+        return best_s_id, False
 
     # 3. perceptual-hash fallback (thin a11y trees: Compose/games/WebView)
     if phash:
@@ -2742,7 +2779,7 @@ def demo_endpoints():
                     "path": "/ingest/srs",
                     "body": {
                         "project": "my-app",
-                        "source_path": "./data/inputs/Sample-Contacts-App-SRS.txt",
+                        "source_path": "./data/inputs/<your-app>-SRS.txt",
                     },
                 },
                 {
