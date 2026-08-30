@@ -383,7 +383,6 @@ _RECOVERY = {
     "PERMISSION_DENIED": {"action": "grant the required permission/precondition, then retry", "retry": True},
     # Budget exhaustion, not app misbehaviour: the agent simply ran out of steps.
     # No retry — the retry gets the same budget and would exhaust it again.
-    "NAVIGATION_LIVELOCK": {"action": "the agent cycled the same screens; try a different entry point or a simpler goal", "retry": False},
     "STEP_LIMIT_EXCEEDED": {"action": "ran out of steps before finishing; raise EXECUTOR_MAX_STEPS or simplify the test", "retry": False},
 }
 
@@ -466,129 +465,6 @@ def _learned_nav_hint(test_case: dict) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-# ── Navigation livelock detection ─────────────────────────────────────────────
-# A stuck agent cycles a few screens until the step budget runs out and is then
-# mislabelled STEP_LIMIT_EXCEEDED ("needed more steps") when it actually needed a
-# different plan.
-#
-# Repeating screens is NOT sufficient evidence of being stuck. A legitimate test
-# such as "add 10 contacts and observe the list" is structurally
-# List -> Editor -> List -> Editor ... — only two distinct states over many steps.
-# Detecting on state repetition alone aborts that valid test.
-#
-# The discriminator is PROGRESS, not novelty of screens: while adding contacts the
-# on-screen content keeps changing (new names typed, list grows), whereas a truly
-# stuck agent sees the same content over and over. State identity deliberately
-# ignores text so that scrolling does not fork a state; progress detection needs
-# exactly that discarded text, so it is tracked separately here.
-LIVELOCK_WINDOW = 12      # observations to look back over
-LIVELOCK_UNIQUE = 3       # distinct states at/below which the screens look cyclic
-LIVELOCK_CONTENT = 2      # distinct content fingerprints at/below which nothing is changing
-# Cyclic detection looks back further than the stationary check, because a long
-# cycle needs room to repeat: a period-5 loop takes 15 observations to show three
-# passes and cannot even fit in a 12-observation window. A real run cycled
-# Farm Profile -> Button -> My Products -> Farmer Market -> Menu and ran to the
-# 50-step wall unseen, because the first version of this check stopped at period 4.
-LIVELOCK_CYCLE_WINDOW = 24
-# Actions that SHOULD change the screen. A swipe/scroll is excluded: scrolling
-# past the end of a list changes nothing and that is correct behaviour.
-_STATE_CHANGING_ACTIONS = frozenset({"click", "tap", "press", "input_text", "type"})
-LIVELOCK_MAX_PERIOD = 6
-
-
-def is_livelocked(signatures: list[str],
-                  contents: list[str] | None = None,
-                  window: int = LIVELOCK_WINDOW,
-                  max_unique: int = LIVELOCK_UNIQUE,
-                  max_content: int = LIVELOCK_CONTENT) -> bool:
-    """True only when the screens cycle AND their content has stopped changing.
-
-    ``contents`` are per-observation fingerprints of the visible text. When they
-    are not supplied the check degrades to the screen-only heuristic.
-    """
-    if len(signatures) < window:
-        return False
-
-    # A short sequence repeated over and over is a loop no matter how much its
-    # content varies. Checking only the NUMBER of distinct values misses this:
-    # an agent cycling A->B->C->A->B->C produces three distinct screens and three
-    # distinct contents, reads as "varied", and runs until the step budget dies.
-    # That happened on a real run and burned all 50 steps.
-    if _is_cyclic(signatures[-LIVELOCK_CYCLE_WINDOW:], max_period=LIVELOCK_MAX_PERIOD):
-        return True
-
-    if len(set(signatures[-window:])) > max_unique:
-        return False            # still visiting varied screens — not cycling
-    if contents is None:
-        return True             # no progress signal available; fall back
-    if len(contents) < window:
-        return False
-    # Content still changing => the agent is doing work on a repeating screen.
-    return len(set(contents[-window:])) <= max_content
-
-
-def _dominant_action(actions: list[str], window: int = 8) -> str | None:
-    """The action the agent has been repeating, if it has been repeating one."""
-    tail = [a for a in (actions or [])[-window:] if a]
-    if len(tail) < 3:
-        return None
-    return tail[-1] if len(set(tail)) == 1 else None
-
-
-def classify_stuck(n_screens: int, n_content: int, duration: float,
-                   repeated_action: str | None = None) -> tuple[str, str]:
-    """Whose fault is "no progress" — ours or the app's?
-
-    Only ONE situation is safe to call an app defect: the agent repeatedly
-    performed an action that SHOULD change state, on a screen that never
-    changed, with no explanation offered. Everything else is ours.
-
-    Screen/content counts alone are NOT enough evidence, and assuming they were
-    got this wrong once. An agent that scrolls down eleven times at the bottom
-    of a form also produces "1 screen, 1 content" — but the app is behaving
-    correctly; scrolling past the end legitimately changes nothing, and the
-    'Next Step' button it wanted was disabled, which IS the app communicating.
-    That is our agent failing to look upward, not the app refusing.
-
-    So an app fault is claimed only when we know the repeated action was a
-    state-changing one (a tap/click). Without that evidence we blame ourselves,
-    because over-claiming defects is worse than under-claiming them.
-    """
-    stationary = n_screens <= 1 and n_content <= 1
-    actionable = (repeated_action or "").lower() in _STATE_CHANGING_ACTIONS
-    if stationary and actionable:
-        return ("APP_UNRESPONSIVE",
-                f"App did not respond: the screen was unchanged across the last "
-                f"{LIVELOCK_WINDOW} observations while the agent repeated a "
-                f"'{repeated_action}' action. No state change and no message "
-                f"explaining what is required. Aborted after {duration:.1f}s.")
-    return ("NAVIGATION_LIVELOCK",
-            f"Agent livelocked: cycled {n_screens} screens with {n_content} distinct "
-            f"content states over the last {LIVELOCK_WINDOW} observations — no "
-            f"progress. Aborted after {duration:.1f}s.")
-
-
-def _is_cyclic(seq: list[str], max_period: int = LIVELOCK_MAX_PERIOD, min_repeats: int = 3) -> bool:
-    """True when `seq` is a short pattern repeated at least `min_repeats` times.
-
-    Detects A-B-A-B-A-B and A-B-C-A-B-C, which distinct-value counting treats as
-    healthy exploration. A period of 1 (the same screen over and over) is left to
-    the content check, so a legitimately repeated action on one screen — adding
-    ten records — is not aborted.
-    """
-    n = len(seq)
-    for period in range(2, min(max_period, n // min_repeats) + 1):
-        span = period * min_repeats
-        if span > n:
-            break
-        tail = seq[-span:]
-        if len(set(tail)) < 2:
-            continue          # single repeated value: period-1, not our case
-        if all(tail[i] == tail[i % period] for i in range(span)):
-            return True
-    return False
-
-
 _DEGRADED_COUNTS: dict[str, int] = {}
 # Emit an event on these occurrence numbers only. Recording every occurrence
 # floods the report from a per-observation hot path; recording just the first
@@ -614,20 +490,6 @@ def _degrade(kind: str, severity: str, detail: str) -> None:
 def degradation_counts() -> dict[str, int]:
     """Final per-kind occurrence counts, for the end-of-run report."""
     return dict(_DEGRADED_COUNTS)
-
-
-def _unavailable(kind: str) -> str:
-    """A value guaranteed not to compare equal to any other value.
-
-    Returning "" from a failed fingerprint made every failed observation
-    identical — and identical observations are precisely what livelock
-    detection reads as "the agent is stuck going nowhere". A single import
-    error therefore turned EVERY test in a suite into a false
-    NAVIGATION_LIVELOCK, dropping autonomy to zero with nothing logged.
-    'I could not compute this' must never be representable as a value that
-    can accidentally equal another one.
-    """
-    return f"\x00{kind}:{uuid.uuid4().hex}"
 
 
 def adapt_driver_tree(tree) -> dict:
@@ -705,7 +567,7 @@ async def _assert_portal(driver) -> bool:
     # rounds then spends the rest of the suite on the ADB path — which is how
     # round 1 ran with the portal and round 2 silently did not.
     try:
-        from mobilerun_core_local.driver.android.portal import ensure_portal_ready
+        from mobilerun_core_cli.portal import ensure_portal_ready
         await ensure_portal_ready(driver.device)
         driver._connected = False           # force a fresh probe
         await driver.ensure_connected()
@@ -724,8 +586,7 @@ async def _assert_portal(driver) -> bool:
         f"portal_available={ok} keyboard={keyboard}; falling back to ADB input, "
         f"which drops characters, cannot reliably clear a field, and races "
         f"uiautomator — text-entry results from this run are not trustworthy. "
-        f"Install it with mobilerun_core_local.driver.android.portal."
-        f"ensure_portal_ready(driver.device).",
+        f"Install it with mobilerun_core_cli.portal.ensure_portal_ready(driver.device).",
     )
     return False
 
@@ -756,58 +617,6 @@ async def _observe_device(driver, fallback):
                       f"sparser event payload, which carries no content-descriptions "
                       f"and no package")
     return fallback
-
-
-def _state_signature(elements) -> str:
-    """Structural fingerprint of an observation — identity only, text ignored.
-
-    On failure returns a unique sentinel, never "" — see _unavailable().
-    """
-    try:
-        from mobilerun.macro.state import normalize_ui_state
-        from ingestion import app_state
-        sig = app_state.abstract_state(normalize_ui_state(elements)).get("signature", "")
-        return sig or _unavailable("empty_signature")
-    except Exception as e:
-        _degrade("state_signature_unavailable", degradations.CRITICAL,
-                      f"cannot fingerprint observations ({e}); livelock detection "
-                      f"and state identity are both blind for this run")
-        return _unavailable("state_signature_failed")
-
-
-def _content_fingerprint(elements) -> str:
-    """Hash of the visible text — the progress signal state identity throws away.
-
-    Recorded observations carry ``text`` but no clickable/content-description
-    fields, so text is the only content channel available.
-    """
-    import hashlib
-
-    def walk(n):
-        out = []
-        if isinstance(n, list):
-            for x in n:
-                out += walk(x)
-        elif isinstance(n, dict):
-            t = str(n.get("text") or n.get("label") or "").strip()
-            if t:
-                out.append(t)
-            out += walk(n.get("children") or [])
-        return out
-
-    try:
-        texts = walk(elements)
-        if not texts:
-            # A screen with genuinely no text is real, and stable across
-            # observations \u2014 that is a legitimate "no progress" signal.
-            return "\x01no-text"
-        return hashlib.sha1("\u241f".join(texts).encode("utf-8")).hexdigest()[:16]
-    except Exception as e:
-        _degrade("content_fingerprint_unavailable", degradations.MAJOR,
-                      f"cannot fingerprint screen text ({e}); livelock detection "
-                      f"loses its progress signal")
-        return _unavailable("content_fingerprint_failed")
-
 
 
 def reset_device_app() -> None:
@@ -1057,6 +866,7 @@ async def execute_test_on_device(test_case: dict) -> dict:
     from mobilerun.config_manager.config_manager import (
         LoggingConfig, FastAgentConfig, ManagerConfig, ExecutorConfig,
     )
+    from workflows.errors import WorkflowTimeoutError
     _attach_mobilerun_file_log()  # tee mobilerun's live logs to logs/mobilerun.log
 
     goal = build_droidrun_goal(test_case)
@@ -1087,7 +897,6 @@ async def execute_test_on_device(test_case: dict) -> dict:
     agent = None
     driver = None
     observations = []  # (elements_list, screenshot_bytes) captured per observed UI state
-    livelocked = False
 
     try:
         # Set up device driver (connects to default adb device)
@@ -1144,19 +953,9 @@ async def execute_test_on_device(test_case: dict) -> dict:
         # observed UI state (mobilerun only screenshots itself in vision mode; our
         # text model doesn't, so we capture per-state screenshots ourselves here).
         handler = agent.run()
-        sigs: list[str] = []
-        contents: list[str] = []
-        actions: list[str] = []
         try:
-            from mobilerun.agent.common.events import RecordUIStateEvent, ToolExecutionEvent
+            from mobilerun.agent.common.events import RecordUIStateEvent
             async for ev in handler.stream_events():
-                # Track WHAT the agent did, so a stall can be attributed. Repeating
-                # a tap on an unchanged screen is the app refusing; repeating a
-                # swipe at the end of a list is us failing to look elsewhere.
-                if isinstance(ev, ToolExecutionEvent):
-                    name = str(getattr(ev, "tool_name", "") or "")
-                    actions.append(name)
-                    continue
                 if isinstance(ev, RecordUIStateEvent):
                     # Ask the device rather than trusting the event payload: the
                     # streamed ui_state carries no content-descriptions, no
@@ -1164,29 +963,8 @@ async def execute_test_on_device(test_case: dict) -> dict:
                     elements = await _observe_device(driver, getattr(ev, "ui_state", None))
                     shot = await _safe_screenshot(driver)
                     observations.append((elements, shot))
-                    sigs.append(_state_signature(elements))
-                    contents.append(_content_fingerprint(elements))
-                    if is_livelocked(sigs, contents):
-                        livelocked = True
-                        print(f"   🔁 Livelock: last {LIVELOCK_WINDOW} observations cycled "
-                              f"{len(set(sigs[-LIVELOCK_WINDOW:]))} screens — aborting")
-                        cloud_log("warning", f"Test {tc_id} livelocked; aborting early",
-                                  test_case_id=tc_id, observations=len(sigs))
-                        await handler.cancel_run()
-                        break
         except Exception as e:
             cloud_log("warning", f"Event streaming issue for {tc_id}: {e}")
-        if livelocked:
-            duration = time.time() - start_time
-            n_screens = len(set(sigs[-LIVELOCK_WINDOW:]))
-            n_content = len(set(contents[-LIVELOCK_WINDOW:]))
-            stuck_kind, notes = classify_stuck(n_screens, n_content, duration,
-                                               repeated_action=_dominant_action(actions))
-            exec_path = _record_observations(observations, tc_id,
-                                            driver_shot=await _safe_screenshot(driver))
-            _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path,
-                           error_type=stuck_kind, error_message=notes)
-            return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
         result = await handler
 
         duration = time.time() - start_time
@@ -1292,6 +1070,40 @@ async def execute_test_on_device(test_case: dict) -> dict:
         except Exception:
             pass
         _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path, error_type="TIMEOUT", error_message=notes)
+        return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
+
+    except WorkflowTimeoutError:
+        # mobilerun's own MobileAgent(timeout=EXECUTOR_TIMEOUT) enforces its budget
+        # by raising THIS, not asyncio.TimeoutError — so it fell through to the
+        # generic crash handler below and was recorded as error_type="CRASH" with
+        # no message, silently counting a budget timeout as a candidate app defect.
+        # By decision: don't raise EXECUTOR_TIMEOUT/EXECUTOR_MAX_STEPS to chase
+        # this — just tag it honestly so a human decides whether to look closer.
+        # STEP_LIMIT_EXCEEDED if it genuinely used the full step budget (an
+        # environment/budget issue, excluded from defect metrics); otherwise
+        # ASSERTION_FAILURE, since timing out with steps still available is not
+        # explained by the budget and is worth a manual look.
+        duration = time.time() - start_time
+        exec_path = []
+        try:
+            exec_path = _record_observations(observations, tc_id, driver_shot=await _safe_screenshot(driver))
+        except Exception:
+            pass
+        ran_full_budget = len(exec_path) >= EXECUTOR_MAX_STEPS
+        error_type = "STEP_LIMIT_EXCEEDED" if ran_full_budget else "ASSERTION_FAILURE"
+        notes = (
+            f"Workflow timed out after {EXECUTOR_TIMEOUT}s "
+            f"({len(exec_path)}/{EXECUTOR_MAX_STEPS} steps observed). "
+            + ("Ran the full step budget without finishing."
+               if ran_full_budget else
+               "Timed out with steps still available - not a step-budget issue; "
+               "flagged for manual review of what it was doing when it stalled.")
+        )
+        print(f"\n⏰ Workflow timeout after {EXECUTOR_TIMEOUT}s -> tagged {error_type}")
+        cloud_log("error", f"Test {tc_id} workflow-timed-out -> {error_type}",
+                  test_case_id=tc_id, title=title, timeout=EXECUTOR_TIMEOUT, steps=len(exec_path))
+        _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path,
+                       error_type=error_type, error_message=notes)
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
 
     except Exception as e:
