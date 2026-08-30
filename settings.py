@@ -127,7 +127,7 @@ MODEL_BACKEND = _str("MODEL_BACKEND", "openrouter").lower()
 MODEL_API_URL = _str("MODEL_API_URL")
 PLANNER_GEMINI_MODEL = _str("PLANNER_GEMINI_MODEL", "gemini-2.5-pro")
 OPENROUTER_API_KEY = _str("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = _str("OPENROUTER_MODEL", "qwen/qwen3.7-flash")
+OPENROUTER_MODEL = _str("OPENROUTER_MODEL", "qwen/qwen3.8-flash")
 OPENROUTER_BASE_URL = _str("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 GEMINI_API_KEY = _str("GEMINI_API_KEY")
 
@@ -350,7 +350,7 @@ MAX_FOREIGN_STEPS = _int("MAX_FOREIGN_STEPS", 12)
 
 # ── Executor (device runs) ───────────────────────────────────────────────────
 EXECUTOR_LLM_PROVIDER = _str("EXECUTOR_LLM_PROVIDER", "OpenRouter")
-EXECUTOR_LLM_MODEL = _str("EXECUTOR_LLM_MODEL", "qwen/qwen3-vl-32b-instruct")
+EXECUTOR_LLM_MODEL = _str("EXECUTOR_LLM_MODEL", "qwen/qwen3.7-flash")
 EXECUTOR_ROUNDS = _int("EXECUTOR_ROUNDS", 2)
 # Step budget per test. Set generously: when the agent runs out of steps the run
 # is scored STEP_LIMIT_EXCEEDED and excluded from defect metrics, so a tight

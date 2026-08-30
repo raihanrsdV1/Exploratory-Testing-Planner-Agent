@@ -25,7 +25,7 @@ PLANNER_GEMINI_MODEL = os.getenv("PLANNER_GEMINI_MODEL", "gemini-2.5-pro")
 
 # OpenRouter (MODEL_BACKEND=openrouter).
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "qwen/qwen3.6-plus:free")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "qwen/qwen3.8-flash")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 # Gateway-level API key (optional). When set, every request needs Authorization: Bearer <key>.
