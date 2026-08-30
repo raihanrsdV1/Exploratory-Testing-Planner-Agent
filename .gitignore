@@ -12,7 +12,7 @@ dist/
 build/
 _notes/
 
-
+.claude
 # ── Virtual environments ──────────────────────────────────────────────────────
 .venv
 venv/
