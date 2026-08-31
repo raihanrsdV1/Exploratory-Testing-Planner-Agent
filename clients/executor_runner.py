@@ -224,24 +224,48 @@ def _log_planner_trace(planner_data: dict, label: str = ""):
 # 1. PLANNER GATEWAY COMMUNICATION
 # ──────────────────────────────────────────────────────────────────────────────
 
+# The gateway normalises every model-backend failure (OpenRouter 429s included) to a
+# 503, after exhausting its own internal retry. One more transient 503 here used to
+# be uncaught and crash the entire multi-round asyncio.run(main()) outright, losing
+# every remaining round — not just the current one. Config-error 503s (missing API
+# key) are not worth retrying; only the upstream-unavailable ones are.
+_NEXT_TC_MAX_ATTEMPTS = 4
+_NEXT_TC_PERMANENT = ("not set in .env", "not installed")
+
+
 def get_next_testcase(max_new_tokens: int = 8000) -> dict:
     """Ask the planner gateway for the next test case."""
-    resp = requests.post(
-        f"{GATEWAY_URL}/agent/next-testcase",
-        json={
-            "project": PROJECT,
-            "app_name": APP_NAME,
-            "objective": "generate next high-value non-duplicate test case",
-            "top_k": TOP_K,
-            "max_new_tokens": max_new_tokens,
-            "max_retrieval_rounds": 2,   # 2 rounds keeps latency under ~60s
-            "enable_thinking": False,
-            "debug_trace": DEBUG_TRACE,
-        },
-        timeout=900,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    for attempt in range(1, _NEXT_TC_MAX_ATTEMPTS + 1):
+        resp = requests.post(
+            f"{GATEWAY_URL}/agent/next-testcase",
+            json={
+                "project": PROJECT,
+                "app_name": APP_NAME,
+                "objective": "generate next high-value non-duplicate test case",
+                "top_k": TOP_K,
+                "max_new_tokens": max_new_tokens,
+                "max_retrieval_rounds": 2,   # 2 rounds keeps latency under ~60s
+                "enable_thinking": False,
+                "debug_trace": DEBUG_TRACE,
+            },
+            timeout=900,
+        )
+        if resp.status_code != 503:
+            resp.raise_for_status()
+            return resp.json()
+
+        body = resp.text.lower()
+        permanent = any(tok in body for tok in _NEXT_TC_PERMANENT)
+        if attempt >= _NEXT_TC_MAX_ATTEMPTS or permanent:
+            resp.raise_for_status()
+
+        delay = 2 ** attempt
+        cloud_log(
+            "warning",
+            f"get_next_testcase retry {attempt}/{_NEXT_TC_MAX_ATTEMPTS} in {delay}s "
+            f"(gateway 503: {resp.text[:180]})",
+        )
+        time.sleep(delay)
 
 
 def log_verdict_and_get_next(
@@ -396,7 +420,14 @@ def classify_failure(reason: str, success: bool = False) -> str:
     # environment problem, NOT app misbehaviour. Keeping it out of the defect
     # categories stops it from inflating defect-discovery and strategy scores.
     if any(k in r for k in ("precondition not met", "preconditions not met",
-                            "precondition failed", "preconditions are not met")):
+                            "precondition failed", "preconditions are not met",
+                            # The agent judges its own task infeasible without using the
+                            # word "precondition" (e.g. the test assumed a blank account
+                            # but the device is already in a different state). Without
+                            # these it falls through to ASSERTION_FAILURE below and
+                            # counts as a candidate defect.
+                            "cannot be completed as specified", "task cannot be completed",
+                            "not achievable as specified")):
         return "PRECONDITION_NOT_MET"
     # Also not app misbehaviour: the step budget ran out mid-test. Without this it
     # falls through to ASSERTION_FAILURE and is counted as a discovered defect.
@@ -1209,11 +1240,17 @@ def preflight():
         print("  ❌ ADB not found! Install it: brew install android-platform-tools")
         sys.exit(1)
 
-    # 5. Check Gemini API key
-    if not GEMINI_API_KEY:
-        print("  ❌ GEMINI_API_KEY not set in .env!")
-        sys.exit(1)
-    print(f"  ✅ Gemini API key: ...{GEMINI_API_KEY[-6:]}")
+    # 5. Check executor LLM API key (provider-dependent, mirrors the branch in run_test_case)
+    if EXECUTOR_LLM_PROVIDER.lower() == "openrouter":
+        if not OPENROUTER_API_KEY:
+            print("  ❌ OPENROUTER_API_KEY not set in .env!")
+            sys.exit(1)
+        print(f"  ✅ OpenRouter API key: ...{OPENROUTER_API_KEY[-6:]}")
+    else:
+        if not GEMINI_API_KEY:
+            print("  ❌ GEMINI_API_KEY not set in .env!")
+            sys.exit(1)
+        print(f"  ✅ Gemini API key: ...{GEMINI_API_KEY[-6:]}")
 
     print("\n🚀 All preflight checks passed. Starting executor loop.\n")
 
