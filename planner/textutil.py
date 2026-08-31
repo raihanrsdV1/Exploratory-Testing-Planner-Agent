@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 
 
 # Reasoning models emit their scratchpad in <think>…</think> before the answer.
@@ -79,6 +80,29 @@ def jaccard(a: str, b: str) -> float:
 
 def is_similar_to_existing(title: str, existing: list[str], threshold: float = 0.72) -> bool:
     return any(jaccard(title, t) >= threshold for t in existing)
+
+
+def normalize_unicode(text: str) -> str:
+    """Like normalize(), but script-agnostic: normalize()'s [a-z0-9] filter strips
+    every non-Latin character, so two Bengali (or any non-Latin) strings both
+    normalize to "" and jaccard() silently scores them 0% similar regardless of
+    content. Keeps letters/marks/digits of any script (Bengali vowel signs are
+    combining marks — category M* — not covered by a plain [a-z0-9] or \\w filter,
+    so this checks Unicode category directly rather than a character class)."""
+    out = []
+    for ch in (text or "").lower():
+        cat = unicodedata.category(ch)
+        out.append(ch if cat[0] in ("L", "M", "N") or ch.isspace() else " ")
+    return re.sub(r"\s+", " ", "".join(out)).strip()
+
+
+def unicode_jaccard(a: str, b: str) -> float:
+    """jaccard(), but via normalize_unicode() — use for matching UI screen/element
+    names, which may be in any script, instead of the Latin-only jaccard()."""
+    sa, sb = set(normalize_unicode(a).split()), set(normalize_unicode(b).split())
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
 
 
 def next_testcase_id(recent_tests: list[dict], default_prefix: str = "TC") -> str:

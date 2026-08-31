@@ -27,13 +27,14 @@ import requests
 from fastapi import FastAPI, Header
 from fastapi.responses import HTMLResponse, Response
 
-from observability import setup_logging
+from observability import get_logger, setup_logging
 from observability.middleware import RequestLoggingMiddleware
 from observability.metrics import get_metrics
 
-from planner import config, model_client, pipeline
+from planner import config, model_client, pipeline, rag_client
 from planner.schemas import (
     ChatRequest,
+    ExecutionEvaluateRequest,
     IngestDefectsRequest,
     IngestFigmaRequest,
     IngestSRSRequest,
@@ -45,6 +46,7 @@ from planner.schemas import (
 )
 
 setup_logging()
+log = get_logger("gateway")
 
 app = FastAPI(
     title="Exploratory Testing Planner — Agent Gateway",
@@ -251,7 +253,8 @@ def dashboard_planner_trace(runs: int = 12, project: str = ""):
         except Exception:
             continue
         kind = rec.get("event")
-        if kind not in ("node_enter", "node_exit", "node_error", "llm_call", "rag_call"):
+        if kind not in ("node_enter", "node_exit", "node_error", "llm_call", "rag_call",
+                        "planner_retrieval_decision", "live_ui_screen_match", "generation_screenshot"):
             continue
         path = str(rec.get("path") or "")
         if not any(p in path for p in _PLANNER_PATHS):
@@ -266,7 +269,7 @@ def dashboard_planner_trace(runs: int = 12, project: str = ""):
                 "request_id": rid, "path": path, "project": rec.get("project", ""),
                 "started_at": rec.get("timestamp", ""), "ended_at": rec.get("timestamp", ""),
                 "status": "running", "node_ms": 0.0, "llm_ms": 0.0, "llm_calls": 0,
-                "tokens": 0, "rag_calls": 0, "events": [],
+                "tokens": 0, "rag_calls": 0, "screenshots_attached": 0, "events": [],
             }
             order.append(rid)
         run["ended_at"] = rec.get("timestamp", run["ended_at"])
@@ -301,13 +304,38 @@ def dashboard_planner_trace(runs: int = 12, project: str = ""):
             run["events"].append({
                 "ts": rec.get("timestamp", ""), "kind": "llm", "backend": rec.get("backend", ""),
                 "duration_ms": rec.get("latency_ms"), "tokens": rec.get("estimated_tokens", 0),
+                "has_image": bool(rec.get("has_image")),
             })
-        else:  # rag_call
+        elif kind == "rag_call":
             run["rag_calls"] += 1
             run["events"].append({
                 "ts": rec.get("timestamp", ""), "kind": "rag",
                 "endpoint": rec.get("endpoint", ""), "method": rec.get("method", ""),
                 "duration_ms": rec.get("latency_ms"),
+            })
+        # ── Phase 0/1/2 audit trail: what the retrieval loop asked for, whether it
+        # resolved a real screen, and whether a screenshot rode along on generation.
+        elif kind == "planner_retrieval_decision":
+            run["events"].append({
+                "ts": rec.get("timestamp", ""), "kind": "retrieval_decision",
+                "round": rec.get("round", 0), "action": rec.get("action", ""),
+                "retrieval_requests": rec.get("retrieval_requests", []),
+                "target_screens": rec.get("target_screens", []),
+                "reason": str(rec.get("reason", ""))[:200],
+            })
+        elif kind == "live_ui_screen_match":
+            run["events"].append({
+                "ts": rec.get("timestamp", ""), "kind": "screen_match",
+                "screen_requested": rec.get("screen", ""), "matched": bool(rec.get("matched")),
+                "resolved_label": rec.get("resolved_label", ""), "match_score": rec.get("match_score"),
+                "has_screenshot": rec.get("has_screenshot"),
+            })
+        else:  # generation_screenshot
+            if rec.get("attached"):
+                run["screenshots_attached"] += 1
+            run["events"].append({
+                "ts": rec.get("timestamp", ""), "kind": "screenshot",
+                "attached": bool(rec.get("attached")), "state_id": rec.get("state_id"),
             })
 
     n = max(1, min(runs, 50))
@@ -364,6 +392,16 @@ def dashboard_run_steps(created_at: str = "", trajectory: str = ""):
     except Exception as exc:
         return {"found": False, "reason": f"unreadable trajectory: {exc}", "steps": []}
 
+    steps, outcome = _parse_trajectory_events(events)
+    return {"found": True, "trajectory": chosen.name, "steps": steps, "outcome": outcome}
+
+
+def _parse_trajectory_events(events: list) -> tuple[list[dict], dict]:
+    """Turn mobilerun's raw trajectory events into (per-step thought+action, outcome).
+
+    Shared by the dashboard's step viewer and the trajectory evaluator — both need
+    the same thought/tool-call/outcome extraction, just for different purposes.
+    """
     steps: list[dict] = []
     outcome: dict = {}
     thought = ""
@@ -387,7 +425,137 @@ def dashboard_run_steps(created_at: str = "", trajectory: str = ""):
                 "reason": str(ev.get("reason") or "")[:800],
                 "tool_calls": ev.get("tool_call_count"),
             }
-    return {"found": True, "trajectory": chosen.name, "steps": steps, "outcome": outcome}
+    return steps, outcome
+
+
+_INVESTIGATOR_LOG_DIR = Path(__file__).resolve().parent.parent / "logs" / "investigator"
+
+
+def _write_investigator_log(test_case_id: str, prompt: str, summary: str) -> None:
+    """Append this evaluation's input/output to logs/investigator/<test_case_id>.txt
+    — input then output. Appended, not overwritten: unlike planner generation
+    (one shot per id), an id could plausibly be evaluated more than once, and a
+    prior evaluation's record should not silently disappear. Best-effort."""
+    if not test_case_id:
+        return
+    try:
+        _INVESTIGATOR_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        block = (
+            "=" * 80 + "\n"
+            f"CALL: evaluate\n"
+            f"TIMESTAMP: {datetime.utcnow().isoformat()}\n"
+            + "=" * 80 + "\n"
+            "--- INPUT ---\n" + prompt + "\n\n"
+            "--- OUTPUT ---\n" + summary + "\n\n"
+        )
+        with open(_INVESTIGATOR_LOG_DIR / f"{test_case_id}.txt", "a", encoding="utf-8") as f:
+            f.write(block)
+    except Exception as e:
+        log.warning("investigator_log_write_failed", test_case_id=test_case_id, error=str(e)[:200])
+
+
+@app.post("/execution/evaluate", include_in_schema=False)
+def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None = Header(default=None)):
+    """Evaluate one just-finished run's device trajectory against what it was
+    trying to verify, and attach the result to its ExecutionLog.
+
+    Called by the executor right after /execution/log, passing the exact
+    trajectory folder it just wrote (no fuzzy matching needed — the caller
+    knows precisely which run this is). Deliberately a SEPARATE call from the
+    planner's own generation call: focused single-purpose prompt beats bolting
+    evaluation onto an already-busy 15-block prompt, and the summary needs to
+    exist before the *next* planning round, not during this one.
+
+    Best-effort throughout: any failure here — missing trajectory, model
+    error, storage error — degrades to a soft 'skipped' status. This must
+    never surface as a broken test run; it only costs one learning
+    opportunity.
+    """
+    config.check_gateway_auth(authorization)
+
+    try:
+        traj_dir = Path(__file__).resolve().parent.parent / "logs" / "trajectories" / req.trajectory_folder
+        traj_file = traj_dir / "trajectory.json"
+        if not traj_file.exists():
+            return {"status": "skipped", "reason": "trajectory file not found"}
+        events = json.loads(traj_file.read_text(encoding="utf-8"))
+        steps, outcome = _parse_trajectory_events(events)
+        if not steps:
+            return {"status": "skipped", "reason": "no device steps in trajectory"}
+
+        # What the planner already knows about the screens this run touched — so
+        # the evaluator reports only what's NEW, instead of re-describing facts
+        # the planner's own context blocks (e.g. "Interactive Elements") already
+        # show it. Best-effort: proceed with no baseline rather than fail.
+        known_screens_text = "none"
+        try:
+            graph = rag_client.rag_get("/appmodel/graph", {"project": req.project})
+            touched = set(req.path_labels)
+            known = [n for n in (graph.get("nodes") or []) if n.get("label") in touched]
+            if known:
+                lines = []
+                for n in known[:8]:
+                    controls = ", ".join((n.get("controls") or [])[:8])
+                    lines.append(f"- {n.get('label', '?')} (visited {n.get('visits', 0)}x): "
+                                 f"{controls or 'no known controls'}")
+                known_screens_text = "\n".join(lines)
+        except Exception:
+            pass
+
+        # Condense thought+action pairs, capped at the executor's own step budget.
+        step_lines = []
+        for s in steps[:50]:
+            thought = (s.get("thought") or "").strip()
+            action = f"{s.get('tool', '?')}({s.get('args', {})}) -> {s.get('summary', '')}"
+            step_lines.append(f"{s['n']}. [thought] {thought}\n    {action}" if thought
+                               else f"{s['n']}. {action}")
+        trajectory_text = "\n".join(step_lines)
+
+        prompt = (
+            f"This test's objective was: {req.objective or '(not stated)'}\n"
+            f"Expected result: {req.expected_result or '(not stated)'}\n"
+            f"It assumed the relevant screen was: {req.screen_hint or '(not stated)'}\n\n"
+            f"The planner already knows the following about the screens this run touched "
+            f"(shown to it separately — do NOT repeat these details):\n{known_screens_text}\n\n"
+            f"Here is what the agent actually did, in order:\n{trajectory_text}\n\n"
+            f"Final outcome reported by the agent: success={outcome.get('success')}, "
+            f"reason={outcome.get('reason', '')}\n\n"
+            "Write an information-dense report for the planner covering what is new or "
+            "noteworthy: was the objective confirmed, refuted, or left unclear? Was the screen "
+            "assumption accurate — if not, what screen did the agent actually use? Did it "
+            "discover any controls, behaviour, or screens not already in the known list above? "
+            "There is no length limit — use as much space as the run actually warrants, and "
+            "do not compress away specific detail for the sake of brevity. In particular, "
+            "always call out, as their own findings rather than folding them into vague prose:\n"
+            "- any action repeated on the same element with no visible effect (state the "
+            "action and how many times it repeated)\n"
+            "- any action taken on what looks like non-interactive content (e.g. tapping "
+            "plain text or an empty-state message rather than a real control)\n"
+            "- any 'found the right path, then lost it again' pattern — reaching a correct "
+            "screen and then navigating away from it before completing the objective\n"
+            "State only what is directly evidenced by the steps above — no speculation."
+        )
+
+        # No cap (max_new_tokens<=0 means uncapped) — a fixed budget here risks the
+        # same silent truncation this project hit before with reasoning-model JSON,
+        # and a genuinely eventful 50-step run needs more room than a 3-step one.
+        result = model_client.call_model(prompt, max_new_tokens=0, enable_thinking=False,
+                                          model=config.EVALUATOR_MODEL or config.OPENROUTER_MODEL,
+                                          app_label="QA Evaluator Agent")
+        summary = (result.get("answer") or "").strip()
+        if not summary:
+            return {"status": "skipped", "reason": "empty evaluation"}
+
+        _write_investigator_log(req.test_case_id, prompt, summary)
+
+        rag_client.rag_post("/execution/attach-summary", {
+            "project": req.project, "log_id": req.log_id, "trajectory_summary": summary,
+            "evaluation_prompt": prompt,
+        })
+        return {"status": "ok", "summary": summary}
+    except Exception as exc:
+        log.warning("trajectory_evaluation_failed", test_case_id=req.test_case_id, error=str(exc)[:200])
+        return {"status": "skipped", "reason": str(exc)[:200]}
 
 
 @app.get("/dashboard/screenshot", include_in_schema=False)

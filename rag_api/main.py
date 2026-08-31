@@ -1295,9 +1295,10 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
             // from "we never got there", which are opposite signals for exploration.
             OPTIONAL MATCH (e:ExecutionLog {project:$project, test_case_id: coalesce(t.external_id, t.id)})
             WITH t, e ORDER BY e.created_at DESC
-            WITH t, head(collect(coalesce(e.error_type,''))) AS error_type
+            WITH t, head(collect(coalesce(e.error_type,''))) AS error_type,
+                    head(collect(coalesce(e.trajectory_summary,''))) AS trajectory_summary
             RETURN coalesce(t.external_id, t.id) AS id, t.title AS title, t.area AS area,
-                   t.last_verdict AS verdict, t.last_run_at AS ts, error_type,
+                   t.last_verdict AS verdict, t.last_run_at AS ts, error_type, trajectory_summary,
                    // The failure reason is what makes a past failure actionable for the
                    // planner — without it the agent only knows THAT a test failed.
                    t.last_notes AS notes
@@ -1507,6 +1508,14 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
                 t.external_id = $external_test_case_id, t.test_type = $test_type,
                 t.last_verdict = $verdict, t.last_notes = $notes,
                 t.last_run_at = $now, t.updated_at = $now
+            """
+            # Only the auto-log call right after generation sends these — the
+            # executor's later verdict-update call to this same endpoint omits
+            # them, and an unconditional SET would overwrite the real stored
+            # values with empty strings on that second call.
+            + ("SET t.generation_prompt = $generation_prompt\n" if req.generation_prompt else "")
+            + ("SET t.generation_answer = $generation_answer\n" if req.generation_answer else "")
+            + """
             MERGE (p)-[:HAS_TEST]->(t)
             MERGE (fa:FeatureArea {key:$feature_key})
             SET fa.project = $project, fa.label = $area, fa.updated_at = $now
@@ -1530,6 +1539,7 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             title=req.title, area=req.area, verdict=req.verdict, test_type=req.test_type,
             notes=req.notes, now=now, run_id=run_id,
             feature_key=f"{req.project}::{area_slug}",
+            generation_prompt=req.generation_prompt, generation_answer=req.generation_answer,
         )
 
         # Graph-native coverage: link this test to the requirements it exercises.
@@ -2175,6 +2185,26 @@ def execution_log(req: ExecutionLogRequest, authorization: str | None = Header(d
     return {"status": "ok", "log_id": log_id, "navtree": nav, "strategy": strat}
 
 
+@app.post("/execution/attach-summary")
+def execution_attach_summary(req: ExecutionSummaryRequest, authorization: str | None = Header(default=None)):
+    """Attach an evaluator's assessment of a run's trajectory (what actually
+    happened, checked against what the test was trying to verify) to its
+    ExecutionLog. Matched by the exact log_id from /execution/log — never a
+    'most recent' guess, so this can never attach to the wrong run."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        row = session.run(
+            "MATCH (e:ExecutionLog {id:$id, project:$project}) "
+            "SET e.trajectory_summary=$summary, e.evaluation_prompt=$eval_prompt "
+            "RETURN e.id AS id",
+            id=req.log_id, project=req.project, summary=req.trajectory_summary,
+            eval_prompt=req.evaluation_prompt,
+        ).single()
+    if not row:
+        raise HTTPException(status_code=404, detail="No ExecutionLog with that id for this project")
+    return {"status": "ok", "log_id": req.log_id}
+
+
 @app.get("/execution/logs")
 def execution_logs(project: str, limit: int = 20, authorization: str | None = Header(default=None)):
     """Recent execution logs with their walked paths (for the dashboard timeline)."""
@@ -2183,11 +2213,20 @@ def execution_logs(project: str, limit: int = 20, authorization: str | None = He
         rows = session.run(
             """
             MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)
+            // Not :FOR_TEST — that relationship links by a title-derived id while
+            // TestCase nodes are keyed by test_case_id, so it almost never matches.
+            // external_id is the same literal test_case_id string on both sides.
+            OPTIONAL MATCH (p)-[:HAS_TEST]->(t:TestCase {external_id: e.test_case_id})
             RETURN e.test_case_id AS test_case_id, e.title AS title, e.verdict AS verdict,
                    e.duration_ms AS duration_ms, e.device_steps AS device_steps,
                    e.states_visited AS states_visited, e.error_type AS error_type,
                    e.recovery_action AS recovery_action,
-                   e.path AS path, e.path_labels AS path_labels, e.created_at AS created_at
+                   e.path AS path, e.path_labels AS path_labels, e.created_at AS created_at,
+                   // Full audit trail for the dashboard: what the planner was given and
+                   // produced (on the TestCase), and what the evaluator was given and
+                   // produced (on this ExecutionLog itself).
+                   t.generation_prompt AS generation_prompt, t.generation_answer AS generation_answer,
+                   e.evaluation_prompt AS evaluation_prompt, e.trajectory_summary AS trajectory_summary
             ORDER BY e.created_at DESC LIMIT $limit
             """,
             project=project, limit=max(1, min(limit, 100)),

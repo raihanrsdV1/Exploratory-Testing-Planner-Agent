@@ -46,42 +46,73 @@ def _is_transient(exc: Exception) -> bool:
 
 
 def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool,
-               model: str | None = None) -> dict:
+               model: str | None = None, image_b64: str | None = None,
+               app_label: str | None = None) -> dict:
     """Call the configured backend. ``model`` overrides the default for this call,
-    which is how ingestion can use a stronger model than the planner loop."""
+    which is how ingestion can use a stronger model than the planner loop.
+    ``image_b64`` (raw base64, no data-URI prefix) attaches a screenshot to the
+    call — OpenRouter only for now; other backends silently ignore it.
+    ``app_label`` sets OpenRouter's X-Title so different call sites (planner,
+    evaluator, ingestion) show up distinctly in OpenRouter's usage dashboard
+    instead of all reading "QA Planner Agent" — OpenRouter only, ignored
+    elsewhere."""
     import time
     start = time.perf_counter()
     inc("llm_calls_total")
 
-    def _dispatch():
+    def _dispatch(use_model: str | None):
         if config.MODEL_BACKEND == "gemini":
             return _call_gemini(prompt, max_new_tokens, enable_thinking)
         if config.MODEL_BACKEND == "openrouter":
-            return _call_openrouter(prompt, max_new_tokens, enable_thinking, model=model)
+            return _call_openrouter(prompt, max_new_tokens, enable_thinking, model=use_model,
+                                    image_b64=image_b64, app_label=app_label)
         return _call_ngrok(prompt, max_new_tokens, enable_thinking)
 
     result = None
+    last_exc: Exception | None = None
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
-            result = _dispatch()
+            result = _dispatch(model)
             break
         except Exception as exc:
-            if attempt >= _MAX_ATTEMPTS or not _is_transient(exc):
-                raise
+            last_exc = exc
+            if not _is_transient(exc):
+                raise  # a bad request/API key fails identically on any model — no point retrying
+            if attempt >= _MAX_ATTEMPTS:
+                break  # primary model's retries exhausted — fall through to the fallback below
             delay = 2 ** attempt
             log.warning("llm_retry", backend=config.MODEL_BACKEND, attempt=attempt,
                         delay_s=delay, error=str(exc)[:180])
             inc("llm_retries_total")
             time.sleep(delay)
 
+    if result is None:
+        # A 429/unavailable is THIS model's shared capacity, not every model's —
+        # one attempt on a differently-provisioned fallback beats giving up
+        # outright. Only for OpenRouter (the fallback model id is meaningless to
+        # the other backends), and only once — this isn't a second retry loop.
+        if config.FALLBACK_MODEL and config.MODEL_BACKEND == "openrouter":
+            log.warning("llm_fallback", primary=model or config.OPENROUTER_MODEL,
+                        fallback=config.FALLBACK_MODEL, error=str(last_exc)[:180])
+            try:
+                result = _dispatch(config.FALLBACK_MODEL)
+            except Exception as fallback_exc:
+                # Report the PRIMARY model's failure as the cause — that's the
+                # one a human needs to know about (capacity/rate-limit), not
+                # whatever the fallback happened to also fail with.
+                raise last_exc from fallback_exc
+        else:
+            raise last_exc
+
     duration_ms = round((time.perf_counter() - start) * 1000, 1)
     estimated_tokens = len(prompt) // 4 + len(result.get("answer") or "") // 4
-    
+
     log.info(
         "llm_call",
         backend=config.MODEL_BACKEND,
         latency_ms=duration_ms,
         estimated_tokens=estimated_tokens,
+        has_image=bool(image_b64),
     )
     return result
 
@@ -120,20 +151,46 @@ def _call_ngrok(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict
         raise HTTPException(status_code=503, detail=f"Model backend (ngrok) unavailable: {e}")
 
 
+# OpenRouter's usage dashboard attributes calls by HTTP-Referer, not X-Title —
+# the referer is the actual "app" identity; the title is just a mutable display
+# name for whatever app is currently registered under that referer. Giving every
+# call site the SAME referer and only varying the title meant the *most
+# recently sent* title silently became the new display name for that app's
+# entire history — old ingestion-run rows retroactively relabelled themselves
+# days later just because a newer call reused the same referer with a
+# different title. Each call type needs its OWN referer to get a genuinely
+# separate, stable identity instead of overwriting a shared one.
+_APP_REFERERS = {
+    "QA Planner Agent": "https://qa-planner-agent.local/planner",
+    "QA Evaluator Agent": "https://qa-planner-agent.local/evaluator",
+    "QA SRS Ingestion": "https://qa-planner-agent.local/srs-ingestion",
+}
+
+
 def _call_openrouter(prompt: str, max_new_tokens: int, enable_thinking: bool,
-                     model: str | None = None) -> dict:
+                     model: str | None = None, image_b64: str | None = None,
+                     app_label: str | None = None) -> dict:
     if not config.OPENROUTER_API_KEY:
         raise HTTPException(status_code=503, detail="OPENROUTER_API_KEY not set in .env")
 
+    title = app_label or "QA Planner Agent"
     headers = {
         "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://qa-planner-agent.local",
-        "X-Title": "QA Planner Agent",
+        "HTTP-Referer": _APP_REFERERS.get(title, _APP_REFERERS["QA Planner Agent"]),
+        "X-Title": title,
     }
+    # Plain string content everywhere except the one call that carries an image —
+    # the multi-part block form is only needed when there's a second part to hold.
+    user_content: str | list = prompt
+    if image_b64:
+        user_content = [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
+        ]
     messages = [
         {"role": "system", "content": QA_SYSTEM_INSTRUCTION},
-        {"role": "user", "content": prompt},
+        {"role": "user", "content": user_content},
     ]
     payload = {
         "model": model or config.OPENROUTER_MODEL,

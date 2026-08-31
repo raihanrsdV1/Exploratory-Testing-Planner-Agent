@@ -91,7 +91,7 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None) -> dict:
 
         def _extract_call(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict:
             return model_client.call_model(prompt, max_new_tokens, enable_thinking,
-                                           model=extraction_model)
+                                           model=extraction_model, app_label="QA SRS Ingestion")
 
         model_call = _extract_call if req.use_model_summary else None
         extraction, extraction_source = extractor.extract(

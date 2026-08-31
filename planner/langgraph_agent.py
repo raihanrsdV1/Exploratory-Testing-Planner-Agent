@@ -5,6 +5,8 @@ This replaces the iterative loop in pipeline.py with a formal StateGraph.
 
 from typing import TypedDict, List, Dict, Any, Optional
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 
 import langgraph.graph as lg
 from pydantic import BaseModel
@@ -17,6 +19,36 @@ from .sources import registry as sources_registry
 from .sources.base import RetrievalRequest
 
 log = get_logger("langgraph_agent")
+
+_PLANNER_LOG_DIR = Path(__file__).resolve().parent.parent / "logs" / "planner"
+
+
+def _write_planner_log(test_case_id: str, call_log: list) -> None:
+    """Write every LLM call made while generating this test case to
+    logs/planner/<test_case_id>.txt — input then output, one call after
+    another, in the order the calls actually happened. The id isn't known
+    until generation finishes, so this flushes what was accumulated in state
+    rather than writing incrementally. Best-effort: never breaks generation."""
+    if not test_case_id or not call_log:
+        return
+    try:
+        _PLANNER_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        lines = []
+        for call in call_log:
+            lines.append("=" * 80)
+            lines.append(f"CALL: {call.get('label', '?')}")
+            lines.append(f"TIMESTAMP: {call.get('ts', '?')}")
+            lines.append("=" * 80)
+            lines.append("--- INPUT ---")
+            lines.append(call.get("input", ""))
+            lines.append("")
+            lines.append("--- OUTPUT ---")
+            lines.append(call.get("output", ""))
+            lines.append("")
+        (_PLANNER_LOG_DIR / f"{test_case_id}.txt").write_text("\n".join(lines), encoding="utf-8")
+    except Exception as e:
+        log.warning("planner_log_write_failed", test_case_id=test_case_id, error=str(e)[:200])
+
 
 class AgentState(TypedDict):
     # Request inputs
@@ -46,6 +78,7 @@ class AgentState(TypedDict):
     max_retrieval_rounds: int
     collected_queries: list
     selected_screens: list
+    selected_live_states: list  # resolved live UIState matches: [{id, label, has_screenshot, match_score}]
     srs_context_blocks: list
     figma_ui_blocks: list
     flow_context_blocks: list
@@ -66,6 +99,13 @@ class AgentState(TypedDict):
     model_thinking: str
     failure_context: str
     requirements_context: str
+    generation_prompt: str
+    generation_answer: str
+    # Every LLM call made while generating this one test case, in order — the
+    # test_case_id isn't known until the very end (duplicate_check assigns it),
+    # so calls accumulate here and get flushed to logs/planner/<id>.txt once
+    # it is. Each entry: {"label", "input", "output"}.
+    llm_call_log: list
 
 
 @timed_node("bootstrap_context")
@@ -134,6 +174,8 @@ def planner_step(state: AgentState) -> AgentState:
             "target_screens": [],
             "reason": "no knowledge sources available — generate from heuristics",
         })
+        log.info("planner_retrieval_decision", project=state.get("project", ""), round=round_no,
+                  action="produce_testcase", retrieval_requests=[], reason="no knowledge sources available")
         return {**state, "agent_signaled_ready": True, "finalization_mode": "no_sources_available"}
 
     action_prompt = prompts.planner_prompt_for_action(
@@ -153,7 +195,13 @@ def planner_step(state: AgentState) -> AgentState:
     
     action_model = model_client.call_model(action_prompt, max(320, min(state["max_new_tokens"], 4096)), False)
     action = textutil.parse_action(action_model.get("answer", ""), state["fallback_screens"])
-    
+    state["llm_call_log"].append({
+        "label": f"planner_step (round {round_no})",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "input": action_prompt,
+        "output": action_model.get("answer", ""),
+    })
+
     if state["debug_trace"]:
         state["debug_trace_data"].setdefault("planner_rounds", []).append({
             "round": round_no,
@@ -172,7 +220,15 @@ def planner_step(state: AgentState) -> AgentState:
     }
     
     state["planner_trace"].append(round_trace)
-    
+
+    # Always visible in logs/app.jsonl, not just when a caller opts into debug_trace —
+    # without this, whether the retrieval loop is asking for anything useful was
+    # unauditable after the fact (debug_trace is off by default in real executor calls).
+    log.info("planner_retrieval_decision", project=state.get("project", ""), round=round_no,
+              action=round_trace["action"], retrieval_requests=round_trace["retrieval_requests"],
+              focus_queries=round_trace["focus_queries"], target_screens=round_trace["target_screens"],
+              reason=round_trace["reason"])
+
     # Determine next routing via finalization mode in state if needed, or we just pass action back
     if action["action"] == "produce_testcase":
         return {**state, "agent_signaled_ready": True, "finalization_mode": "agent_signaled_sufficient_context"}
@@ -239,14 +295,27 @@ def execute_retrieval(state: AgentState) -> AgentState:
                 req.screen = fallback[0] if fallback else ""
             if req.screen and req.screen not in state["selected_screens"]:
                 state["selected_screens"].append(req.screen)
+        elif source_name == "live_ui":
+            if not req.screen:
+                fallback = trace.get("target_screens", []) or state["fallback_screens"]
+                req.screen = fallback[0] if fallback else ""
 
         block = source.retrieve(state["project"], req, top_k=state["top_k"])
         if block is None:
+            if source_name == "live_ui" and req.screen:
+                log.info("live_ui_screen_match", project=state["project"], screen=req.screen, matched=False)
             continue
         bucket = buckets.get(block.channel)
         if bucket is not None:
             bucket.append(block.text)
         round_retrieved_notes.append(block.note)
+        if block.resolved_state:
+            rs = block.resolved_state
+            if not any(s.get("id") == rs.get("id") for s in state["selected_live_states"]):
+                state["selected_live_states"].append(rs)
+            log.info("live_ui_screen_match", project=state["project"], screen=req.screen,
+                      matched=True, resolved_label=rs.get("label"), match_score=rs.get("match_score"),
+                      has_screenshot=rs.get("has_screenshot"))
 
     state["planner_trace"][-1]["retrieved_context_chars"] = len("\n\n".join(state["srs_context_blocks"]))
 
@@ -334,15 +403,36 @@ def generate_testcase(state: AgentState) -> AgentState:
         requirements_context=state.get("requirements_context", ""),
     )
 
-    model_data = model_client.call_model(prompt, state["max_new_tokens"], state["enable_thinking"])
+    # Attach the target screen's real screenshot, if the retrieval loop resolved
+    # one with a stored image (Phase 1) — cap at 1, the primary target only, so
+    # this never balloons into attaching several screens per call.
+    image_b64 = None
+    image_state_id = None
+    for ls in state.get("selected_live_states") or []:
+        if ls.get("has_screenshot"):
+            image_b64 = rag_client.get_state_screenshot(state["project"], ls["id"])
+            if image_b64:
+                image_state_id = ls["id"]
+                break
+    log.info("generation_screenshot", project=state["project"],
+              attached=bool(image_b64), state_id=image_state_id)
+
+    model_data = model_client.call_model(prompt, state["max_new_tokens"], state["enable_thinking"],
+                                          image_b64=image_b64)
     raw_answer = model_data.get("answer", "")
     parsed = textutil.parse_testcase(raw_answer)
-    
+    state["llm_call_log"].append({
+        "label": "generate_testcase", "ts": datetime.now(timezone.utc).isoformat(),
+        "input": prompt, "output": raw_answer,
+    })
+
     if state["debug_trace"]:
         state["debug_trace_data"]["final_generation"] = {
             "prompt": prompt,
             "model_answer_raw": raw_answer,
             "model_thinking": model_data.get("thinking", ""),
+            "image_attached": bool(image_b64),
+            "image_state_id": image_state_id,
         }
         
     retrieval_plan = {
@@ -356,7 +446,13 @@ def generate_testcase(state: AgentState) -> AgentState:
         "next_testcase_json": raw_answer,
         "next_testcase": parsed,
         "model_thinking": model_data.get("thinking", ""),
-        "retrieval_plan": retrieval_plan
+        "retrieval_plan": retrieval_plan,
+        # Full audit trail — unconditional, not gated behind debug_trace, so the
+        # dashboard can always show exactly what the planner was given and what
+        # it produced. Overwritten by duplicate_check's retry when one fires,
+        # so this always reflects the call that produced the FINAL test case.
+        "generation_prompt": prompt,
+        "generation_answer": raw_answer,
     }
 
 
@@ -407,11 +503,19 @@ def duplicate_check(state: AgentState) -> AgentState:
         model_data = model_client.call_model(retry_prompt, state["max_new_tokens"], state["enable_thinking"])
         raw_answer = model_data.get("answer", "")
         parsed = textutil.parse_testcase(raw_answer)
-        
+        state["llm_call_log"].append({
+            "label": "duplicate_check retry", "ts": datetime.now(timezone.utc).isoformat(),
+            "input": retry_prompt, "output": raw_answer,
+        })
+
         state["next_testcase_json"] = raw_answer
         state["next_testcase"] = parsed
         state["model_thinking"] = model_data.get("thinking", "")
-        
+        # This retry is what actually produced the FINAL test case — overwrite
+        # the audit trail so it reflects the retry, not the discarded duplicate.
+        state["generation_prompt"] = retry_prompt
+        state["generation_answer"] = raw_answer
+
         if state["debug_trace"]:
             state["debug_trace_data"]["final_retry"] = {
                 "prompt": retry_prompt,
@@ -475,6 +579,7 @@ def run_agent(req_args: dict) -> dict:
         max_retrieval_rounds=max(1, min(req_args.get("max_retrieval_rounds", 6), 6)),
         collected_queries=[],
         selected_screens=[],
+        selected_live_states=[],
         srs_context_blocks=[],
         figma_ui_blocks=[],
         flow_context_blocks=[],
@@ -490,7 +595,10 @@ def run_agent(req_args: dict) -> dict:
         next_testcase_json="",
         next_testcase={},
         retrieval_plan={},
-        model_thinking=""
+        model_thinking="",
+        generation_prompt="",
+        generation_answer="",
+        llm_call_log=[],
     )
     
     # Execute graph
@@ -500,6 +608,7 @@ def run_agent(req_args: dict) -> dict:
     parsed = final_state.get("next_testcase", {})
     recent_tests = final_state.get("recent_tests", [])
     if isinstance(parsed, dict) and parsed.get("test_case_id"):
+        _write_planner_log(parsed["test_case_id"], final_state.get("llm_call_log", []))
         existing_ids = {str(t.get("id", "")) for t in recent_tests}
         if parsed["test_case_id"] not in existing_ids:
             try:
@@ -514,6 +623,8 @@ def run_agent(req_args: dict) -> dict:
                     "area": parsed.get("area", "general"),
                     "requirement_ids": parsed.get("requirement_ids", []) if isinstance(parsed.get("requirement_ids"), list) else [],
                     "test_type": parsed.get("test_type", ""),
+                    "generation_prompt": final_state.get("generation_prompt", ""),
+                    "generation_answer": final_state.get("generation_answer", ""),
                     **(final_state.get("dimensions") or {}),
                 })
             except Exception as e:
@@ -544,6 +655,7 @@ def run_agent(req_args: dict) -> dict:
             "figma_flow_chars": len("\n\n".join(final_state["flow_context_blocks"])),
         },
         "target_screens": final_state["selected_screens"][:3],
+        "target_live_states": final_state["selected_live_states"][:3],
         "available_sources": [s["name"] for s in final_state.get("available_sources", [])],
         "next_testcase_json": final_state["next_testcase_json"],
         "next_testcase": parsed,

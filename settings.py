@@ -153,6 +153,19 @@ EXTRACTION_SAMPLES = _int("EXTRACTION_SAMPLES", 1)
 EXTRACTION_MAX_TOKENS = _int("EXTRACTION_MAX_TOKENS", 8000)
 # Model that judges which sample is best; falls back to EXTRACTION_MODEL.
 EXTRACTION_JUDGE_MODEL = _str("EXTRACTION_JUDGE_MODEL", "")
+# Model for the trajectory evaluator (gateway's /execution/evaluate) — assesses
+# a run's device trajectory against its own objective. One small call per test
+# run, independent of the planner's own generation calls. Leave empty to reuse
+# OPENROUTER_MODEL; named separately so it can be tuned independently later
+# without that meaning "also change what the planner generates with".
+EVALUATOR_MODEL = _str("EVALUATOR_MODEL", "")
+# Tried once, for any call, after the primary model's own retries are exhausted
+# — only for a TRANSIENT failure (rate-limited, temporarily unavailable). A 429
+# means THIS model's shared OpenRouter capacity is full right now, not that
+# every model is down, so a differently-provisioned model is likely to just
+# work. Never used for a non-transient failure (bad request, bad API key) —
+# those would fail identically on any model. Leave empty to disable.
+FALLBACK_MODEL = _str("FALLBACK_MODEL", "")
 
 # ── Embeddings (semantic retrieval + dedup) ──────────────────────────────────
 EMBEDDING_BACKEND = _str("EMBEDDING_BACKEND", "auto").lower()
@@ -391,6 +404,14 @@ STATE_CONTAINMENT_MAX_RATIO = _float("STATE_CONTAINMENT_MAX_RATIO", 2.0)
 STATE_SKELETON_THRESHOLD = _float("STATE_SKELETON_THRESHOLD", 0.95)
 STATE_SKELETON_MIN_FULL = _float("STATE_SKELETON_MIN_FULL", 0.60)
 
+# A different matching problem from the thresholds above: those dedupe two
+# OBSERVATIONS of a screen. This one resolves a NAME (a Figma design-file screen
+# name, or free text the planner typed) to the one real UIState it refers to, so
+# retrieval can answer "tell me about screen X" instead of always returning a
+# generic whole-app overview. Word-overlap Jaccard on the two labels; below this
+# share of overlapping words, no match is confident enough to return.
+LIVE_SCREEN_MATCH_THRESHOLD = _float("LIVE_SCREEN_MATCH_THRESHOLD", 0.3)
+
 # ── Autonomous crawler ───────────────────────────────────────────────────────
 CRAWL_ROUNDS = _int("CRAWL_ROUNDS", 3)
 CRAWL_MAX_STEPS = _int("CRAWL_MAX_STEPS", 25)
@@ -490,5 +511,6 @@ def summary() -> dict:
         "enabled_sources": list(ENABLED_SOURCES),
         "extraction_model": EXTRACTION_MODEL or OPENROUTER_MODEL,
         "extraction_samples": EXTRACTION_SAMPLES,
+        "evaluator_model": EVALUATOR_MODEL or OPENROUTER_MODEL,
         "target_app_only": TARGET_APP_ONLY,
     }

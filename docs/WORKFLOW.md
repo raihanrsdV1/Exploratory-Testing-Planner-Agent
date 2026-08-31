@@ -102,15 +102,18 @@ POST /next (Gateway)
     │       - Recent tests + verdicts (what's been done)
     │       - Coverage map (which areas are under-tested)
     │
-    ├── Stage 2: Iterative Retrieval Loop (up to 3 rounds)
+    ├── Stage 2: Iterative Retrieval Loop (up to 6 rounds)
     │       For each round:
     │       ├── Ask LLM: "given what you know, what do you need to retrieve?"
     │       │     → LLM returns: {action: "retrieve", queries: [...], screens: [...]}
-    │       ├── Execute retrieval against Neo4j:
-    │       │     - Semantic (vector) search over SRS chunks
-    │       │     - Keyword hybrid search
-    │       │     - Figma UI element lookup by screen name
-    │       │     - Figma navigation transitions
+    │       ├── Execute retrieval against Neo4j, via 6 pluggable sources:
+    │       │     - srs         — hybrid vector+keyword+graph-hop over requirements
+    │       │     - figma_ui    — design-file screen elements
+    │       │     - figma_flow  — design-file navigation transitions
+    │       │     - live_ui     — the observed app map (real screens the executor reached)
+    │       │     - defects     — historical defect reports
+    │       │     - navtree     — proven navigation paths the executor actually walked
+    │       │     (only sources with ingested data for this project are offered)
     │       └── If LLM says "produce_testcase" → exit loop early
     │
     ├── Stage 3: Test Case Generation
@@ -126,9 +129,13 @@ POST /next (Gateway)
     │       If too similar → retry with alternate Figma screens
     │
     └── Stage 5: Auto-log
-            Write new test case to Neo4j immediately with verdict="pass" (pending)
+            Write new test case to Neo4j immediately with verdict="planned" (not executed yet —
+            "pass"/"failed" is set only once the executor actually runs it)
             → Coverage map updates automatically for next iteration
 ```
+
+See [System_Architecture.md](System_Architecture.md) for the full state-machine diagram, the
+per-source availability rules, and the prompt token-budget system.
 
 The test case JSON looks like this:
 

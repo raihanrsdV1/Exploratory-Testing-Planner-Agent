@@ -27,6 +27,13 @@ PLANNER_GEMINI_MODEL = os.getenv("PLANNER_GEMINI_MODEL", "gemini-2.5-pro")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "qwen/qwen3.8-flash")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+# Trajectory evaluator's model (gateway's /execution/evaluate). Empty = reuse
+# OPENROUTER_MODEL; named separately so it can be tuned without that also
+# changing what the planner generates with.
+EVALUATOR_MODEL = _s.EVALUATOR_MODEL
+# Tried once after the primary model's retries are exhausted, only for a
+# transient failure (rate limit). Empty = no fallback (raise as before).
+FALLBACK_MODEL = _s.FALLBACK_MODEL
 
 # Gateway-level API key (optional). When set, every request needs Authorization: Bearer <key>.
 GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "")

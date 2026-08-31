@@ -97,6 +97,22 @@ class LogVerdictRequest(BaseModel):
     debug_trace: bool = Field(default=False, description="Include full debug trace in the next test case response.")
 
 
+class ExecutionEvaluateRequest(BaseModel):
+    """Ask the gateway to evaluate one just-finished run's device trajectory
+    against what it was trying to verify, and attach the result to its
+    ExecutionLog. Sent by the executor right after /execution/log; best-effort —
+    a failure here costs a learning opportunity, never a broken test run."""
+    project: str = Field(..., min_length=1)
+    log_id: str = Field(..., min_length=1, description="Exact ExecutionLog id from /execution/log's response.")
+    test_case_id: str = ""
+    title: str = ""
+    objective: str = Field(default="", description="What this test set out to verify.")
+    screen_hint: str = Field(default="", description="The screen the planner guessed was relevant.")
+    expected_result: str = ""
+    path_labels: list[str] = Field(default_factory=list, description="Real screen labels this run actually visited.")
+    trajectory_folder: str = Field(..., min_length=1, description="Exact logs/trajectories/<folder> name for this run.")
+
+
 class IngestSRSRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
         "project": "my-app",

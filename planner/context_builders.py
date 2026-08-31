@@ -7,7 +7,7 @@ These are app-agnostic: every label/screen/area comes from the ingested graph.
 from __future__ import annotations
 
 import settings as _settings
-from . import rag_client
+from . import coverage, rag_client
 
 
 def _failure_reason(notes: str) -> str:
@@ -22,26 +22,51 @@ def _failure_reason(notes: str) -> str:
     for cut in (" | Self-heal:",):
         if cut in text:
             text = text.split(cut, 1)[0]
+    # A crash's notes sometimes carry a raw Python traceback (file paths, line
+    # numbers) instead of a clean message — pure noise in a prompt. 'File "' is
+    # a reliable traceback-frame marker; cut there and keep the human part.
+    if ' File "' in text:
+        text = text.split(' File "', 1)[0]
     return " ".join(text.split())[:1200]
 
 
 def build_failure_context(project: str, recent_tests: list[dict]) -> str:
     """What previous runs actually discovered, so generation can build on it.
 
-    Without this the planner only sees the *titles* of failed tests and keeps
-    re-deriving variants of a defect it already found. Combines each failure's
-    real reason with the recurring ErrorPattern signatures mined from execution
-    history (REQ-303.2), which were previously computed but never fed back in.
+    Without this the planner only sees the *titles* of past tests and keeps
+    re-deriving variants of something it already found (or already ruled out).
+    Combines each run's real observation with the recurring ErrorPattern
+    signatures mined from execution history (REQ-303.2).
+
+    Covers BOTH verdicts. A `trajectory_summary` — an evaluator's assessment of
+    the run's actual device trajectory against what it was trying to verify,
+    attached by the gateway's /execution/evaluate — is preferred when present,
+    for either verdict: a passed run's summary can still hold real information
+    (what was confirmed, what the executor actually found), and a failed run's
+    raw notes tail alone was never enough to know whether anything was learned
+    at all. Only INFORMATIVE failures are included at all — coverage.py's
+    NON_INFORMATIVE_ERRORS (livelock, timeout, precondition-not-met, ...) mean
+    the run never got far enough to observe app behaviour, so including them
+    here told the planner those areas were "already proven" when nothing had
+    actually been learned. A pass with no summary is skipped too — a bare "it
+    passed" adds nothing beyond the title already shown elsewhere.
     """
     lines: list[str] = []
     for t in recent_tests:
-        if str(t.get("verdict", "")).lower() != "failed":
-            continue
-        reason = _failure_reason(t.get("notes", ""))
+        verdict = str(t.get("verdict", "")).lower()
         title = str(t.get("title", "")).strip()
+        summary = str(t.get("trajectory_summary", "") or "").strip()
         if not title:
             continue
-        lines.append(f"- {title}\n    → what happened: {reason or 'no reason recorded'}")
+        if verdict == "failed":
+            if str(t.get("error_type", "") or "").upper() in coverage.NON_INFORMATIVE_ERRORS:
+                continue
+            text = summary or _failure_reason(t.get("notes", "")) or "no reason recorded"
+            lines.append(f"- {title} [FAILED]\n    → {text}")
+        elif verdict in ("pass", "passed") and summary:
+            lines.append(f"- {title} [PASSED]\n    → {summary}")
+        else:
+            continue
         if len(lines) >= 25:
             break
 
@@ -59,8 +84,10 @@ def build_failure_context(project: str, recent_tests: list[dict]) -> str:
 
     out: list[str] = []
     if lines:
-        out += ["Confirmed findings from executed tests (do NOT re-test the same defect — "
-                "probe a DIFFERENT rule, screen or interaction instead):", *lines]
+        out += ["Recent test observations (do NOT re-test a confirmed FAILED defect — probe a "
+                "DIFFERENT rule, screen or interaction instead; a PASSED entry confirms that "
+                "specific behaviour works, so don't re-verify it, but adjacent cases may still "
+                "be untested):", *lines]
     if patterns:
         out += ["", "Recurring failure patterns across runs:", *patterns]
     return "\n".join(out)
