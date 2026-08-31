@@ -882,11 +882,15 @@ def _evaluate_run(tc: dict, log_id: str, exec_path: list, traj_before: set | Non
     a terse verdict. Fire-and-check, never blocks or fails the primary pipeline —
     a failure here is a missed learning opportunity, not a broken test run."""
     if not log_id or traj_before is None:
-        return  # nothing to attach to, or agent.run() was never reached
+        cloud_log("warning", f"Skipping evaluation for {tc.get('test_case_id')}: "
+                  f"{'no log_id' if not log_id else 'agent.run() was never reached'}")
+        return
     try:
         after = _trajectory_snapshot()
         new_folders = after - traj_before
         if not new_folders:
+            cloud_log("warning", f"Skipping evaluation for {tc.get('test_case_id')}: "
+                      f"no new trajectory folder found (before={len(traj_before)}, after={len(after)})")
             return
         # The common case is exactly one new folder; if self-heal ran a second
         # agent, the most recently modified one is the one worth evaluating.
@@ -1006,6 +1010,13 @@ async def execute_test_on_device(test_case: dict) -> dict:
             }
         llm = load_llm(provider, **llm_kwargs)
 
+        # Snapshot BEFORE constructing MobileAgent, not before .run() — mobilerun
+        # creates its trajectory folder inside MobileAgent.__init__() itself (via
+        # its own Trajectory class), not at .run() time. A snapshot taken after
+        # construction already includes this run's own folder, so the diff in
+        # _evaluate_run finds nothing new and silently no-ops every time.
+        traj_before = _trajectory_snapshot()
+
         # Create and run the agent. Trajectory capture is enabled so we can feed the
         # real per-step UI states + screenshots into the Live App Model (WP1).
         config = MobileConfig(
@@ -1035,10 +1046,6 @@ async def execute_test_on_device(test_case: dict) -> dict:
             timeout=EXECUTOR_TIMEOUT,
             config=config,
         )
-
-        # Snapshot before agent.run() so its trajectory folder can be identified by
-        # diffing afterward (see _evaluate_run), not guessed from a timestamp.
-        traj_before = _trajectory_snapshot()
 
         # Run the agent, STREAMING its events so we can grab a screenshot for each
         # observed UI state (mobilerun only screenshots itself in vision mode; our
