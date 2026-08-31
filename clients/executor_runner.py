@@ -864,6 +864,21 @@ def _log_execution(tc: dict, verdict: str, duration_ms: float, device_steps: int
 
 
 _TRAJECTORY_DIR = os.path.join("logs", "trajectories")
+_EVAL_SKIP_LOG = os.path.join("logs", "evaluation_skips.log")
+
+
+def _log_eval_skip(test_case_id: str, reason: str) -> None:
+    """Append-only, never-cleared record of every time evaluation was skipped or
+    failed. cloud_log() only reaches the console/Logtail (not grep-able here),
+    and degradations.jsonl gets wiped by degradations.reset() (e.g. a test run) —
+    this file is the one place this class of failure is guaranteed to survive
+    long enough to be investigated."""
+    try:
+        os.makedirs(os.path.dirname(_EVAL_SKIP_LOG), exist_ok=True)
+        with open(_EVAL_SKIP_LOG, "a", encoding="utf-8") as fh:
+            fh.write(f"{_timestamp()} | {test_case_id or '?'} | {reason}\n")
+    except Exception:
+        pass
 
 
 def _trajectory_snapshot() -> set:
@@ -882,21 +897,28 @@ def _evaluate_run(tc: dict, log_id: str, exec_path: list, traj_before: set | Non
     a terse verdict. Fire-and-check, never blocks or fails the primary pipeline —
     a failure here is a missed learning opportunity, not a broken test run."""
     if not log_id or traj_before is None:
-        cloud_log("warning", f"Skipping evaluation for {tc.get('test_case_id')}: "
-                  f"{'no log_id' if not log_id else 'agent.run() was never reached'}")
+        reason = "no log_id" if not log_id else "agent.run() was never reached"
+        cloud_log("warning", f"Skipping evaluation for {tc.get('test_case_id')}: {reason}")
+        _log_eval_skip(tc.get("test_case_id", ""), reason)
         return
     try:
         after = _trajectory_snapshot()
         new_folders = after - traj_before
         if not new_folders:
-            cloud_log("warning", f"Skipping evaluation for {tc.get('test_case_id')}: "
-                      f"no new trajectory folder found (before={len(traj_before)}, after={len(after)})")
+            reason = f"no new trajectory folder found (before={len(traj_before)}, after={len(after)})"
+            cloud_log("warning", f"Skipping evaluation for {tc.get('test_case_id')}: {reason}")
+            _log_eval_skip(tc.get("test_case_id", ""), reason)
             return
         # The common case is exactly one new folder; if self-heal ran a second
         # agent, the most recently modified one is the one worth evaluating.
         folder = max(new_folders, key=lambda n: os.path.getmtime(os.path.join(_TRAJECTORY_DIR, n)))
         # /execution/evaluate is a GATEWAY endpoint (it calls the model), not a
         # rag_api one — posting to RAG_URL here silently hit a nonexistent route.
+        # timeout=600: real evaluate calls run the trajectory through an LLM and
+        # have been observed taking up to ~410s under load; a shorter timeout cut
+        # them off client-side while the gateway kept working regardless, so the
+        # next round got planned before this round's findings ever came back —
+        # exactly the ordering the whole feedback loop depends on getting right.
         resp = requests.post(f"{GATEWAY_URL}/execution/evaluate", json={
             "project": PROJECT,
             "log_id": log_id,
@@ -907,11 +929,12 @@ def _evaluate_run(tc: dict, log_id: str, exec_path: list, traj_before: set | Non
             "expected_result": tc.get("expected_result", ""),
             "path_labels": [s.get("label", "") for s in exec_path],
             "trajectory_folder": folder,
-        }, timeout=60)
+        }, timeout=600)
         resp.raise_for_status()
     except Exception as e:
         _degrade("trajectory_evaluation_failed", degradations.MINOR,
                  detail=f"could not evaluate run for {tc.get('test_case_id')}: {e}")
+        _log_eval_skip(tc.get("test_case_id", ""), f"request failed: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -999,14 +1022,15 @@ async def execute_test_on_device(test_case: dict) -> dict:
         if provider == "OpenRouter":
             # Without this, these calls show up as "Unknown" in OpenRouter's usage
             # dashboard — indistinguishable from every other app on the account.
-            # Only OpenRouter's underlying client accepts this kwarg. The referer
-            # path (not just the title) must be distinct from the planner-side
-            # referers in model_client.py's _APP_REFERERS — OpenRouter identifies
-            # an "app" by referer, and a shared referer with a different title
-            # would just overwrite this app's display name for its whole history.
+            # Only OpenRouter's underlying client accepts this kwarg. Must be a
+            # distinct ORIGIN from the planner-side referers in model_client.py's
+            # _APP_REFERERS, not just a distinct path on the same origin — a
+            # shared origin let this app's (far more frequent) calls retroactively
+            # overwrite the evaluator's display name on OpenRouter's dashboard,
+            # since HTTP Referer is conventionally compared at the origin level.
             llm_kwargs["default_headers"] = {
                 "X-Title": "QA Executor Agent",
-                "HTTP-Referer": "https://qa-planner-agent.local/executor",
+                "HTTP-Referer": "https://executor.qa-planner-agent.local/",
             }
         llm = load_llm(provider, **llm_kwargs)
 

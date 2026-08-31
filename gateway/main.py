@@ -396,11 +396,17 @@ def dashboard_run_steps(created_at: str = "", trajectory: str = ""):
     return {"found": True, "trajectory": chosen.name, "steps": steps, "outcome": outcome}
 
 
-def _parse_trajectory_events(events: list) -> tuple[list[dict], dict]:
+def _parse_trajectory_events(events: list, truncate: bool = True) -> tuple[list[dict], dict]:
     """Turn mobilerun's raw trajectory events into (per-step thought+action, outcome).
 
     Shared by the dashboard's step viewer and the trajectory evaluator — both need
-    the same thought/tool-call/outcome extraction, just for different purposes.
+    the same thought/tool-call/outcome extraction, but NOT the same truncation.
+    truncate=True (default) caps thought/summary/reason for display, which is
+    right for a human scanning the dashboard's step list. The evaluator calls
+    this with truncate=False: it was silently inheriting this same 800-char cap,
+    dropping content from long thoughts (worst on exactly the steps most worth
+    keeping — a final step's own wrap-up reasoning) — undermining the explicit
+    "no length limit, don't compress away detail" design of that prompt.
     """
     steps: list[dict] = []
     outcome: dict = {}
@@ -410,19 +416,21 @@ def _parse_trajectory_events(events: list) -> tuple[list[dict], dict]:
         if kind == "FastAgentResponseEvent":
             thought = str(ev.get("thought") or "").strip()
         elif kind == "ToolExecutionEvent":
+            summary = str(ev.get("summary") or "")
             steps.append({
                 "n": len(steps) + 1,
                 "tool": ev.get("tool_name", ""),
                 "args": ev.get("tool_args", {}),
                 "success": bool(ev.get("success")),
-                "summary": str(ev.get("summary") or "")[:400],
-                "thought": thought[:800],
+                "summary": summary[:400] if truncate else summary,
+                "thought": thought[:800] if truncate else thought,
             })
             thought = ""
         elif kind == "FastAgentEndEvent":
+            reason = str(ev.get("reason") or "")
             outcome = {
                 "success": bool(ev.get("success")),
-                "reason": str(ev.get("reason") or "")[:800],
+                "reason": reason[:800] if truncate else reason,
                 "tool_calls": ev.get("tool_call_count"),
             }
     return steps, outcome
@@ -479,7 +487,7 @@ def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None 
         if not traj_file.exists():
             return {"status": "skipped", "reason": "trajectory file not found"}
         events = json.loads(traj_file.read_text(encoding="utf-8"))
-        steps, outcome = _parse_trajectory_events(events)
+        steps, outcome = _parse_trajectory_events(events, truncate=False)
         if not steps:
             return {"status": "skipped", "reason": "no device steps in trajectory"}
 
@@ -502,6 +510,27 @@ def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None 
         except Exception:
             pass
 
+        # What previous EVALUATIONS already found — not just structural screen
+        # data, actual prior findings — so this run's report adds new knowledge
+        # instead of re-discovering and re-reporting the same thing every time a
+        # test happens to touch the same confusing screen. This is the growing-
+        # knowledge loop: each evaluation should extend what's known, not repeat
+        # it. Capped to the most recent evaluated tests (not the full campaign
+        # history) to keep this a small, focused call — but each finding kept in
+        # full, matching the same "no length limit" rule as the rest of this
+        # prompt. Best-effort: proceed with nothing prior rather than fail.
+        prior_findings_text = "none yet"
+        try:
+            recent = rag_client.get_brief_context(req.project).get("recent_tests", []) or []
+            evaluated = [t for t in recent
+                         if t.get("trajectory_summary") and t.get("id") != req.test_case_id]
+            if evaluated:
+                lines = [f"- [{t.get('id', '?')}] {t.get('title', '?')}\n    {t['trajectory_summary']}"
+                         for t in evaluated[:15]]
+                prior_findings_text = "\n".join(lines)
+        except Exception:
+            pass
+
         # Condense thought+action pairs, capped at the executor's own step budget.
         step_lines = []
         for s in steps[:50]:
@@ -517,13 +546,16 @@ def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None 
             f"It assumed the relevant screen was: {req.screen_hint or '(not stated)'}\n\n"
             f"The planner already knows the following about the screens this run touched "
             f"(shown to it separately — do NOT repeat these details):\n{known_screens_text}\n\n"
+            f"Findings already reported by previous evaluations (do NOT repeat any of these — "
+            f"only report what is NEW or DIFFERENT from what's already known):\n{prior_findings_text}\n\n"
             f"Here is what the agent actually did, in order:\n{trajectory_text}\n\n"
             f"Final outcome reported by the agent: success={outcome.get('success')}, "
             f"reason={outcome.get('reason', '')}\n\n"
             "Write an information-dense report for the planner covering what is new or "
             "noteworthy: was the objective confirmed, refuted, or left unclear? Was the screen "
             "assumption accurate — if not, what screen did the agent actually use? Did it "
-            "discover any controls, behaviour, or screens not already in the known list above? "
+            "discover any controls, behaviour, or screens not already in the known list above, "
+            "or confirm/contradict any of the prior findings above? "
             "There is no length limit — use as much space as the run actually warrants, and "
             "do not compress away specific detail for the sake of brevity. In particular, "
             "always call out, as their own findings rather than folding them into vague prose:\n"

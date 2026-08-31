@@ -160,10 +160,19 @@ def _call_ngrok(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict
 # days later just because a newer call reused the same referer with a
 # different title. Each call type needs its OWN referer to get a genuinely
 # separate, stable identity instead of overwriting a shared one.
+#
+# These must be distinct ORIGINS (subdomains), not just distinct paths on one
+# shared origin — an earlier version of this dict used one domain with a
+# different path per app (.../planner, .../evaluator, ...), and evaluator
+# calls kept showing up on OpenRouter's dashboard mislabeled with whichever
+# title the (far more frequent) executor calls had most recently sent. HTTP
+# Referer is conventionally an origin-level signal, and OpenRouter's own docs
+# don't specify the comparison granularity, so the safest fix is to remove
+# the shared origin entirely rather than rely on path-level separation.
 _APP_REFERERS = {
-    "QA Planner Agent": "https://qa-planner-agent.local/planner",
-    "QA Evaluator Agent": "https://qa-planner-agent.local/evaluator",
-    "QA SRS Ingestion": "https://qa-planner-agent.local/srs-ingestion",
+    "QA Planner Agent": "https://planner.qa-planner-agent.local/",
+    "QA Evaluator Agent": "https://evaluator.qa-planner-agent.local/",
+    "QA SRS Ingestion": "https://srs-ingestion.qa-planner-agent.local/",
 }
 
 
