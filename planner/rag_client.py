@@ -101,3 +101,13 @@ def semantic_dedup_check(project: str, title: str, threshold: float = 0.9) -> di
         return rag_post("/tests/dedup-check", {"project": project, "title": title, "threshold": threshold})
     except Exception:
         return {"enabled": False, "is_duplicate": False, "similarity": 0.0, "most_similar_title": ""}
+
+
+def get_requirement_coverage(project: str) -> dict:
+    """Per-requirement coverage, including the real ref_ids of untested requirements."""
+    return rag_get("/coverage/requirements", {"project": project})
+
+
+def get_business_rules(project: str) -> list[dict]:
+    """Extracted validation rules with their owning requirement ref_id + confidence."""
+    return rag_get("/business-logic/rules", {"project": project}).get("rules", [])

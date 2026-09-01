@@ -10,6 +10,7 @@ import langgraph.graph as lg
 from pydantic import BaseModel
 
 from observability import get_logger
+from observability import degradations
 from observability.tracing import set_trace, timed_node
 from . import config, context_builders, coverage, model_client, prompts, rag_client, schemas, textutil
 from .sources import registry as sources_registry
@@ -64,6 +65,7 @@ class AgentState(TypedDict):
     retrieval_plan: dict
     model_thinking: str
     failure_context: str
+    requirements_context: str
 
 
 @timed_node("bootstrap_context")
@@ -81,8 +83,14 @@ def bootstrap_context(state: AgentState) -> AgentState:
     ]
     done_areas = [str(t.get("area", "")) for t in recent_tests if t.get("area")]
     failure_context = context_builders.build_failure_context(project, recent_tests)
-    figma_screens = brief.get("screen_index", []) if isinstance(brief, dict) else []
-    figma_overview = rag_client.get_figma_overview(project)
+    requirements_context = context_builders.build_requirements_context(project)
+    # Honour ENABLED_SOURCES here, not just when advertising sources to the
+    # retrieval planner. These two feed the generation prompt directly, so
+    # reading them unconditionally let a disabled design file describe screens
+    # the shipped app does not have — and the planner wrote tests against them.
+    _figma_on = sources_registry.is_enabled("figma_ui")
+    figma_screens = (brief.get("screen_index", []) if isinstance(brief, dict) else []) if _figma_on else []
+    figma_overview = rag_client.get_figma_overview(project) if _figma_on else []
     fallback_screens = context_builders.pick_relevant_screens(figma_screens, done_areas, recent_tests)
     coverage_map = coverage.compute_coverage_map(recent_tests, figma_screens)
 
@@ -99,6 +107,7 @@ def bootstrap_context(state: AgentState) -> AgentState:
         "done_titles": done_titles,
         "failed_titles": failed_titles,
         "failure_context": failure_context,
+        "requirements_context": requirements_context,
         "done_areas": done_areas,
         "figma_screens": figma_screens,
         "figma_overview": figma_overview,
@@ -285,13 +294,13 @@ def generate_testcase(state: AgentState) -> AgentState:
     if not state["figma_ui_blocks"] and "figma_ui" in available_names and state["fallback_screens"]:
         state["selected_screens"] = state["fallback_screens"][:2]
             
-    srs_context = "\n\n".join(dict.fromkeys(state["srs_context_blocks"]))[:8000]
+    srs_context = "\n\n".join(dict.fromkeys(state["srs_context_blocks"]))[:60000]
     figma_overview_context = context_builders.build_figma_overview_context(state["figma_overview"])
     figma_context = (
-        "\n\n".join(dict.fromkeys(state["figma_ui_blocks"]))[:2400]
+        "\n\n".join(dict.fromkeys(state["figma_ui_blocks"]))[:30000]
         if state["figma_ui_blocks"] else context_builders.build_figma_context(state["project"], state["selected_screens"][:3])
     )
-    figma_flow_context = "\n\n".join(dict.fromkeys(state["flow_context_blocks"]))[:2500]
+    figma_flow_context = "\n\n".join(dict.fromkeys(state["flow_context_blocks"]))[:12000]
 
     # REQ-301.5 / 302.4 / 303: learned-intelligence context, injected when available.
     available_names = {s["name"] for s in state.get("available_sources", [])}
@@ -322,6 +331,7 @@ def generate_testcase(state: AgentState) -> AgentState:
         risk_context=risk_context,
         anomaly_context=anomaly_context,
         failure_context=state.get("failure_context", ""),
+        requirements_context=state.get("requirements_context", ""),
     )
 
     model_data = model_client.call_model(prompt, state["max_new_tokens"], state["enable_thinking"])
@@ -373,11 +383,11 @@ def duplicate_check(state: AgentState) -> AgentState:
         alt_screens = [s["screen_name"] for s in state["figma_screens"] if s["screen_name"] not in already_picked][:2]
         alt_figma_context = context_builders.build_figma_context(state["project"], alt_screens) if alt_screens else ""
         
-        blocked = "\n".join(f"- {t}" for t in blocked_titles[:20]) or "- none"
+        blocked = "\n".join(f"- {t}" for t in blocked_titles[:200]) or "- none"
         
-        srs_context = "\n\n".join(dict.fromkeys(state["srs_context_blocks"]))[:8000]
+        srs_context = "\n\n".join(dict.fromkeys(state["srs_context_blocks"]))[:60000]
         figma_overview_context = context_builders.build_figma_overview_context(state["figma_overview"])
-        figma_flow_context = "\n\n".join(dict.fromkeys(state["flow_context_blocks"]))[:2500]
+        figma_flow_context = "\n\n".join(dict.fromkeys(state["flow_context_blocks"]))[:12000]
         
         retry_prompt = prompts.build_testcase_prompt(
             app_name=state["app_name"],
@@ -391,6 +401,7 @@ def duplicate_check(state: AgentState) -> AgentState:
             coverage_map=state["coverage_map"],
             recent_tests=state["recent_tests"],
             failure_context=state.get("failure_context", ""),
+            requirements_context=state.get("requirements_context", ""),
         ) + "\n\nBlocked titles (semantic overlap with any of these is FORBIDDEN):\n" + blocked
         
         model_data = model_client.call_model(retry_prompt, state["max_new_tokens"], state["enable_thinking"])
@@ -505,9 +516,18 @@ def run_agent(req_args: dict) -> dict:
                     "test_type": parsed.get("test_type", ""),
                     **(final_state.get("dimensions") or {}),
                 })
-            except Exception:
-                pass
-                
+            except Exception as e:
+                # This POST is the ONLY place a generated test enters the graph and
+                # gets its COVERS edges. Swallowing the error silently made
+                # requirement coverage read 0% with no indication why.
+                log.warning("auto_log_failed", test_case_id=parsed.get("test_case_id"),
+                            error=str(e)[:200])
+                degradations.record(
+                    "testcase_not_logged", degradations.MAJOR,
+                    detail=f"generated test never entered the graph: {e}",
+                    test_case_id=str(parsed.get("test_case_id")),
+                )
+
     out = {
         "project": final_state["project"],
         "retrieval_plan": final_state["retrieval_plan"],

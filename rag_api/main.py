@@ -12,7 +12,7 @@ from fastapi.responses import PlainTextResponse, FileResponse
 from neo4j import GraphDatabase
 from pydantic import BaseModel, Field
 
-from observability import setup_logging
+from observability import setup_logging, degradations
 from observability.middleware import RequestLoggingMiddleware
 
 from dotenv import load_dotenv
@@ -121,46 +121,58 @@ def _utc_now() -> str:
 
 
 def _split_text(text: str, chunk_chars: int = 1200, overlap: int = 120) -> list[str]:
+    """Split a document into overlapping chunks. Structural only — no format assumptions.
+
+    Deliberately knows nothing about requirement conventions (``FR-1``, ``3.2.1``,
+    user stories, Gherkin, prose...). Recognising requirements is the extractor's
+    job, and it uses an LLM precisely because those conventions vary per company
+    and per document. Encoding a pattern here made the chunker silently drop every
+    paragraph that did not match it.
+
+    Splits on blank-line paragraph boundaries, packs paragraphs up to
+    ``chunk_chars``, and carries ``overlap`` characters between chunks so a
+    requirement spanning a boundary is still retrievable from both sides.
+    Guarantees every character of the input appears in at least one chunk.
+    """
     text = (text or "").strip()
     if not text:
         return []
 
-    # Semantic-ish SRS chunking: group tagged requirement lines first (better
-    # retrieval granularity). Convention-agnostic: FR/NFR/REQ/US/R + number,
-    # or "1.2.3"-style numbered clauses.
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    req_lines = [
-        ln for ln in lines
-        if re.match(r"^(FR|NFR|REQ|US|R)[-_ ]?\d+|^\d+(\.\d+)*[.)]\s", ln, flags=re.IGNORECASE)
-    ]
-    if req_lines:
-        grouped: list[str] = []
-        group_size = 8
-        step = 6  # overlap of 2 requirements
-        for i in range(0, len(req_lines), step):
-            block = req_lines[i:i + group_size]
-            if block:
-                grouped.append("\n".join(block))
-        return grouped
+    # Paragraphs are the smallest unit we never split; a single huge paragraph is
+    # further divided on sentence boundaries so one wall of text cannot blow the budget.
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    units: list[str] = []
+    for para in paragraphs:
+        if len(para) <= chunk_chars:
+            units.append(para)
+            continue
+        sentences = [u.strip() for u in re.split(r"(?<=[.!?])\s+", para) if u.strip()]
+        buf = ""
+        for sent in sentences:
+            if buf and len(buf) + len(sent) + 1 > chunk_chars:
+                units.append(buf)
+                buf = sent
+            else:
+                buf = f"{buf} {sent}".strip()
+        if buf:
+            units.append(buf)
 
-    # Fallback sentence-aware chunking for non-FR texts
-    units = [u.strip() for u in re.split(r"\n\s*\n|(?<=[.!?])\s+", text) if u.strip()]
     chunks: list[str] = []
     current: list[str] = []
     cur_len = 0
-    for u in units:
-        if cur_len + len(u) + 1 <= chunk_chars or not current:
-            current.append(u)
-            cur_len += len(u) + 1
-        else:
-            chunks.append("\n".join(current).strip())
-            # small overlap from previous chunk tail
-            tail = current[-1:] if overlap > 0 else []
-            current = tail + [u]
-            cur_len = sum(len(x) + 1 for x in current)
+    for unit in units:
+        if current and cur_len + len(unit) + 1 > chunk_chars:
+            chunk = "\n\n".join(current)
+            chunks.append(chunk)
+            # Carry the tail of this chunk into the next so cross-boundary context survives.
+            tail = chunk[-overlap:] if overlap > 0 else ""
+            current = [tail] if tail else []
+            cur_len = len(tail)
+        current.append(unit)
+        cur_len += len(unit) + 2
     if current:
-        chunks.append("\n".join(current).strip())
-    return chunks
+        chunks.append("\n\n".join(current))
+    return [c.strip() for c in chunks if c.strip()]
 
 
 def _query_tokens(q: str) -> list[str]:
@@ -704,6 +716,15 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None = Header(default
             ON CREATE SET p.created_at = $now
             SET p.updated_at = $now,
                 p.srs_summary = $srs_summary
+            // Ingesting a document REPLACES the project's document slice. The SRS
+            // node is keyed by filename, so without this a differently-named file
+            // added a second document and the old one lived on forever — retrieval
+            // then served requirements from a file that had been deleted from disk.
+            WITH p
+            OPTIONAL MATCH (p)-[:HAS_SRS]->(stale:SRS) WHERE stale.id <> $srs_id
+            OPTIONAL MATCH (stale)-[:HAS_CHUNK]->(staleChunk:Chunk)
+            DETACH DELETE stale, staleChunk
+            WITH p
             MERGE (s:SRS {id:$srs_id})
             SET s.project = $project,
                 s.source_path = $source_path,
@@ -863,8 +884,17 @@ def _write_entity_graph(session, project: str, extraction: dict | None, now: str
                     """,
                     req_uid=req_uid, vec=req_vecs[i], project=project,
                 )
-            except Exception:
-                pass  # no vector index / older Neo4j
+            except Exception as e:
+                # Without this edge the requirement is orphaned from the text it
+                # came from, so retrieved chunks reach the planner carrying no
+                # requirement ids to cite — which reads downstream as poor
+                # requirement coverage rather than as a missing index.
+                degradations.record(
+                    "requirement_provenance_failed", degradations.MAJOR,
+                    detail=f"cannot link requirement to its source chunk ({e}); "
+                           f"retrieved context will carry no requirement ids",
+                    project=project,
+                )
 
         # Link requirement to its domain objects as Entity nodes.
         for obj in (r.get("objects", []) or []):
@@ -1261,8 +1291,13 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
         tests = session.run(
             """
             MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
+            // Latest run's attribution: lets the planner tell "the app misbehaved"
+            // from "we never got there", which are opposite signals for exploration.
+            OPTIONAL MATCH (e:ExecutionLog {project:$project, test_case_id: coalesce(t.external_id, t.id)})
+            WITH t, e ORDER BY e.created_at DESC
+            WITH t, head(collect(coalesce(e.error_type,''))) AS error_type
             RETURN coalesce(t.external_id, t.id) AS id, t.title AS title, t.area AS area,
-                   t.last_verdict AS verdict, t.last_run_at AS ts,
+                   t.last_verdict AS verdict, t.last_run_at AS ts, error_type,
                    // The failure reason is what makes a past failure actionable for the
                    // planner — without it the agent only knows THAT a test failed.
                    t.last_notes AS notes
@@ -1498,7 +1533,14 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
         )
 
         # Graph-native coverage: link this test to the requirements it exercises.
+        # Matching is deliberately tolerant. The extractor is an LLM, so the id it
+        # assigns to the same clause can vary in prefix and case between runs
+        # ("FR-3.2.1.1.1" one ingest, "3.2.1.1.1" the next). An exact match made
+        # coverage silently report 0% whenever the model cited a valid-but-
+        # differently-prefixed id, so we fall back to a normalised comparison
+        # (prefix and punctuation stripped) before giving up.
         covered = 0
+        unmatched: list[str] = []
         for ref in (req.requirement_ids or []):
             ref = str(ref).strip()
             if not ref:
@@ -1506,14 +1548,27 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             res = session.run(
                 """
                 MATCH (t:TestCase {id:$internal_test_id})
-                MATCH (req:Requirement {id:$req_uid})
-                MERGE (t)-[:COVERS]->(req)
-                RETURN count(req) AS c
+                MATCH (r:Requirement {project:$project})
+                WHERE r.id = $req_uid
+                   OR r.ref_id = $ref
+                   OR toLower(replace(replace(coalesce(r.ref_id,''), 'FR-', ''), 'NFR-', ''))
+                      = toLower(replace(replace($ref, 'FR-', ''), 'NFR-', ''))
+                MERGE (t)-[:COVERS]->(r)
+                RETURN count(r) AS c
                 """,
                 internal_test_id=internal_test_id,
+                project=req.project,
+                ref=ref,
                 req_uid=f"{req.project}::req::{ref}",
             ).single()
-            covered += (res["c"] if res else 0)
+            n = res["c"] if res else 0
+            covered += n
+            if not n:
+                unmatched.append(ref)
+        if unmatched:
+            # Surfaced rather than swallowed: a cited id that matches nothing means
+            # the planner is inventing ids, which is a prompt problem worth seeing.
+            print(f"[tests/log] unmatched requirement ids for {req.test_case_id}: {unmatched}")
 
         # WP6: tag the test case with its target dimensions (304.2 VALID_FOR_*/TESTS_*).
         dims = dimensions_mod.clean_dims(req.profile, req.platform, req.application)
@@ -1806,9 +1861,14 @@ _APPMODEL_DIR = Path(__file__).resolve().parent.parent / "data" / "appmodel"
 
 # Structural Jaccard at/above this merges an observation into an existing state
 # (tolerates minor dynamic chrome). Exact signature match is the fast path.
-_STATE_MERGE_THRESHOLD = float(os.getenv("STATE_MERGE_THRESHOLD", "0.9"))
+from settings import STATE_MERGE_THRESHOLD as _STATE_MERGE_THRESHOLD
 # Hamming distance (on 8x8 average-hash) under which two thin-tree screens match.
-_PHASH_MATCH_DISTANCE = int(os.getenv("PHASH_MATCH_DISTANCE", "6"))
+from settings import PHASH_MATCH_DISTANCE as _PHASH_MATCH_DISTANCE
+from settings import STATE_CONTAINMENT_THRESHOLD as _CONTAINMENT_THRESHOLD
+from settings import STATE_MIN_CONTROLS_FOR_CONTAINMENT as _MIN_CONTROLS_CONTAIN
+from settings import STATE_CONTAINMENT_MAX_RATIO as _CONTAIN_MAX_RATIO
+from settings import STATE_SKELETON_THRESHOLD as _SKELETON_THRESHOLD
+from settings import STATE_SKELETON_MIN_FULL as _SKELETON_MIN_FULL
 
 
 def _find_matching_state(session, project: str, ab=None, phash: str | None = None):
@@ -1833,13 +1893,53 @@ def _find_matching_state(session, project: str, ab=None, phash: str | None = Non
         """,
         project=project, package=ab["package"], activity=ab["activity"], has_dialog=ab["has_dialog"],
     )
+    candidates2 = [dict(c) for c in candidates]
     best_id, best_score = None, 0.0
-    for c in candidates:
+    for c in candidates2:
         score = app_state.similarity(ab["key_set"], c.get("key_set") or [])
         if score > best_score:
             best_id, best_score = c["id"], score
     if best_id and best_score >= _STATE_MERGE_THRESHOLD:
         return best_id, False
+
+    # 2b. Partial-render match. A screen captured before its late-painting chrome
+    # (nav bar, search bar, app bar) is a strict subset of the same screen fully
+    # rendered, which Jaccard scores as different. Containment recognises it.
+    best_c_id, best_c = None, 0.0
+    for c in candidates2:
+        ks = c.get("key_set") or []
+        if min(len(ab["key_set"]), len(ks)) < _MIN_CONTROLS_CONTAIN:
+            continue  # too small to be conclusive — a tiny set sits inside anything
+        # A 1-control blank screen is "contained" in every screen, so cap how
+        # different the two sizes may be before containment is allowed to merge.
+        if app_state.size_ratio(ab["key_set"], ks) > _CONTAIN_MAX_RATIO:
+            continue
+        score = app_state.containment(ab["key_set"], ks)
+        if score > best_c:
+            best_c_id, best_c = c["id"], score
+    if best_c_id and best_c >= _CONTAINMENT_THRESHOLD:
+        return best_c_id, False
+
+    # 2c. Same widgets, different values. A control's content-description is its
+    # label on a button but its VALUE on a form field, so filling a multi-step
+    # form rewrites the key set and every step becomes a new state — one wizard
+    # produced nine. Comparing skeletons (resource_id + class) asks whether the
+    # same widgets are present, while the full-key floor keeps two genuinely
+    # different screens built from similar widget types apart.
+    best_s_id, best_s = None, 0.0
+    for c in candidates2:
+        ks = c.get("key_set") or []
+        if min(len(ab["key_set"]), len(ks)) < _MIN_CONTROLS_CONTAIN:
+            continue
+        if app_state.size_ratio(ab["key_set"], ks) > _CONTAIN_MAX_RATIO:
+            continue
+        if app_state.containment(ab["key_set"], ks) < _SKELETON_MIN_FULL:
+            continue
+        score = app_state.skeleton_containment(ab["key_set"], ks)
+        if score > best_s:
+            best_s_id, best_s = c["id"], score
+    if best_s_id and best_s >= _SKELETON_THRESHOLD:
+        return best_s_id, False
 
     # 3. perceptual-hash fallback (thin a11y trees: Compose/games/WebView)
     if phash:
@@ -1847,9 +1947,16 @@ def _find_matching_state(session, project: str, ab=None, phash: str | None = Non
             "MATCH (s:UIState {project:$project}) WHERE s.phash IS NOT NULL RETURN s.id AS id, s.phash AS phash",
             project=project,
         )
+        # Pick the CLOSEST match, not the first one the scan happens to return —
+        # first-match made the result depend on Neo4j's row order, so the same
+        # screen could bind to different states across runs.
+        best, best_d = None, _PHASH_MATCH_DISTANCE + 1
         for r in rows:
-            if app_state.hamming(phash, r["phash"]) <= _PHASH_MATCH_DISTANCE:
-                return r["id"], False
+            d = app_state.hamming(phash, r["phash"])
+            if d < best_d:
+                best, best_d = r["id"], d
+        if best is not None and best_d <= _PHASH_MATCH_DISTANCE:
+            return best, False
 
     return None, True
 
@@ -1928,10 +2035,18 @@ def liveui_observe(req: ObserveStateRequest, authorization: str | None = Header(
             ON CREATE SET p.created_at = $now
             SET p.updated_at = $now
             MERGE (s:UIState {id:$state_id})
-            ON CREATE SET s.first_seen = $now, s.visit_count = 0, s.label = $label
-            SET s.project = $project, s.signature = $sig, s.package = $package,
-                s.activity = $activity, s.key_set = $key_set,
-                s.has_dialog = $has_dialog, s.element_count = $element_count,
+            // Identity is IMMUTABLE. When a later observation merges into this
+            // state (structural near-match), it must not rewrite the signature or
+            // key_set: doing so made the state adopt the newcomer's identity, so a
+            // subsequent observation identical to the ORIGINAL no longer matched
+            // exactly, fell through to the slow path, and forked a duplicate state.
+            // That self-inflicted drift is why one screen accumulated variants.
+            ON CREATE SET s.first_seen = $now, s.visit_count = 0, s.label = $label,
+                s.signature = $sig, s.package = $package, s.activity = $activity,
+                s.key_set = $key_set, s.has_dialog = $has_dialog,
+                s.element_count = $element_count
+            // Only volatile facts change on revisit.
+            SET s.project = $project,
                 s.last_seen = $now, s.visit_count = coalesce(s.visit_count,0) + 1,
                 s.label = coalesce(s.label, $label)
             """
@@ -2664,7 +2779,7 @@ def demo_endpoints():
                     "path": "/ingest/srs",
                     "body": {
                         "project": "my-app",
-                        "source_path": "./data/inputs/Sample-Contacts-App-SRS.txt",
+                        "source_path": "./data/inputs/<your-app>-SRS.txt",
                     },
                 },
                 {

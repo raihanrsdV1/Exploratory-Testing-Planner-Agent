@@ -12,6 +12,16 @@ import re
 from . import config
 
 
+# Failures that say nothing about the app: our agent, the environment, or missing
+# test data. They must not create "hot spots", because a hot spot tells the planner
+# "keep digging here" — and digging into an area we simply cannot reach produced a
+# run of five near-duplicate tests that each burned the full step budget.
+NON_INFORMATIVE_ERRORS = {
+    "PRECONDITION_NOT_MET", "STEP_LIMIT_EXCEEDED", "NAVIGATION_LIVELOCK",
+    "NAVIGATION_FAILURE", "ELEMENT_NOT_FOUND", "TIMEOUT", "PERMISSION_DENIED",
+}
+
+
 def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict]) -> dict:
     """Derive a coverage map from test history + known screens (purely data-driven)."""
     # Exclude not-yet-executed ("planned") tests so coverage reflects real runs only.
@@ -19,10 +29,15 @@ def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict]) ->
     area_stats: dict[str, dict] = {}
     for t in executed:
         area = re.sub(r"\s+", "_", str(t.get("area", "general")).lower().strip()) or "general"
-        stats = area_stats.setdefault(area, {"total": 0, "passed": 0, "failed": 0})
+        stats = area_stats.setdefault(
+            area, {"total": 0, "passed": 0, "failed": 0, "unreachable": 0})
         stats["total"] += 1
+        err = str(t.get("error_type", "") or "").upper()
         if str(t.get("verdict", "")).lower() == "pass":
             stats["passed"] += 1
+        elif err in NON_INFORMATIVE_ERRORS:
+            # Ran, but produced no evidence about the app.
+            stats["unreachable"] += 1
         else:
             stats["failed"] += 1
 
@@ -34,14 +49,24 @@ def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict]) ->
 
     tested_areas = set(area_stats.keys()) - {"general"}
     uncovered_purposes = sorted(screen_purposes - tested_areas)
+    # Hot spot = the APP broke here repeatedly. Unreachable failures are excluded.
     hot_spots = sorted(a for a, s in area_stats.items() if s["failed"] >= 2)
-    exhausted = sorted(a for a, s in area_stats.items() if s["total"] >= 4 and s["failed"] == 0)
+    # Dead end = we keep trying and keep failing to even observe the app. Steer away.
+    dead_ends = sorted(
+        a for a, s in area_stats.items()
+        if s["unreachable"] >= 2 and s["unreachable"] >= s["passed"] + s["failed"]
+    )
+    exhausted = sorted(
+        a for a, s in area_stats.items()
+        if s["total"] >= 4 and s["failed"] == 0 and s["unreachable"] == 0
+    )
     cov_pct = round(100 * len(tested_areas) / len(screen_purposes)) if screen_purposes else 0
 
     return {
         "area_stats": area_stats,
         "uncovered_purposes": uncovered_purposes,
         "hot_spots": hot_spots,
+        "dead_ends": dead_ends,
         "exhausted_areas": exhausted,
         "total_tests": len(executed),
         "total_areas_tested": len(tested_areas),
@@ -80,6 +105,7 @@ def build_exploration_directive(coverage_map: dict, recent_tests: list[dict], mo
     recent_tests = [t for t in recent_tests if str(t.get("verdict", "")).lower() != "planned"]
     lines: list[str] = []
     hot_spots = coverage_map.get("hot_spots", [])
+    dead_ends = coverage_map.get("dead_ends", [])
     uncovered = coverage_map.get("uncovered_purposes", [])
     exhausted = coverage_map.get("exhausted_areas", [])
 
@@ -119,6 +145,13 @@ def build_exploration_directive(coverage_map: dict, recent_tests: list[dict], mo
                 "Try a different test type: boundary values, invalid input, or state transitions."
             )
 
+    if dead_ends:
+        lines.append(
+            f"[AVOID — UNREACHABLE] Repeatedly could not observe the app in: {', '.join(dead_ends[:3])}. "
+            "The preconditions cannot be met on this device (missing data, storage source, or permission). "
+            "Do NOT generate further variants here — choose a different area, or a variant whose "
+            "preconditions can be created from the current state."
+        )
     if exhausted:
         lines.append(
             f"[DEPRIORITIZE] Well-covered stable areas (4+ tests, 0 failures — avoid repeating): "

@@ -18,6 +18,210 @@ The loop:
 
 ---
 
+## Current status — ShobarKhamar campaign (29 Aug 2026)
+
+The agent is running against **ShobarKhamar** (`com.tirzokpvt.shobarkhamar`, Flutter,
+build 2.1.3), a livestock marketplace, on an Android 14 emulator. Latest 10-round
+campaign, signed in as a farmer/seller:
+
+| Metric | Value | Note |
+|---|---|---|
+| Pass | 3 / 10 | app behaved as expected |
+| Candidate defect | 1 | **unvalidated** — needs human confirmation |
+| Agent failure | 5 | our agent could not complete |
+| Environment | 1 | step budget |
+| **Autonomy** | **50%** | the honest weak point |
+| **Requirement coverage** | **14 / 106** | was 5/106, and 2/33 on the previous app |
+| App model | 25 states | package + activity populated on all |
+| Cost | ~1¢ per test, ~$0.02 per SRS ingestion | audited against the billing API |
+
+Artefacts per run: `logs/batch_<project>_<ts>.csv` (route, steps, verdict,
+attribution, cited requirement ids) and `logs/review_sheet.csv` (blank rubric
+columns for manual scoring).
+
+### What the campaign found in the app
+
+Unvalidated — these are candidate defects pending manual review:
+
+- **No validation feedback on an empty mandatory field.** Saving Farm Info with an
+  empty Farm Name produced no message naming the missing field (`FR-FARM-04`).
+- **No success confirmation.** A successful farm update showed no feedback (`FR-FARM-06`).
+- **No empty state on list screens.** "My Products" renders nothing when empty
+  rather than saying so, which is indistinguishable from a failed load (`FR-NAV-07`).
+- **Device registration race.** On a cold start the app POSTs
+  `/api/device/device_installations` with an empty `fcm_token`, receives
+  `400 fcm_token is required`, and shows *"Device registration failed. Check your
+  connection"* — with the network working. It succeeds ~40s later once the token
+  arrives. The error message misattributes a client sequencing bug to the network.
+- **Language selection does not apply until a full restart.**
+
+The build points at `https://test.sobarkhamar.com` (staging), so writes do not
+reach production users.
+
+---
+
+## Fixes made this cycle
+
+Every item below was a real defect found by running the system end to end, not by
+reading code. Grouped by what they broke.
+
+### Silent failures (the dominant class)
+
+| Defect | Effect |
+|---|---|
+| `_state_signature` returned `""` on failure | empty strings compare equal → `is_livelocked()` returned **True for every test in a suite**, autonomy 0%, nothing logged. Now returns a unique sentinel + CRITICAL degradation |
+| `_record_observations` `return []` on import error | disabled the **entire Live App Model** silently. Now CRITICAL |
+| navtree retrieval `except: pass` | learned routes silently unused (REQ-302 stopped paying off) |
+| `DERIVED_FROM` `except: pass` | requirements orphaned from source text |
+| **Degradations were per-process** | executor and API are separate processes, so every executor-side degradation was invisible to the dashboard and batch report, which printed *"0 fallbacks, trustworthy"* regardless. Now a shared JSONL sink |
+| `_degrade_once` recorded only the first occurrence | told us *that* something degraded, never *how often*. Now counted, events sampled at 1/2/5/10/25/… |
+
+### Device channel
+
+| Defect | Effect |
+|---|---|
+| **On-device portal was never installed** | `portal_mode="auto"` silently fell back to ADB for every run ever done. `adb input text` drops characters and its clear-before-type cannot verify itself, so a field holding `Trust Dairy Farm 1` became `Trust Dairy  FarTest FTest Farm 1rm 1` while the tool logged success |
+| No portal assertion | `driver.portal_available` returned `False` for months and nothing read it. Now asserted at connect, CRITICAL if absent, with automatic re-setup |
+| `get_ui_tree()` shape mismatch | mobilerun's own normalizer expects a list + `package`; the driver returns a root dict + `packageName`. Result: **0 nodes, package None** on every observation. Adapter took the same screen from 0 → 24 usable nodes |
+| `uiautomator dump` not retried | fails while the UI animates; one attempt dropped us to the sparse payload. Now 3 attempts |
+| `pm clear` deleted its own test fixtures | seeded gallery images vanished at each clean slate, so every image-dependent test failed for want of a file. Now re-seeded as part of reset |
+
+### App-agnosticism (the system is meant to run on *any* Android app)
+
+| Defect | Effect |
+|---|---|
+| Contacts vocabulary in `prompts.py` rule 5b | *"create a contact named X"*, *"no existing contacts"*, *"contacts exist on SIM"* shipped in **every generation prompt for every app** |
+| `_UNACHIEVABLE_PRECONDITION` hardcoded Contacts phrases | now `settings.UNACHIEVABLE_PRECONDITIONS`, generic default |
+| App-naming defaults (`TARGET_APP_PACKAGE`, `SRS_PATH`, `FIGMA_PATH`, `PROJECT`) | an unconfigured run silently targeted the wrong app instead of failing. All now empty |
+| `FIGMA_PATH=` could not be cleared | `_str()` falls back to the default on an empty value, so the Contacts design file kept loading |
+| `ENABLED_SOURCES` not enforced | a **disabled** Figma source still fed the generation prompt — the Contacts design file leaked into a livestock project and the first generated test was about a Contacts List |
+| `TARGET_APP_ONLY` was dead config | defined, never read. The agent left the app, opened the Play Store, and **uninstalled the app under test** |
+
+### State identity and attribution
+
+| Defect | Effect |
+|---|---|
+| Value-bearing `content_description` treated as identity | a dropdown's placeholder becoming its value made every wizard step a new screen — one Add Cattle form produced **9 states**. Skeleton matching (`resource_id + class`) fixes it: **19 correct merges, 0 false** on measured data |
+| Containment had no size guard (audit A-5) | a 1-control blank screen is "contained" in every screen. `STATE_CONTAINMENT_MAX_RATIO` now caps it |
+| Screen labels prefixed with the activity | single-activity apps (all Flutter) got `Main · ` on everything; these labels are handed to the device agent as screen names, so it hunted for captions no app displays |
+| Attribution taxonomy duplicated | the reporting copy omitted `NAVIGATION_LIVELOCK`, so **autonomy read 100% when it was 67%**. Now one definition in `settings.py`, asserted by object identity in tests |
+| Livelock measured variety, not periodicity | `A→B→C` repeated escapes a distinct-count check. Now detects periods 2–6 |
+| Every stall blamed on our agent | a frozen screen under repeated **taps** is the app refusing; under repeated **swipes** it is us failing to scroll elsewhere. `classify_stuck()` now needs positive action evidence before claiming `APP_UNRESPONSIVE` |
+| **`delete_appmodel: True` on every campaign** | we deleted the learned app map at the start of every run, so round 1 always flew blind and invented screen names. This also made REQ-302/303 ("every cycle makes the agent smarter") untestable. Split into `CLEAN_SLATE` (results) and `CLEAN_SLATE_APPMODEL` (knowledge, default **False**) |
+
+### New capabilities
+
+- `APP_LOGIN_*` — credentials for apps gated behind a login the agent cannot perform
+  (OTP, NID upload, admin approval). The **secret goes only to the executor**; the
+  planner receives the role name, so a credential never enters the 50k-token
+  planning prompt.
+- `APP_ACCOUNT_STATE` — what the account already has, so the planner stops writing
+  "register a new farm" tests for an account that already has one.
+- `OUT_OF_SCOPE` — requirements the agent must not attempt, **filtered out of the
+  citable-requirements list** so coverage pressure cannot override the constraint.
+- `TARGET_APP_ACTIVITY` / `TARGET_APP_LABELS` — open by package, not by display
+  name (ShobarKhamar's launcher label is Bengali: সবার খামার).
+- `DEVICE_FIXTURE_DIR` — test media re-seeded after every device reset.
+
+---
+
+## Known issues
+
+Ordered by how much they limit what we can claim.
+
+1. **Autonomy is 50%.** Half of runs are lost to our agent, mostly on multi-step
+   forms. The agent does not consider that a blocking required field may be
+   *above* it or in an *earlier wizard step* — it scrolled down 11 times at the
+   bottom of a form looking for fields that were at the top.
+2. **`uiautomator` and the portal fight.** `FATAL EXCEPTION: UiAutomationService`
+   appears in logcat — two accessibility clients registering at once. Not the app
+   crashing; our own tooling. Likely cause of `STEP_LIMIT_EXCEEDED` runs.
+3. **No ground truth.** Precision and recall are uncomputable. Only coverage and
+   autonomy are defensible today. Needs a seeded-defect build.
+4. **State-identity thresholds are tuned on one app's 18 states.** Evidence, not
+   proof. No labelled answer for how many distinct screens the app actually has.
+5. **`135 of 169` navtree nodes marked "avoid"** — that records thrashing, not
+   learning. Should fall as the map stabilises.
+6. **Test IDs restart at TC-001 every campaign.** Fine while results are wiped;
+   breaks the moment we compare campaigns.
+7. **The graph stores only title + verdict for a test** — `steps`, `screen` and
+   `expected_result` are dispatched but never persisted, so the review sheet
+   cannot show what a test actually did.
+8. **Requirement citation is inconsistent** — some tests cite ids in the structured
+   field, some only in prose.
+9. **Defect intelligence (ETA-REQ-301) has never run on real data.** Built, dormant.
+10. **Cross-application transfer (ETA-REQ-304) unvalidated** — every campaign so far
+    has run against one app.
+
+---
+
+## Tests
+
+```bash
+./venv/bin/python tests/run_all.py     # every module, non-zero exit on failure
+```
+
+| Module | Checks | Guards |
+|---|---|---|
+| `test_app_state.py` | 11 | structural signature, scroll/theme invariance, thin-tree fallback |
+| `test_state_identity.py` | 9 | skeleton matching, size-ratio guard, over-merge protection |
+| `test_livelock.py` | 21 | unusable-signal sentinel, cyclic periods 2–6, stuck attribution |
+| `test_observation.py` | 11 | driver-tree adapter, package/activity recovery, fallback path |
+| `test_config_guards.py` | 27 | no app-naming defaults, single taxonomy, cross-process degradations |
+
+Every check corresponds to a defect that reached a real run. `test_config_guards`
+greps `settings.py` itself for app-naming defaults and asserts taxonomy **object
+identity**, so both classes of regression fail the suite rather than silently
+returning.
+
+---
+
+## Remaining work
+
+### A. Finish the ShobarKhamar campaign
+
+- [ ] **Full 25-round campaign** once autonomy is above ~75%. At ~1¢/test and
+      ~4 min/test this is ~$0.25 and ~100 minutes.
+- [ ] **Per-role campaigns.** Five accounts exist (seller / buyer / feed /
+      medicine / machinery). Only farmer-seller has been exercised. Switch
+      `APP_LOGIN_ROLE` + `APP_LOGIN_IDENTIFIER` together and update
+      `APP_ACCOUNT_STATE` to match.
+- [ ] **Role-boundary tests** (`FR-SELL-12/13`) — a seller must see only its own
+      listings and must not reach another role's screens. Needs two accounts.
+- [ ] **Manual review** of `logs/review_sheet.csv` — confirm which candidate
+      defects are real. Nothing downstream is trustworthy until this happens once.
+
+### B. Agent capability
+
+- [ ] Teach the agent that a blocking field may be **above** or in an **earlier
+      wizard step** (cause of most current agent failures).
+- [ ] Resolve the uiautomator/portal accessibility conflict.
+- [ ] Persist `steps` / `screen` / `expected_result` to the graph.
+- [ ] Run-scoped test IDs.
+- [ ] Make requirement citation mandatory in the output contract when the
+      requirements block is non-empty.
+
+### C. Measurement
+
+- [ ] **Seeded-defect build** — 8–12 known defects with a ground-truth list. Three
+      arms (full agent / memory disabled / random baseline) gives precision,
+      recall, F1 and an ablation for the "gets smarter" claim. Under $1 of model
+      spend.
+- [ ] **Hand-label one app's screens** to price the identity thresholds instead of
+      guessing them.
+- [ ] Ingest a real defect export to activate ETA-REQ-301.
+- [ ] Second application to validate cross-app transfer (ETA-REQ-304).
+
+### D. Reporting
+
+- [ ] Correct `docs/SAMSUNG_PROGRESS_REPORT.pdf`: the *"zero silent fallbacks"*
+      claim read a counter that could not see the executor process, and
+      *"no source is a hard dependency"* was marked met on a subset test that never
+      checked whether a **disabled** source stops contributing.
+
+
+---
+
 ## What's new (v2)
 
 This is a major upgrade from the original keyword-RAG prototype:

@@ -29,9 +29,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Reuse the executor's device/observe machinery (also loads .env + UTF-8 guard).
 import clients.executor_runner as ex
+from settings import CRAWL_ROUNDS, CRAWL_MAX_STEPS  # noqa: E402
 
-CRAWL_ROUNDS = int(os.getenv("CRAWL_ROUNDS", "3"))
-CRAWL_MAX_STEPS = int(os.getenv("CRAWL_MAX_STEPS", "25"))
+
 CRAWL_GOAL = os.getenv("CRAWL_GOAL", "").strip() or (
     "You are systematically exploring this Android app to map its screens. "
     "Open the app, then visit as many DISTINCT screens, menus, tabs, and dialogs as you can: "

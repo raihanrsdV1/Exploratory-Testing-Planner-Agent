@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import traceback
+import uuid
 from datetime import datetime, timezone
 
 import requests
@@ -34,36 +35,25 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-# ── Load .env from project root ──────────────────────────────────────────────
-load_dotenv()
+# ── Configuration ────────────────────────────────────────────────────────────
+# Every tunable lives in settings.py (single source of truth); nothing in this
+# file reads the environment directly.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from settings import (  # noqa: E402
+    GATEWAY_URL, RAG_URL, PROJECT, APP_NAME, TOP_K, DEBUG_TRACE,
+    GEMINI_API_KEY, OPENROUTER_API_KEY,
+    EXECUTOR_LLM_PROVIDER, EXECUTOR_LLM_MODEL, EXECUTOR_TIMEOUT, EXECUTOR_ROUNDS,
+    EXECUTOR_MAX_STEPS, EXECUTOR_MAX_TOKENS, EXECUTOR_CONTEXT_WINDOW,
+    SELF_HEAL, TARGET_APP_PACKAGE, LOGTAIL_SOURCE_TOKEN, EXECUTOR_VISION, CLEAN_SLATE,
+    DEVICE_RESET, DATA_PROVIDER_PACKAGES, DEVICE_RESET_SCOPE, CLEAN_SLATE_APPMODEL,
+    TARGET_APP_ONLY, DEVICE_FIXTURE_DIR, DEVICE_FIXTURE_DEST, COMPANION_PACKAGES,
+    UNACHIEVABLE_PRECONDITIONS,
+    app_login_block, app_identity_block, device_input_block, verification_block,
+)
+from observability import degradations  # noqa: E402
 
-# ── Planner Gateway config ───────────────────────────────────────────────────
-GATEWAY_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
-RAG_URL = os.getenv("RAG_URL", "http://127.0.0.1:9010").rstrip("/")
-PROJECT = os.getenv("PROJECT", "contacts-app")
-APP_NAME = os.getenv("APP_NAME", "contacts app")
-TOP_K = int(os.getenv("TOP_K", "8"))
-DEBUG_TRACE = os.getenv("DEBUG_TRACE", "1").strip().lower() not in {"0", "false", "no"}
-
-# ── Executor-specific config ─────────────────────────────────────────────────
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-EXECUTOR_LLM_PROVIDER = os.getenv("EXECUTOR_LLM_PROVIDER", "GoogleGenAI")
-EXECUTOR_LLM_MODEL = os.getenv("EXECUTOR_LLM_MODEL", "gemini-2.5-pro")
-EXECUTOR_TIMEOUT = int(os.getenv("EXECUTOR_TIMEOUT", "120"))
-EXECUTOR_ROUNDS = int(os.getenv("EXECUTOR_ROUNDS", "2"))
-EXECUTOR_MAX_STEPS = int(os.getenv("EXECUTOR_MAX_STEPS", "30"))
-# LlamaIndex defaults the device LLM to 256 output tokens / 3900 context. At 256 the
-# agent's tool call gets cut off mid-argument, so it can never signal completion and
-# every run burns to EXECUTOR_MAX_STEPS and is logged as a failure.
-EXECUTOR_MAX_TOKENS = int(os.getenv("EXECUTOR_MAX_TOKENS", "4000"))
-EXECUTOR_CONTEXT_WINDOW = int(os.getenv("EXECUTOR_CONTEXT_WINDOW", "128000"))
-# WP7 self-healing: attempt one adaptive recovery on a recoverable failure.
-SELF_HEAL = os.getenv("SELF_HEAL", "1").strip().lower() not in {"0", "false", "no"}
-TARGET_APP_PACKAGE = os.getenv("TARGET_APP_PACKAGE", "com.android.contacts")
-
-# ── Logtail / Better Stack live logging ──────────────────────────────────────
-LOGTAIL_SOURCE_TOKEN = os.getenv("LOGTAIL_SOURCE_TOKEN", "")
+GATEWAY_URL = GATEWAY_URL.rstrip("/")
+RAG_URL = RAG_URL.rstrip("/")
 
 logger = logging.getLogger("executor")
 logger.setLevel(logging.INFO)
@@ -91,6 +81,40 @@ _LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 os.makedirs(_LOG_DIR, exist_ok=True)
 MOBILERUN_LOG = os.path.join(_LOG_DIR, "mobilerun.log")
 _mobilerun_file_attached = False
+
+
+class _StreamReassemblingHandler(logging.FileHandler):
+    """Join mobilerun's token-by-token stream back into readable lines.
+
+    mobilerun emits each generated token as its own log record (with
+    ``extra={"stream": True}``), which turned the log into a column of single
+    words and made the agent's reasoning impossible to follow. Streamed records
+    are buffered and flushed as one line when the stream ends or a normal record
+    arrives.
+    """
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._buf: list[str] = []
+
+    def _flush_buffer(self) -> None:
+        if not self._buf:
+            return
+        text = "".join(self._buf).strip()
+        self._buf.clear()
+        if text:
+            rec = logging.LogRecord("mobilerun", logging.INFO, "", 0, "%s", (text,), None)
+            super().emit(rec)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if getattr(record, "stream", False):
+            self._buf.append(record.getMessage())
+            return
+        if getattr(record, "stream_end", False):
+            self._flush_buffer()
+            return
+        self._flush_buffer()
+        super().emit(record)
 
 
 def _attach_mobilerun_file_log():
@@ -200,24 +224,48 @@ def _log_planner_trace(planner_data: dict, label: str = ""):
 # 1. PLANNER GATEWAY COMMUNICATION
 # ──────────────────────────────────────────────────────────────────────────────
 
+# The gateway normalises every model-backend failure (OpenRouter 429s included) to a
+# 503, after exhausting its own internal retry. One more transient 503 here used to
+# be uncaught and crash the entire multi-round asyncio.run(main()) outright, losing
+# every remaining round — not just the current one. Config-error 503s (missing API
+# key) are not worth retrying; only the upstream-unavailable ones are.
+_NEXT_TC_MAX_ATTEMPTS = 4
+_NEXT_TC_PERMANENT = ("not set in .env", "not installed")
+
+
 def get_next_testcase(max_new_tokens: int = 8000) -> dict:
     """Ask the planner gateway for the next test case."""
-    resp = requests.post(
-        f"{GATEWAY_URL}/agent/next-testcase",
-        json={
-            "project": PROJECT,
-            "app_name": APP_NAME,
-            "objective": "generate next high-value non-duplicate test case",
-            "top_k": TOP_K,
-            "max_new_tokens": max_new_tokens,
-            "max_retrieval_rounds": 2,   # 2 rounds keeps latency under ~60s
-            "enable_thinking": False,
-            "debug_trace": DEBUG_TRACE,
-        },
-        timeout=900,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    for attempt in range(1, _NEXT_TC_MAX_ATTEMPTS + 1):
+        resp = requests.post(
+            f"{GATEWAY_URL}/agent/next-testcase",
+            json={
+                "project": PROJECT,
+                "app_name": APP_NAME,
+                "objective": "generate next high-value non-duplicate test case",
+                "top_k": TOP_K,
+                "max_new_tokens": max_new_tokens,
+                "max_retrieval_rounds": 2,   # 2 rounds keeps latency under ~60s
+                "enable_thinking": False,
+                "debug_trace": DEBUG_TRACE,
+            },
+            timeout=900,
+        )
+        if resp.status_code != 503:
+            resp.raise_for_status()
+            return resp.json()
+
+        body = resp.text.lower()
+        permanent = any(tok in body for tok in _NEXT_TC_PERMANENT)
+        if attempt >= _NEXT_TC_MAX_ATTEMPTS or permanent:
+            resp.raise_for_status()
+
+        delay = 2 ** attempt
+        cloud_log(
+            "warning",
+            f"get_next_testcase retry {attempt}/{_NEXT_TC_MAX_ATTEMPTS} in {delay}s "
+            f"(gateway 503: {resp.text[:180]})",
+        )
+        time.sleep(delay)
 
 
 def log_verdict_and_get_next(
@@ -259,6 +307,18 @@ def log_verdict_only(tc: dict, verdict: str, notes: str) -> dict:
 # 2. TEST CASE → DROIDRUN GOAL TRANSLATION
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Unachievable preconditions are configured (settings.UNACHIEVABLE_PRECONDITIONS):
+# a phrase that is impossible in one app is ordinary setup in another.
+
+
+def filter_preconditions(preconditions: list[str]) -> tuple[list[str], list[str]]:
+    """Split preconditions into (keep, dropped-as-unachievable)."""
+    keep, dropped = [], []
+    for p in preconditions or []:
+        (dropped if any(k in str(p).lower() for k in UNACHIEVABLE_PRECONDITIONS) else keep).append(p)
+    return keep, dropped
+
+
 def build_droidrun_goal(test_case: dict) -> str:
     """
     Convert the planner's structured JSON test case into a natural language
@@ -278,17 +338,41 @@ def build_droidrun_goal(test_case: dict) -> str:
     # Build the goal instruction
     goal_parts = []
 
-    # Opening instruction — tell Droidrun which app to work with
-    goal_parts.append("Open the Contacts app on this device.")
+    # Which app to work with, and how to open it deterministically. Defined once
+    # in settings.app_identity_block() so every caller says the same thing.
+    goal_parts.append(app_identity_block())
+
+    # Credentials, when the app is gated behind a login the agent cannot create
+    # for itself (OTP to a phone we do not own, NID upload, admin approval).
+    login = app_login_block()
+    if login:
+        goal_parts.append(login)
 
     # Screen navigation
     if screen:
         goal_parts.append(f"Navigate to the '{screen}' screen if not already there.")
 
     # Preconditions as context
-    if preconditions:
-        pre_text = " ".join(preconditions)
-        goal_parts.append(f"Preconditions: {pre_text}")
+    kept_pre, dropped_pre = filter_preconditions(preconditions)
+    if dropped_pre:
+        print(f"   ✂️  Dropped unachievable precondition(s): {dropped_pre}")
+    if kept_pre:
+        goal_parts.append(f"Preconditions (create these yourself if missing): {' '.join(kept_pre)}")
+    # Only claim a clean slate when one was actually taken. Telling the agent the
+    # app was reset when it was not sends it hunting for absent data.
+    if DEVICE_RESET == "pm_clear":
+        goal_parts.append(
+            "The app has just been reset to a clean state. If the test needs data to exist, "
+            "CREATE it as your first steps. Do not abandon the test because data is missing."
+        )
+    else:
+        goal_parts.append(
+            "The app keeps state from earlier tests. If the test needs data that is missing, "
+            "CREATE it as your first steps. Do not abandon the test because data is missing."
+        )
+
+    goal_parts.append(device_input_block())
+    goal_parts.append(verification_block())
 
     # Steps — numbered imperatives
     if steps:
@@ -336,7 +420,14 @@ def classify_failure(reason: str, success: bool = False) -> str:
     # environment problem, NOT app misbehaviour. Keeping it out of the defect
     # categories stops it from inflating defect-discovery and strategy scores.
     if any(k in r for k in ("precondition not met", "preconditions not met",
-                            "precondition failed", "preconditions are not met")):
+                            "precondition failed", "preconditions are not met",
+                            # The agent judges its own task infeasible without using the
+                            # word "precondition" (e.g. the test assumed a blank account
+                            # but the device is already in a different state). Without
+                            # these it falls through to ASSERTION_FAILURE below and
+                            # counts as a candidate defect.
+                            "cannot be completed as specified", "task cannot be completed",
+                            "not achievable as specified")):
         return "PRECONDITION_NOT_MET"
     # Also not app misbehaviour: the step budget ran out mid-test. Without this it
     # falls through to ASSERTION_FAILURE and is counted as a discovered defect.
@@ -390,14 +481,244 @@ def _learned_nav_hint(test_case: dict) -> str:
         if steps:
             path = "; ".join(f"{s.get('action','')}->{s.get('screen','')}" for s in steps)
             return f"Proven path to '{screen}': {path}"
-    except Exception:
-        pass
+    except Exception as e:
+        # Losing the learned route is REQ-302 quietly ceasing to pay off. The
+        # only symptom is a step count that stops improving, which is invisible
+        # unless it is said out loud.
+        _degrade("navtree_retrieval_failed", degradations.MAJOR,
+                      f"learned navigation paths unavailable ({e}); the executor "
+                      f"re-explores routes it has already proven")
     return ""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 2b. LIVE APP MODEL — feed the executor's real trajectory into the graph (WP1)
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+_DEGRADED_COUNTS: dict[str, int] = {}
+# Emit an event on these occurrence numbers only. Recording every occurrence
+# floods the report from a per-observation hot path; recording just the first
+# tells you something degraded but not whether it hit 3 observations or 300 —
+# which is the difference between a footnote and a void run.
+_DEGRADE_REPORT_AT = (1, 2, 5, 10, 25, 50, 100, 250, 500, 1000)
+
+
+def _degrade(kind: str, severity: str, detail: str) -> None:
+    """Count every occurrence; emit an event at widening intervals."""
+    n = _DEGRADED_COUNTS.get(kind, 0) + 1
+    _DEGRADED_COUNTS[kind] = n
+    if n not in _DEGRADE_REPORT_AT:
+        return
+    suffix = "" if n == 1 else f" [occurrence {n}]"
+    try:
+        degradations.record(kind, severity, detail=f"{detail}{suffix}", occurrences=n)
+    except Exception:
+        pass
+    cloud_log("warning", f"DEGRADED [{severity}] {kind} (x{n}): {detail}")
+
+
+def degradation_counts() -> dict[str, int]:
+    """Final per-kind occurrence counts, for the end-of-run report."""
+    return dict(_DEGRADED_COUNTS)
+
+
+def adapt_driver_tree(tree) -> dict:
+    """Reshape ``AndroidDriver.get_ui_tree()`` output for ``normalize_ui_state``.
+
+    The driver returns ``{'a11y_tree': <root node dict>, 'phone_state':
+    {'packageName': ...}}`` but the normalizer expects a LIST of elements and a
+    phone_state keyed ``package``. Handed the raw output it walks a dict as if it
+    were a list, yields zero nodes, and reports package=None — so every observed
+    screen arrived with no controls, no content-descriptions and no package.
+
+    That is what made the app model useless on this app: states were labelled
+    ``android.view.View #2``, identity had nothing but class names to compare,
+    the package/activity bucket that keeps launcher and system UI apart was
+    empty, and every mined error pattern and anomaly was keyed to a meaningless
+    name. Wrapping the root node in a list and mapping ``packageName`` took the
+    same screen from 0 usable nodes to 24, with 7 content-descriptions and 12
+    clickable controls.
+    """
+    if not isinstance(tree, dict):
+        return tree
+    root = tree.get("a11y_tree")
+    if root is None and "elements" not in tree and "nodes" not in tree:
+        return tree                      # not driver output; pass through
+    ps = tree.get("phone_state") or {}
+    dc = tree.get("device_context") or {}
+    root_pkg = root.get("packageName") if isinstance(root, dict) else None
+    return {
+        "elements": [root] if isinstance(root, dict) else (root or []),
+        "phone_state": {
+            "package": (ps.get("packageName") or ps.get("package")
+                        or dc.get("packageName") or root_pkg or ""),
+            "activity": (ps.get("activityName") or ps.get("activity")
+                         or dc.get("activity") or ""),
+        },
+    }
+
+
+# uiautomator dump is racy while the UI animates; a couple of quick retries
+# turn a transient miss into a clean read instead of a degraded observation.
+_UI_TREE_ATTEMPTS = 3
+_UI_TREE_RETRY_DELAY = 0.6
+
+
+async def _assert_portal(driver) -> bool:
+    """Check the on-device portal is actually in use, and say so when it is not.
+
+    mobilerun defaults to portal_mode="auto": it tries the portal and silently
+    drops to ADB when it is missing. That fallback is not equivalent —
+    ``adb input text`` races the IME and drops characters, its clear-before-type
+    cannot verify itself and reports success having cleared nothing, and
+    ``uiautomator dump`` returns no XML while the screen animates. Every run we
+    had done was on that path, and nothing said so: a field holding
+    "Trust Dairy Farm 1" became "Trust Dairy  FarTest FTest Farm 1rm 1" while the
+    tool logged success, and the agent looked incompetent for it.
+
+    `portal_available` was a property sitting there returning False the whole
+    time. Nothing read it. Now a degraded device is a first-class, visible fact.
+    """
+    try:
+        await driver.ensure_connected()
+        ok = bool(getattr(driver, "portal_available", False))
+        keyboard = bool(getattr(driver, "_portal_keyboard_available", False))
+    except Exception as e:
+        _degrade("device_portal_check_failed", degradations.MAJOR,
+                      f"could not determine whether the device portal is active ({e})")
+        return False
+
+    if ok and keyboard:
+        print("   🔌 Device portal active (reliable text input + state feed)")
+        return True
+
+    # Try once to repair it before giving up. The portal probe can miss while the
+    # accessibility service is still starting, and a driver reconnected between
+    # rounds then spends the rest of the suite on the ADB path — which is how
+    # round 1 ran with the portal and round 2 silently did not.
+    try:
+        from mobilerun_core_cli.portal import ensure_portal_ready
+        await ensure_portal_ready(driver.device)
+        driver._connected = False           # force a fresh probe
+        await driver.ensure_connected()
+        ok = bool(getattr(driver, "portal_available", False))
+        keyboard = bool(getattr(driver, "_portal_keyboard_available", False))
+        if ok and keyboard:
+            print("   🔌 Device portal recovered after re-setup")
+            _degrade("device_portal_recovered", degradations.MINOR,
+                          "portal was inactive at connect and was re-established")
+            return True
+    except Exception as e:
+        cloud_log("warning", f"Portal re-setup failed: {e}")
+
+    _degrade(
+        "device_portal_unavailable", degradations.CRITICAL,
+        f"portal_available={ok} keyboard={keyboard}; falling back to ADB input, "
+        f"which drops characters, cannot reliably clear a field, and races "
+        f"uiautomator — text-entry results from this run are not trustworthy. "
+        f"Install it with mobilerun_core_cli.portal.ensure_portal_ready(driver.device).",
+    )
+    return False
+
+
+async def _observe_device(driver, fallback):
+    """Current screen from the driver, falling back to the streamed event payload.
+
+    The event's ``ui_state`` is far poorer than what the driver can report, so we
+    ask the device directly and only fall back if that fails.
+    """
+    if driver is not None:
+        # `uiautomator dump` returns no XML while the screen is mid-animation,
+        # which during an active run is most of the time, and get_ui_tree() does
+        # not retry (mobilerun's own get_state does). One attempt therefore drops
+        # us onto the sparse event payload for transient reasons, and the app
+        # model silently loses that observation's controls and package.
+        last = None
+        for attempt in range(_UI_TREE_ATTEMPTS):
+            try:
+                return adapt_driver_tree(await driver.get_ui_tree())
+            except Exception as e:
+                last = e
+                if attempt + 1 < _UI_TREE_ATTEMPTS:
+                    await asyncio.sleep(_UI_TREE_RETRY_DELAY)
+        _degrade("driver_ui_tree_failed", degradations.MAJOR,
+                      f"cannot read the accessibility tree from the driver after "
+                      f"{_UI_TREE_ATTEMPTS} attempts ({last}); falling back to the "
+                      f"sparser event payload, which carries no content-descriptions "
+                      f"and no package")
+    return fallback
+
+
+def reset_device_app() -> None:
+    """Put the app back to a known state before a test runs.
+
+    Tests that create data (contacts, drafts) leave it behind, so by the sixth run
+    the app held 30 contacts and any test whose setup assumed an empty app could
+    never satisfy it. Resetting also clears half-filled forms, which previously
+    leaked into the next test.
+    """
+    import subprocess
+    if DEVICE_RESET == "none" or not TARGET_APP_PACKAGE:
+        return
+    try:
+        if DEVICE_RESET == "pm_clear":
+            # The UI package first, then the providers that actually hold the data.
+            for pkg in (TARGET_APP_PACKAGE, *DATA_PROVIDER_PACKAGES):
+                subprocess.run(["adb", "shell", "pm", "clear", pkg],
+                               capture_output=True, timeout=60)
+        else:
+            subprocess.run(["adb", "shell", "am", "force-stop", TARGET_APP_PACKAGE],
+                           capture_output=True, timeout=30)
+        subprocess.run(["adb", "shell", "monkey", "-p", TARGET_APP_PACKAGE,
+                        "-c", "android.intent.category.LAUNCHER", "1"],
+                       capture_output=True, timeout=60)
+        time.sleep(2)  # let the launcher settle before the first observation
+        print(f"   🧹 Device reset ({DEVICE_RESET}) for {TARGET_APP_PACKAGE}")
+        seed_device_fixtures()
+    except Exception as e:
+        cloud_log("warning", f"Device reset failed: {e}")
+
+
+def seed_device_fixtures() -> None:
+    """Put test media back on the device after a reset.
+
+    `pm clear` removes the app's MediaStore contributions, and /sdcard/Pictures
+    is owned by the app's uid — so clearing the app deletes any images seeded
+    there. Every image-dependent test then fails for want of a file to pick,
+    which looks like an app defect and is actually the reset eating its own
+    fixtures. Re-seeding is part of resetting, not a separate manual step.
+    """
+    import subprocess
+    if not DEVICE_FIXTURE_DIR or not os.path.isdir(DEVICE_FIXTURE_DIR):
+        return
+    files = sorted(
+        f for f in os.listdir(DEVICE_FIXTURE_DIR)
+        if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+    )
+    if not files:
+        return
+    pushed = 0
+    for name in files:
+        src = os.path.join(DEVICE_FIXTURE_DIR, name)
+        dst = f"{DEVICE_FIXTURE_DEST.rstrip('/')}/{name}"
+        r = subprocess.run(["adb", "shell", "mkdir", "-p", DEVICE_FIXTURE_DEST],
+                           capture_output=True, timeout=30)
+        r = subprocess.run(["adb", "push", src, dst], capture_output=True, timeout=60)
+        if r.returncode != 0:
+            continue
+        # Without a media scan the file exists on disk but no picker can see it.
+        subprocess.run(["adb", "shell", "am", "broadcast",
+                        "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+                        "-d", f"file://{dst}"], capture_output=True, timeout=30)
+        pushed += 1
+    if pushed:
+        print(f"   🖼️  Seeded {pushed} test image(s) into {DEVICE_FIXTURE_DEST}")
+    else:
+        _degrade("device_fixtures_missing", degradations.MAJOR,
+                      f"could not seed test media from {DEVICE_FIXTURE_DIR}; "
+                      f"any test needing an image will fail for lack of a file")
+
 
 async def _safe_screenshot(driver):
     """Best-effort current-device screenshot (bytes), or None."""
@@ -422,7 +743,13 @@ def _record_observations(observations, tc_id: str = "", driver_shot: bytes | Non
         return []
     try:
         from mobilerun.macro.state import normalize_ui_state
-    except Exception:
+    except Exception as e:
+        # This one handler disables the ENTIRE Live App Model: no UIState nodes,
+        # no transitions, no navigation memory — i.e. the data source for
+        # REQ-302 and REQ-303 — while the run still reports success.
+        _degrade("live_app_model_disabled", degradations.CRITICAL,
+                      f"cannot import normalize_ui_state ({e}); no UI states, "
+                      f"transitions or navigation memory will be recorded")
         return []
 
     prev_id = None
@@ -433,14 +760,33 @@ def _record_observations(observations, tc_id: str = "", driver_shot: bytes | Non
             continue
         try:
             normalized = normalize_ui_state(elements)
-        except Exception:
+        except Exception as e:
+            # A dropped observation leaves a hole in the transition graph that
+            # is indistinguishable from a screen the agent never reached.
+            _degrade("observation_normalise_failed_x", degradations.MAJOR,
+                          f"dropping observations the app model cannot normalise ({e}); "
+                          f"the transition graph will have gaps")
             continue
+
+        # The app model must contain the APP, not whatever was on screen. Without
+        # this the launcher, the status bar and permission dialogs became "app
+        # states" — 3 of 10 in the first real run — and, because they share the
+        # (empty) package/activity bucket with real screens, they competed to
+        # match them on similarity too.
+        obs_pkg = ((normalized.get("phone_state") or {}).get("package") or "").strip()
+        if TARGET_APP_PACKAGE and obs_pkg and obs_pkg != TARGET_APP_PACKAGE:
+            if obs_pkg not in COMPANION_PACKAGES:
+                continue
+
         raw_shot = shot if shot else (driver_shot if i == last_i else None)
         shot_b64 = None
         if raw_shot:
             try:
                 shot_b64 = base64.b64encode(raw_shot).decode("ascii")
-            except Exception:
+            except Exception as e:
+                _degrade("screenshot_encode_failed", degradations.MINOR,
+                              f"state screenshots unavailable ({e}); the app model "
+                              f"will have nodes with no image")
                 shot_b64 = None
         try:
             resp = requests.post(
@@ -548,7 +894,10 @@ async def execute_test_on_device(test_case: dict) -> dict:
     """
     # Lazy import so the script doesn't crash during --help / preflight
     from mobilerun import MobileAgent, AndroidDriver, load_llm, MobileConfig, AgentConfig
-    from mobilerun.config_manager.config_manager import LoggingConfig
+    from mobilerun.config_manager.config_manager import (
+        LoggingConfig, FastAgentConfig, ManagerConfig, ExecutorConfig,
+    )
+    from workflows.errors import WorkflowTimeoutError
     _attach_mobilerun_file_log()  # tee mobilerun's live logs to logs/mobilerun.log
 
     goal = build_droidrun_goal(test_case)
@@ -572,6 +921,9 @@ async def execute_test_on_device(test_case: dict) -> dict:
         expected_result=test_case.get("expected_result", ""),
     )
 
+    if DEVICE_RESET_SCOPE == "test":
+        reset_device_app()
+
     start_time = time.time()
     agent = None
     driver = None
@@ -580,6 +932,7 @@ async def execute_test_on_device(test_case: dict) -> dict:
     try:
         # Set up device driver (connects to default adb device)
         driver = AndroidDriver()
+        await _assert_portal(driver)
 
         # Determine which API key to use based on the provider
         if EXECUTOR_LLM_PROVIDER.lower() == "openrouter":
@@ -600,7 +953,15 @@ async def execute_test_on_device(test_case: dict) -> dict:
         # Create and run the agent. Trajectory capture is enabled so we can feed the
         # real per-step UI states + screenshots into the Live App Model (WP1).
         config = MobileConfig(
-            agent=AgentConfig(max_steps=EXECUTOR_MAX_STEPS),
+            agent=AgentConfig(
+                max_steps=EXECUTOR_MAX_STEPS,
+                # Screenshots go to the sub-agents that decide and act. Costs image
+                # tokens per step, but it is the only signal on screens whose
+                # accessibility tree exposes no usable control names.
+                fast_agent=FastAgentConfig(vision=EXECUTOR_VISION),
+                manager=ManagerConfig(vision=EXECUTOR_VISION),
+                executor=ExecutorConfig(vision=EXECUTOR_VISION),
+            ),
             logging=LoggingConfig(
                 save_trajectory="all",
                 trajectory_path="logs/trajectories",
@@ -627,8 +988,12 @@ async def execute_test_on_device(test_case: dict) -> dict:
             from mobilerun.agent.common.events import RecordUIStateEvent
             async for ev in handler.stream_events():
                 if isinstance(ev, RecordUIStateEvent):
+                    # Ask the device rather than trusting the event payload: the
+                    # streamed ui_state carries no content-descriptions, no
+                    # package and clickable=0 for everything.
+                    elements = await _observe_device(driver, getattr(ev, "ui_state", None))
                     shot = await _safe_screenshot(driver)
-                    observations.append((getattr(ev, "ui_state", None), shot))
+                    observations.append((elements, shot))
         except Exception as e:
             cloud_log("warning", f"Event streaming issue for {tc_id}: {e}")
         result = await handler
@@ -738,6 +1103,40 @@ async def execute_test_on_device(test_case: dict) -> dict:
         _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path, error_type="TIMEOUT", error_message=notes)
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
 
+    except WorkflowTimeoutError:
+        # mobilerun's own MobileAgent(timeout=EXECUTOR_TIMEOUT) enforces its budget
+        # by raising THIS, not asyncio.TimeoutError — so it fell through to the
+        # generic crash handler below and was recorded as error_type="CRASH" with
+        # no message, silently counting a budget timeout as a candidate app defect.
+        # By decision: don't raise EXECUTOR_TIMEOUT/EXECUTOR_MAX_STEPS to chase
+        # this — just tag it honestly so a human decides whether to look closer.
+        # STEP_LIMIT_EXCEEDED if it genuinely used the full step budget (an
+        # environment/budget issue, excluded from defect metrics); otherwise
+        # ASSERTION_FAILURE, since timing out with steps still available is not
+        # explained by the budget and is worth a manual look.
+        duration = time.time() - start_time
+        exec_path = []
+        try:
+            exec_path = _record_observations(observations, tc_id, driver_shot=await _safe_screenshot(driver))
+        except Exception:
+            pass
+        ran_full_budget = len(exec_path) >= EXECUTOR_MAX_STEPS
+        error_type = "STEP_LIMIT_EXCEEDED" if ran_full_budget else "ASSERTION_FAILURE"
+        notes = (
+            f"Workflow timed out after {EXECUTOR_TIMEOUT}s "
+            f"({len(exec_path)}/{EXECUTOR_MAX_STEPS} steps observed). "
+            + ("Ran the full step budget without finishing."
+               if ran_full_budget else
+               "Timed out with steps still available - not a step-budget issue; "
+               "flagged for manual review of what it was doing when it stalled.")
+        )
+        print(f"\n⏰ Workflow timeout after {EXECUTOR_TIMEOUT}s -> tagged {error_type}")
+        cloud_log("error", f"Test {tc_id} workflow-timed-out -> {error_type}",
+                  test_case_id=tc_id, title=title, timeout=EXECUTOR_TIMEOUT, steps=len(exec_path))
+        _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path,
+                       error_type=error_type, error_message=notes)
+        return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
+
     except Exception as e:
         duration = time.time() - start_time
         tb = traceback.format_exc()
@@ -841,11 +1240,17 @@ def preflight():
         print("  ❌ ADB not found! Install it: brew install android-platform-tools")
         sys.exit(1)
 
-    # 5. Check Gemini API key
-    if not GEMINI_API_KEY:
-        print("  ❌ GEMINI_API_KEY not set in .env!")
-        sys.exit(1)
-    print(f"  ✅ Gemini API key: ...{GEMINI_API_KEY[-6:]}")
+    # 5. Check executor LLM API key (provider-dependent, mirrors the branch in run_test_case)
+    if EXECUTOR_LLM_PROVIDER.lower() == "openrouter":
+        if not OPENROUTER_API_KEY:
+            print("  ❌ OPENROUTER_API_KEY not set in .env!")
+            sys.exit(1)
+        print(f"  ✅ OpenRouter API key: ...{OPENROUTER_API_KEY[-6:]}")
+    else:
+        if not GEMINI_API_KEY:
+            print("  ❌ GEMINI_API_KEY not set in .env!")
+            sys.exit(1)
+        print(f"  ✅ Gemini API key: ...{GEMINI_API_KEY[-6:]}")
 
     print("\n🚀 All preflight checks passed. Starting executor loop.\n")
 
@@ -853,6 +1258,66 @@ def preflight():
 # ──────────────────────────────────────────────────────────────────────────────
 # 6. MAIN LOOP
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+def _export_batch_csv(path: str | None = None) -> str:
+    """Write one row per executed test: outcome, attribution, and the path walked.
+
+    Batch results otherwise live only in Neo4j and are wiped by the next clean
+    slate, so every run's evidence is lost as soon as the following run starts.
+    """
+    import csv
+    from datetime import datetime
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = path or os.path.join(_LOG_DIR, f"batch_{PROJECT}_{stamp}.csv")
+    try:
+        logs = requests.get(f"{RAG_URL}/execution/logs",
+                            params={"project": PROJECT, "limit": 500}, timeout=60).json().get("logs", [])
+        graph = requests.get(f"{RAG_URL}/appmodel/graph",
+                             params={"project": PROJECT}, timeout=60).json()
+        tests = requests.get(f"{RAG_URL}/tests/recent",
+                             params={"project": PROJECT, "limit": 500}, timeout=60).json().get("tests", [])
+    except Exception as e:
+        print(f"  ⚠️  CSV export failed: {e}")
+        return ""
+
+    label = {n["id"]: n.get("label", "?") for n in graph.get("nodes", [])}
+    meta = {t.get("id"): t for t in tests}
+    APP_FAULT = {"ASSERTION_FAILURE", "CRASH"}
+    from settings import AGENT_FAULT  # single source of truth
+
+    with open(out, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["test_id", "title", "area", "verdict", "error_type", "attribution",
+                    "device_steps", "states_visited", "distinct_states", "duration_s",
+                    "requirement_ids", "route", "error_message", "created_at"])
+        for e in sorted(logs, key=lambda x: x.get("created_at") or ""):
+            tid = e.get("test_case_id", "")
+            t = meta.get(tid, {})
+            et = e.get("error_type") or ""
+            attribution = ("pass" if e.get("verdict") in ("pass", "passed")
+                           else "app" if (et in APP_FAULT or not et)
+                           else "agent" if et in AGENT_FAULT else "environment")
+            ids = e.get("path") or []
+            route, prev = [], None
+            for pid in ids:
+                lbl = label.get(pid, "?")
+                if lbl != prev:
+                    route.append(lbl)
+                    prev = lbl
+            w.writerow([
+                tid, t.get("title") or e.get("title", ""), t.get("area", ""),
+                e.get("verdict", ""), et, attribution,
+                e.get("device_steps", 0), e.get("states_visited", 0), len(set(ids)),
+                round((e.get("duration_ms") or 0) / 1000, 1),
+                "|".join(t.get("requirement_ids") or []) if isinstance(t.get("requirement_ids"), list) else "",
+                " -> ".join(route), (e.get("error_message") or "")[:300],
+                e.get("created_at", ""),
+            ])
+    print(f"\n  📄 Batch CSV: {out}  ({len(logs)} runs)")
+    return out
+
 
 async def main(rounds: int = EXECUTOR_ROUNDS):
     """
@@ -863,6 +1328,33 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
       4. Repeat for N rounds
     """
     preflight()
+
+    if CLEAN_SLATE:
+        _print_header("CLEAN SLATE — resetting execution history")
+        # Every batch must start from the same graph state or runs are not
+        # comparable: leftover tests skew dedup, coverage and risk, and leftover
+        # UIStates make the app model look richer than this run earned.
+        try:
+            r = requests.post(f"{RAG_URL}/project/reset", json={
+                "project": PROJECT, "delete_tests": True,
+                # The app model MUST be cleared too. Leaving it credits this run
+                # with screens an earlier run discovered, so "states mapped" and
+                # every path in the report describe a graph this batch did not
+                # build — and the dashboard shows a map before any test has run.
+                "delete_appmodel": CLEAN_SLATE_APPMODEL,
+                # Knowledge (SRS/Figma) is ingested separately and is not part of
+                # what a run earns, so it is preserved.
+                "delete_srs": False, "delete_figma": False,
+            }, timeout=120)
+            r.raise_for_status()
+            print(f"  reset: {r.json().get('deleted')}")
+        except Exception as e:
+            print(f"  ⚠️  reset failed: {e}")
+
+    if DEVICE_RESET_SCOPE == "suite":
+        # One wipe for the whole run: every suite starts from an identical device,
+        # while state still accumulates between tests within the run.
+        reset_device_app()
 
     results_log = []
 
@@ -1041,6 +1533,8 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
             print(f"  - {t.get('id')} | {t.get('verdict')} | {t.get('title')}")
     except Exception as e:
         print(f"  ⚠️  Could not fetch recent tests: {e}")
+
+    _export_batch_csv()
 
 
 if __name__ == "__main__":

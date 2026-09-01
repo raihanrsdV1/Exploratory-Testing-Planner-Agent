@@ -27,17 +27,52 @@ QA_SYSTEM_INSTRUCTION = (
 )
 
 
-def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict:
+# Providers rate-limit (429) and occasionally 5xx; those are worth retrying and an
+# unretried one used to kill an entire multi-hour batch. Everything here is
+# re-raised as HTTPException(503), so the transient test must look at the
+# *upstream* status embedded in the message and explicitly exclude permanent
+# failures — otherwise a 400 "bad model id" gets retried three times and still
+# fails, just slower.
+_RETRY_STATUS = ("429", "500 ", "502", "503 ", "504", "too many requests", "overloaded", "timed out")
+_PERMANENT = ("400", "401", "403", "404", "not a valid model", "invalid api key")
+_MAX_ATTEMPTS = 4
+
+
+def _is_transient(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    if any(tok in msg for tok in _PERMANENT):
+        return False
+    return any(tok in msg for tok in _RETRY_STATUS)
+
+
+def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool,
+               model: str | None = None) -> dict:
+    """Call the configured backend. ``model`` overrides the default for this call,
+    which is how ingestion can use a stronger model than the planner loop."""
     import time
     start = time.perf_counter()
     inc("llm_calls_total")
 
-    if config.MODEL_BACKEND == "gemini":
-        result = _call_gemini(prompt, max_new_tokens, enable_thinking)
-    elif config.MODEL_BACKEND == "openrouter":
-        result = _call_openrouter(prompt, max_new_tokens, enable_thinking)
-    else:
-        result = _call_ngrok(prompt, max_new_tokens, enable_thinking)
+    def _dispatch():
+        if config.MODEL_BACKEND == "gemini":
+            return _call_gemini(prompt, max_new_tokens, enable_thinking)
+        if config.MODEL_BACKEND == "openrouter":
+            return _call_openrouter(prompt, max_new_tokens, enable_thinking, model=model)
+        return _call_ngrok(prompt, max_new_tokens, enable_thinking)
+
+    result = None
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            result = _dispatch()
+            break
+        except Exception as exc:
+            if attempt >= _MAX_ATTEMPTS or not _is_transient(exc):
+                raise
+            delay = 2 ** attempt
+            log.warning("llm_retry", backend=config.MODEL_BACKEND, attempt=attempt,
+                        delay_s=delay, error=str(exc)[:180])
+            inc("llm_retries_total")
+            time.sleep(delay)
 
     duration_ms = round((time.perf_counter() - start) * 1000, 1)
     estimated_tokens = len(prompt) // 4 + len(result.get("answer") or "") // 4
@@ -85,7 +120,8 @@ def _call_ngrok(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict
         raise HTTPException(status_code=503, detail=f"Model backend (ngrok) unavailable: {e}")
 
 
-def _call_openrouter(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict:
+def _call_openrouter(prompt: str, max_new_tokens: int, enable_thinking: bool,
+                     model: str | None = None) -> dict:
     if not config.OPENROUTER_API_KEY:
         raise HTTPException(status_code=503, detail="OPENROUTER_API_KEY not set in .env")
 
@@ -100,20 +136,34 @@ def _call_openrouter(prompt: str, max_new_tokens: int, enable_thinking: bool) ->
         {"role": "user", "content": prompt},
     ]
     payload = {
-        "model": config.OPENROUTER_MODEL,
+        "model": model or config.OPENROUTER_MODEL,
         "messages": messages,
-        "max_tokens": max_new_tokens,
         "temperature": 0.7,
     }
+    # max_new_tokens <= 0 means "no cap": omit the field so the provider allows its
+    # full output length. Extraction needs this — a reasoning model bills its
+    # scratchpad against max_tokens, so any cap we pick can silently truncate the
+    # JSON and cost us requirements.
+    if max_new_tokens and max_new_tokens > 0:
+        payload["max_tokens"] = max_new_tokens
     if not enable_thinking:
         # Reasoning tokens are billed against max_tokens, so on a reasoning model
-        # they starve the JSON answer and it gets truncated mid-object.
+        # they starve the JSON answer and it gets truncated mid-object. This is a
+        # preference, not a requirement: some endpoints reject it outright
+        # ("Reasoning is mandatory for this endpoint"), so a 400 naming reasoning
+        # is retried once without the flag instead of failing the whole ingest.
         payload["reasoning"] = {"enabled": False}
     try:
         resp = requests.post(
             f"{config.OPENROUTER_BASE_URL}/chat/completions",
-            headers=headers, json=payload, timeout=180,
+            headers=headers, json=payload, timeout=600,
         )
+        if resp.status_code == 400 and "reasoning" in (resp.text or "").lower():
+            payload.pop("reasoning", None)
+            resp = requests.post(
+                f"{config.OPENROUTER_BASE_URL}/chat/completions",
+                headers=headers, json=payload, timeout=600,
+            )
         resp.raise_for_status()
         data = resp.json()
         answer = ""

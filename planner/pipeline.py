@@ -15,9 +15,12 @@ import requests
 from fastapi import HTTPException
 
 from observability import get_logger
+from observability import degradations
 from ingestion import document_loader, extractor, ui_normalizer
 
 log = get_logger("pipeline")
+
+import settings as _settings
 
 from . import (
     config,
@@ -81,8 +84,31 @@ def ingest_srs(req: IngestSRSRequest, authorization: str | None) -> dict:
     extraction = None
     extraction_source = "skipped"
     if req.extract_entities and (srs_text or "").strip():
-        model_call = model_client.call_model if req.use_model_summary else None
-        extraction, extraction_source = extractor.extract(srs_text, model_call=model_call, require_model=False)
+        # Business logic is extracted once per document but every downstream
+        # decision depends on it, so it gets the strong model (settings.EXTRACTION_MODEL)
+        # while the per-test planner loop keeps using the cheap one.
+        extraction_model = _settings.EXTRACTION_MODEL or None
+
+        def _extract_call(prompt: str, max_new_tokens: int, enable_thinking: bool) -> dict:
+            return model_client.call_model(prompt, max_new_tokens, enable_thinking,
+                                           model=extraction_model)
+
+        model_call = _extract_call if req.use_model_summary else None
+        extraction, extraction_source = extractor.extract(
+            srs_text, model_call=model_call, require_model=False,
+            samples=_settings.EXTRACTION_SAMPLES,
+            max_new_tokens=_settings.EXTRACTION_MAX_TOKENS,
+        )
+
+        if extraction_source == "fallback":
+            # The LLM extraction failed and a regex substitute ran. Requirements,
+            # rules and entities from it are far weaker, and every test generated
+            # afterwards inherits that. This must never pass unnoticed.
+            degradations.record(
+                "srs_extraction_fallback", degradations.CRITICAL,
+                detail="LLM extraction failed; regex fallback used — requirements are unreliable",
+                project=req.project,
+            )
 
     out = rag_client.rag_post("/ingest/srs", {
         "project": req.project,
@@ -317,6 +343,24 @@ def agent_coverage(project: str, authorization: str | None) -> dict:
     }
 
 
+def _ingestion_prompt(project: str) -> str:
+    """The authoritative-requirements block built from the ingested SRS."""
+    try:
+        return context_builders.build_requirements_context(project)
+    except Exception:
+        return ""
+
+
+def _degradation_snapshot() -> dict:
+    """Fallbacks the system took this run — surfaced so a 'successful' run that
+    silently used worse data is visible as such."""
+    try:
+        from observability import degradations
+        return degradations.snapshot(limit=25)
+    except Exception:
+        return {}
+
+
 def dashboard_data(project: str) -> dict:
     """Aggregate everything the operator dashboard renders (read-only, best-effort).
 
@@ -365,6 +409,11 @@ def dashboard_data(project: str) -> dict:
         "effectiveness": _get("/tests/effectiveness", key="metrics", default=[]),
         "live": _get("/session/live", default={}),
         "trends": _get("/metrics/trends", default={}),
+        # The exact requirements block the planner is grounded on, so the
+        # ingestion result is inspectable rather than inferred from counts.
+        "ingestion_prompt": _ingestion_prompt(project),
+        # Silent fallbacks that already happened this run (see observability.degradations).
+        "degradations": _degradation_snapshot(),
     }
 
 

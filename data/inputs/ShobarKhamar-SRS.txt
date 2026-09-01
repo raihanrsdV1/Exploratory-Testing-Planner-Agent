@@ -1,0 +1,163 @@
+Software Requirements Specification — ShobarKhamar Android Application
+Package: com.tirzokpvt.shobarkhamar   Framework: Flutter   Build under test: 2.1.3
+
+ShobarKhamar is a livestock and agricultural marketplace connecting farmers, buyers,
+cattle sellers, feed sellers and supporting services. Users discover cattle, feed,
+medicine and equipment; sellers publish listings and manage incoming order requests;
+buyers favourite products, request orders, review sellers and chat with them. The app
+also provides livestock disease information with AI-assisted health checking, and uses
+device location to rank nearby farms and products.
+
+SCOPE NOTE FOR THIS TEST CAMPAIGN
+The device is signed in with a pre-provisioned account before the campaign starts.
+Sections marked PRECONDITION-SATISFIED below describe behaviour that is already in
+place and MUST NOT be re-tested: completing them requires an SMS one-time password
+delivered to a phone we do not control, a national identity document, platform admin
+approval, or a phone number that is consumed permanently on first use. They are listed
+so their outcomes can be relied upon, not so they can be exercised. Every other section
+is in scope.
+
+1. AUTHENTICATION AND ACCOUNT STATE  [PRECONDITION-SATISFIED — do not test]
+FR-AUTH-01 An account exists and is registered. Registration is not re-tested.
+FR-AUTH-02 The account is signed in with a phone number and password before testing begins.
+FR-AUTH-03 The account's role is already selected and, for seller roles, already approved.
+FR-AUTH-04 One-time password verification has already been completed for this account.
+FR-AUTH-05 Password recovery and password change are not exercised; either would lock
+           the campaign out of the account it depends on.
+FR-AUTH-06 Account deletion is not exercised; it would destroy the account under test.
+FR-AUTH-07 The signed-in session persists across app restarts, so tests may assume an
+           authenticated session at all times.
+
+2. NAVIGATION AND DISCOVERY
+FR-NAV-01 A splash screen is shown before the application becomes interactive.
+FR-NAV-02 A primary navigation bar exposes Home, Blog, Order, Search and Menu.
+FR-NAV-03 The home screen presents discovery entry points: Browse Cattle, Sell Cow,
+          Feed, Medicine, Equipment and Farmer Market.
+FR-NAV-04 A search entry point accepts free text for livestock, farms and feed.
+FR-NAV-05 Product, farm and store detail views open from any discovery card or list row.
+FR-NAV-06 Lists that can return more results support pagination or lazy loading.
+FR-NAV-07 Remote data retrieval presents readable loading, empty and failure states.
+FR-NAV-08 A location selector in the header sets the active region for discovery.
+
+3. PRODUCT AND MARKETPLACE BROWSING
+FR-PROD-01 Cattle listings are browsable with their attributes and imagery.
+FR-PROD-02 Feed products are browsable by type and brand.
+FR-PROD-03 Medicine and veterinary items are browsable where the role is enabled.
+FR-PROD-04 Equipment items are browsable where the role is enabled.
+FR-PROD-05 Product detail shows price, description, attributes and seller identity.
+FR-PROD-06 Product and seller content can be shared through the device share sheet.
+FR-PROD-07 Filters narrow results by category, type, breed, price and location.
+FR-PROD-08 A product that is unavailable or withdrawn is presented as such rather than
+           opening a broken detail view.
+
+4. FAVOURITES
+FR-FAV-01 A signed-in user adds a marketplace product to favourites.
+FR-FAV-02 A signed-in user removes a product from favourites.
+FR-FAV-03 The favourites list shows exactly the products currently favourited.
+FR-FAV-04 Adding to favourites produces a visible acknowledgement.
+FR-FAV-05 Favourite state survives leaving and re-entering the product detail view.
+
+5. ORDER REQUESTS
+FR-ORD-01 A buyer initiates an order request for an eligible product.
+FR-ORD-02 The order form captures the information the backend requires.
+FR-ORD-03 Submitting produces an explicit success or failure outcome.
+FR-ORD-04 The buyer's order list shows their submitted order requests.
+FR-ORD-05 Order detail shows status, product and seller information.
+FR-ORD-06 A seller views incoming order requests for their own listings.
+FR-ORD-07 A seller opens order detail and updates status to a supported value.
+FR-ORD-08 The buyer sees the updated status after the seller changes it.
+FR-ORD-09 Feed sellers have equivalent order list, detail and status workflows.
+FR-ORD-09a Medicine sellers have equivalent order list, detail and status workflows.
+FR-ORD-09b Machinery/equipment sellers have equivalent order list, detail and status workflows.
+FR-ORD-10 An empty order list, or a filter matching nothing, shows a clear empty state.
+FR-ORD-11 Failures in order retrieval, creation or status update surface an error.
+FR-ORD-12 Submitting the same order twice does not silently create duplicates.
+
+6. FARM AND ANIMAL MANAGEMENT  (seller roles)
+FR-FARM-01 A seller registers farm information including name and farm type.
+FR-FARM-02 Farm registration captures animal type or category where required.
+FR-FARM-03 Farm location is set from device location or a map picker.
+FR-FARM-04 Mandatory farm fields are validated, and missing ones are named specifically.
+FR-FARM-05 A farm owner updates farm information after registration.
+FR-FARM-06 Successful and failed farm updates both produce meaningful feedback.
+FR-ANM-01 A seller adds an animal record through a multi-step flow.
+FR-ANM-02 The flow supports cattle type, sub-type and breed selection.
+FR-ANM-03 Additional animal attributes are captured and shown on the listing.
+FR-ANM-04 Abandoning the multi-step flow midway does not create a partial record.
+
+7. SELLER STORE AND PRODUCT PUBLISHING  (cattle / feed / medicine / machinery sellers)
+FR-SELL-01 A seller publishes a cattle listing with price, attributes and images.
+FR-SELL-02 A seller edits an existing listing.
+FR-SELL-03 A seller changes a listing's availability status.
+FR-SELL-04 A feed seller registers a feed store and publishes feed products.
+FR-SELL-05 Listing input is validated before submission, naming invalid fields.
+FR-SELL-06 A published listing appears in the buyer-facing marketplace.
+FR-SELL-07 A feed seller edits feed product details and availability.
+FR-SELL-08 A medicine seller registers a store and publishes veterinary medicine items.
+FR-SELL-09 A medicine seller edits a medicine item and changes its availability.
+FR-SELL-10 A machinery/equipment seller registers a store and publishes equipment items.
+FR-SELL-11 A machinery/equipment seller edits an equipment item and changes its availability.
+FR-SELL-12 Each seller role sees only its own listings and its own incoming orders.
+FR-SELL-13 A seller role cannot reach another role's publishing or order screens.
+FR-SELL-14 Listing images are attachable from the device gallery or camera where the
+           product type supports imagery.
+
+8. REVIEWS AND SELLER TRUST
+FR-REV-01 Seller reviews are viewable from a seller profile.
+FR-REV-02 A seller rating summary is shown where ratings exist.
+FR-REV-03 A buyer submits a review for a seller after an eligible interaction.
+FR-REV-04 Review input is validated before submission.
+FR-REV-05 Successful review submission is acknowledged and the review appears.
+FR-REV-06 Review lists paginate where more reviews exist.
+FR-REV-07 A seller with no reviews shows an empty state, not an error.
+
+9. CHAT
+FR-CHT-01 A chat inbox lists existing conversations.
+FR-CHT-02 A conversation shows message history in order.
+FR-CHT-03 A user sends a message to a seller or farmer.
+FR-CHT-04 A sent message appears in the conversation immediately.
+FR-CHT-05 An empty inbox shows an empty state rather than a failure.
+
+10. NOTIFICATIONS
+FR-NOT-01 A notification list shows received notifications.
+FR-NOT-02 An unread count is displayed and reflects unread notifications.
+FR-NOT-03 Notifications are marked read, and the unread count updates.
+FR-NOT-04 An empty notification list shows an empty state.
+FR-NOT-05 Supported notification deep links open the referenced content.
+
+11. LOCATION
+FR-LOC-01 Location permission is requested when a feature needs device location.
+FR-LOC-02 Nearby filtering ranks farms and products by proximity when permitted.
+FR-LOC-03 The current device location can be selected or confirmed on a map.
+FR-LOC-04 Denying location permission leaves non-location functionality usable.
+FR-LOC-05 Concurrent duplicate location requests are prevented.
+FR-LOC-06 Changing the active region updates discovery results accordingly.
+
+MEDIA NOTE
+Requirements FR-SELL-01, FR-SELL-14 and FR-DIS-03 require attaching an image. Test
+images are pre-seeded in the device gallery, so these flows are IN SCOPE: pick an
+existing image rather than expecting the camera to produce one.
+
+12. DISEASE INFORMATION AND HEALTH CHECK
+FR-DIS-01 A list of common livestock diseases is browsable.
+FR-DIS-02 Disease detail presents symptoms, prevention and remedy information.
+FR-DIS-03 An AI-assisted health check accepts an image for disease inference.
+FR-DIS-04 An inference result is presented with its limitations made clear.
+FR-DIS-05 A failed or unavailable inference produces an error, not a blank result.
+
+13. PROFILE AND SETTINGS
+FR-PROF-01 The signed-in user's profile is displayed.
+FR-PROF-02 Supported profile fields are editable and persist after saving.
+FR-PROF-03 A seller profile is viewable by buyers and by the seller themselves.
+FR-PROF-04 A profile can be shared via a shareable link.
+FR-SET-01 Settings expose the options supported for the signed-in role.
+FR-SET-02 Signing out ends the session and returns to an unauthenticated state.
+           (Do not exercise: signing out requires OTP to sign back in.)
+
+14. NON-FUNCTIONAL
+NFR-01 Primary screens become interactive without unreasonable delay on a stable network.
+NFR-02 Long lists paginate rather than loading unbounded result sets.
+NFR-03 Network, image and inference work does not block the interface.
+NFR-04 Backend failures are reported to the user rather than failing silently.
+NFR-05 The interface remains usable when the device is offline or the network is slow.
+NFR-06 Destructive or irreversible actions require explicit confirmation.

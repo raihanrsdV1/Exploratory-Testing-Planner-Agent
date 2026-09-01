@@ -17,6 +17,8 @@ from .liveui import LiveUISource
 from .navtree import NavTreeSource
 from .srs import SRSSource
 
+import settings as _settings
+
 # Order = the order the retrieval planner sees sources advertised in.
 _SOURCES: list[KnowledgeSource] = [
     SRSSource(), FigmaUISource(), FigmaFlowSource(), LiveUISource(),
@@ -28,9 +30,36 @@ def all_sources() -> list[KnowledgeSource]:
     return list(_SOURCES)
 
 
+def enabled_sources() -> list[KnowledgeSource]:
+    """Sources permitted by configuration (settings.ENABLED_SOURCES).
+
+    A source is disabled when its data is known to be unreliable — a design file
+    that has drifted from the shipped app does not merely fail to help, it
+    supplies screens and controls that do not exist and the planner writes tests
+    against them.
+    """
+    allowed = set(getattr(_settings, "ENABLED_SOURCES", ()) or ())
+    if not allowed:
+        return list(_SOURCES)
+    return [s for s in _SOURCES if s.name in allowed]
+
+
+def is_enabled(name: str) -> bool:
+    """True when `name` is permitted by settings.ENABLED_SOURCES.
+
+    Callers that read a source directly — rather than through the registry —
+    must consult this. Advertising a source only to the retrieval planner is not
+    enough: content pulled straight into the generation prompt bypasses the
+    registry entirely, and a disabled design file then supplies screens that do
+    not exist in the shipped app.
+    """
+    allowed = set(getattr(_settings, "ENABLED_SOURCES", ()) or ())
+    return (not allowed) or ((name or "").strip().lower() in allowed)
+
+
 def available_sources(brief: dict) -> list[KnowledgeSource]:
     """Sources that actually have ingested data for this project."""
-    return [s for s in _SOURCES if s.is_available(brief or {})]
+    return [s for s in enabled_sources() if s.is_available(brief or {})]
 
 
 def get(name: str) -> KnowledgeSource | None:

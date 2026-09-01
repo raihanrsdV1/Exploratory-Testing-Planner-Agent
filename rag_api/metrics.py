@@ -24,7 +24,20 @@ from . import embeddings
 # Failure categories that say nothing about the application under test: the run
 # never got far enough to observe misbehaviour. They must not count as defect
 # discoveries, nor as evidence that a test is flaky.
-NON_DEFECT_ERRORS = ("PRECONDITION_NOT_MET", "STEP_LIMIT_EXCEEDED")
+# Outcomes that are NOT evidence of an app defect. Only ASSERTION_FAILURE and
+# CRASH mean the app misbehaved; everything here is our agent, the environment,
+# or the test data failing to produce an observation at all. Counting these as
+# defects inflates discovery rates and teaches strategy memory to prefer
+# strategies that merely fail to finish.
+NON_DEFECT_ERRORS = (
+    "PRECONDITION_NOT_MET",     # test data never existed
+    "STEP_LIMIT_EXCEEDED",      # ran out of budget
+    "NAVIGATION_LIVELOCK",      # agent cycled without progressing
+    "NAVIGATION_FAILURE",       # agent could not reach the screen
+    "ELEMENT_NOT_FOUND",        # agent could not locate the control
+    "TIMEOUT",                  # device/agent hung
+    "PERMISSION_DENIED",        # environment not provisioned
+)
 
 
 # ── 307.1 test effectiveness ────────────────────────────────────────────────
@@ -95,7 +108,8 @@ def execution_trends(session, project) -> dict:
         """
         MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)
         RETURN e.test_case_id AS test_case_id, e.verdict AS verdict,
-               e.device_steps AS steps, e.path AS path, e.created_at AS created_at
+               e.device_steps AS steps, e.path AS path, e.created_at AS created_at,
+               coalesce(e.error_type,'') AS error_type
         ORDER BY e.created_at ASC
         """,
         project=project,
@@ -107,7 +121,8 @@ def execution_trends(session, project) -> dict:
     total = passed = bugs = 0
     for r in rows:
         total += 1
-        if r["verdict"] == "failed":
+        # Only app-fault failures count as discovered defects.
+        if r["verdict"] == "failed" and r["error_type"] not in NON_DEFECT_ERRORS:
             bugs += 1
         elif r["verdict"] in ("pass", "passed"):
             passed += 1

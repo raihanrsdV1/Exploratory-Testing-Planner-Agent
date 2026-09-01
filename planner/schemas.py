@@ -19,7 +19,7 @@ class ChatRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="Question or instruction for the LLM, automatically augmented with relevant SRS context retrieved from the knowledge graph.")
     project: str = Field(default="default", description="Project identifier used to scope knowledge-graph retrieval.")
     top_k: int = Field(default=3, ge=1, le=20, description="Number of SRS chunks to retrieve as RAG context.")
-    max_new_tokens: int = Field(default=2048, ge=64, le=8192, description="Maximum tokens in the LLM response.")
+    max_new_tokens: int = Field(default=8000, ge=64, le=32000, description="Maximum tokens in the LLM response. Reasoning models emit a long scratchpad before the answer, so a low cap truncates the JSON and the response fails to parse.")
     enable_thinking: bool = Field(default=False, description="Enable extended chain-of-thought reasoning (supported models only).")
 
 
@@ -42,7 +42,7 @@ class NextTestCaseRequest(BaseModel):
         description="High-level exploration goal for this round. The planner adapts automatically based on live coverage state — override only for targeted sessions.",
     )
     top_k: int = Field(default=5, ge=1, le=20, description="Max SRS chunks retrieved per knowledge-graph query during the retrieval planning loop.")
-    max_new_tokens: int = Field(default=2048, ge=64, le=8192, description="Token budget for the final test case generation call.")
+    max_new_tokens: int = Field(default=12000, ge=64, le=32000, description="Token budget for the final test case generation call. Must exceed a reasoning model's scratchpad + answer (~7k observed) or the JSON is cut off mid-object.")
     enable_thinking: bool = Field(default=False, description="Enable extended reasoning traces (supported models only). Increases latency.")
     debug_trace: bool = Field(default=False, description="Include full debug trace in the response: prompt texts, raw model output, and retrieved context blocks for every planning round.")
     max_retrieval_rounds: int = Field(default=3, ge=1, le=6, description="Maximum planning/retrieval rounds before the gateway forces test case generation. Higher values gather more context but increase latency.")
@@ -92,7 +92,7 @@ class LogVerdictRequest(BaseModel):
     platform: str = Field(default="", description="WP6: target platform the test ran on (tags the TestCase).")
     application: str = Field(default="", description="WP6: target application the test ran on (tags the TestCase).")
     top_k: int = Field(default=5, ge=1, le=20, description="Max SRS chunks retrieved for the next test case generation.")
-    max_new_tokens: int = Field(default=2048, ge=64, le=8192, description="Token budget for the next test case generation call.")
+    max_new_tokens: int = Field(default=12000, ge=64, le=32000, description="Token budget for the next test case generation call.")
     enable_thinking: bool = Field(default=False, description="Enable extended reasoning for the next test generation call.")
     debug_trace: bool = Field(default=False, description="Include full debug trace in the next test case response.")
 
@@ -100,7 +100,7 @@ class LogVerdictRequest(BaseModel):
 class IngestSRSRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
         "project": "my-app",
-        "source_path": "./data/inputs/Sample-Contacts-App-SRS.txt",
+        "source_path": "./data/inputs/<your-app>-SRS.txt",
         "chunk_chars": 1200,
         "use_model_summary": True,
         "require_model_summary": True,

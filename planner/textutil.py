@@ -6,9 +6,34 @@ import json
 import re
 
 
+# Reasoning models emit their scratchpad in <think>…</think> before the answer.
+# That scratchpad routinely contains braces ("I'll return {"title": ...}"), so the
+# naive first-`{` scan below would parse the model's *thinking* instead of its
+# answer. Strip the block first. Also handles an unterminated opening tag, which
+# happens when the response is cut off mid-thought.
+_THINK_RE = re.compile(r"<think\b[^>]*>.*?</think\s*>", re.DOTALL | re.IGNORECASE)
+_THINK_OPEN_RE = re.compile(r"^.*?<think\b[^>]*>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning(raw: str) -> str:
+    """Remove <think>…</think> scratchpad blocks from a model response."""
+    text = raw or ""
+    text = _THINK_RE.sub("", text)
+    # A closing tag with no opener means the opener was trimmed upstream; drop
+    # everything up to it so the answer survives.
+    if "</think" in text.lower():
+        idx = text.lower().rfind("</think")
+        end = text.find(">", idx)
+        if end != -1:
+            text = text[end + 1:]
+    elif "<think" in text.lower():
+        text = _THINK_OPEN_RE.sub("", text)
+    return text.strip()
+
+
 def extract_json_text(raw: str) -> str:
-    """Strip markdown fences and return the outermost {...} JSON object substring."""
-    text = (raw or "").strip()
+    """Strip reasoning blocks + markdown fences, return the outermost {...} object."""
+    text = strip_reasoning(raw)
     if text.startswith("```"):
         lines = text.splitlines()
         lines = lines[1:] if lines and lines[0].startswith("```") else lines

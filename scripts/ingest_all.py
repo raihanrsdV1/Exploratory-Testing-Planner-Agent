@@ -1,18 +1,18 @@
 import os
 import requests
 from dotenv import load_dotenv
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from settings import PROJECT, SRS_PATH, FIGMA_PATH  # noqa: E402
 
 load_dotenv()
 
 BASE_GATEWAY = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
 BASE_RAG = os.getenv("RAG_URL", "http://127.0.0.1:9010").rstrip("/")
-PROJECT = os.getenv("PROJECT", "contacts-app")
-SRS_PATH = os.getenv("SRS_PATH", "./data/inputs/Sample-Contacts-App-SRS.txt")
-FIGMA_PATH = os.getenv("FIGMA_PATH", "./data/inputs/GENERATED_JSON.json")
 
 
 def post(url: str, payload: dict):
-    r = requests.post(url, json=payload, timeout=1800)
+    r = requests.post(url, json=payload, timeout=5400)
     r.raise_for_status()
     return r.json()
 
@@ -38,11 +38,24 @@ def main():
         "source_path": SRS_PATH,
     }))
 
-    print("\n[3] Ingesting Figma")
-    print(post(f"{BASE_GATEWAY}/figma/ingest", {
-        "project": PROJECT,
-        "source_path": FIGMA_PATH,
-    }))
+    # Only ingest a design file when one is configured AND the source is enabled.
+    # Ingesting another app's design file supplies screens the app under test does
+    # not have, and the planner then writes tests against them — which is exactly
+    # what happened when the Contacts Figma landed in a livestock-marketplace
+    # project and the first generated test was about a Contacts List.
+    from planner.sources import registry as _registry  # noqa: E402
+    if not FIGMA_PATH:
+        print("\n[3] Figma: skipped — FIGMA_PATH not set")
+    elif not _registry.is_enabled("figma_ui"):
+        print("\n[3] Figma: skipped — 'figma_ui' not in ENABLED_SOURCES")
+    elif not os.path.exists(FIGMA_PATH):
+        print(f"\n[3] Figma: skipped — {FIGMA_PATH} does not exist")
+    else:
+        print("\n[3] Ingesting Figma")
+        print(post(f"{BASE_GATEWAY}/figma/ingest", {
+            "project": PROJECT,
+            "source_path": FIGMA_PATH,
+        }))
 
     print("\n[4] Graph stats")
     print(get(f"{BASE_RAG}/graph/stats", {"project": PROJECT}))

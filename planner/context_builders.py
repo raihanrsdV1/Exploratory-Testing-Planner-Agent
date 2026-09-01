@@ -6,6 +6,7 @@ These are app-agnostic: every label/screen/area comes from the ingested graph.
 
 from __future__ import annotations
 
+import settings as _settings
 from . import rag_client
 
 
@@ -21,7 +22,7 @@ def _failure_reason(notes: str) -> str:
     for cut in (" | Self-heal:",):
         if cut in text:
             text = text.split(cut, 1)[0]
-    return " ".join(text.split())[:300]
+    return " ".join(text.split())[:1200]
 
 
 def build_failure_context(project: str, recent_tests: list[dict]) -> str:
@@ -47,7 +48,7 @@ def build_failure_context(project: str, recent_tests: list[dict]) -> str:
     patterns: list[str] = []
     try:
         data = rag_client.rag_get("/execution/error-patterns", {"project": project})
-        for p in (data.get("error_patterns") or [])[:5]:
+        for p in (data.get("error_patterns") or [])[:20]:
             freq = p.get("frequency")
             patterns.append(
                 f"- {p.get('error_type', '?')} recurring on '{p.get('screen', '?')}'"
@@ -126,16 +127,16 @@ def build_learned_context(
     from .sources.navtree import format_path
 
     # Defects (REQ-301.5): prefer gathered blocks, else fetch a focused block.
-    defect_context = "\n\n".join(dict.fromkeys(defect_blocks))[:2000]
+    defect_context = "\n\n".join(dict.fromkeys(defect_blocks))[:12000]
     if not defect_context and "defects" in available_names:
         try:
             data = rag_client.rag_get("/defects/context", {"project": project, "query": objective, "top_k": 6})
-            defect_context = (data.get("context") or "")[:2000]
+            defect_context = (data.get("context") or "")[:12000]
         except Exception:
             defect_context = ""
 
     # Learned navigation path (REQ-302.4) to the screen(s) the planner is targeting.
-    nav_context = "\n\n".join(dict.fromkeys(nav_blocks))[:1500]
+    nav_context = "\n\n".join(dict.fromkeys(nav_blocks))[:10000]
     failed_nav = ""
     if "navtree" in available_names:
         if not nav_context:
@@ -164,7 +165,7 @@ def build_learned_context(
     strategy_context = ""
     try:
         strategies = rag_client.rag_get("/strategy/memory", {"project": project}).get("strategies", [])
-        effective = [s for s in strategies if s.get("decayed_score", 0) > 0][:4]
+        effective = [s for s in strategies if s.get("decayed_score", 0) > 0][:15]
         if effective:
             strategy_context = "\n".join(
                 f"- {s.get('strategy_type','?')} (effectiveness {round(s.get('decayed_score',0),2)}, "
@@ -178,7 +179,7 @@ def build_learned_context(
     risk_context = ""
     try:
         scores = rag_client.rag_get("/risk/scores", {"project": project}).get("risk_scores", [])
-        ranked = [s for s in scores if s.get("regression_risk_score", 0) > 0][:6]
+        ranked = [s for s in scores if s.get("regression_risk_score", 0) > 0][:20]
         if ranked:
             risk_context = "\n".join(
                 f"- {s.get('area','?')} (risk {s.get('regression_risk_score',0)}: "
@@ -196,7 +197,7 @@ def build_learned_context(
         alerts = rag_client.rag_post("/anomalies/detect", {"project": project}).get("anomalies", [])
         if alerts:
             anomaly_context = "\n".join(
-                f"- [{a.get('severity','?')}] {a.get('description','')}" for a in alerts[:5]
+                f"- [{a.get('severity','?')}] {a.get('description','')}" for a in alerts[:20]
             )
     except Exception:
         anomaly_context = ""
@@ -263,3 +264,75 @@ def screen_index_compact(screen_index: list[dict], limit: int = 7) -> str:
         for s in ordered[:limit]
     ]
     return "[" + "; ".join(parts) + "]"
+
+
+def build_requirements_context(project: str, limit_rules: int = 40) -> str:
+    """The requirement ids the model is allowed to cite, plus which are still untested.
+
+    Without this the prompt ships only raw SRS prose, so the model invents
+    plausible-looking ids ("FR-64") that match no Requirement node and every
+    COVERS edge silently fails — which is why requirement coverage read 1/10.
+    Feeding the real ref_ids makes traceability work and lets the planner aim at
+    specific uncovered requirements instead of guessing per-area.
+    """
+    try:
+        cov = rag_client.get_requirement_coverage(project)
+    except Exception:
+        return ""
+    try:
+        rules = rag_client.get_business_rules(project)
+    except Exception:
+        rules = []
+
+    uncovered = cov.get("uncovered_requirements") or []
+    total = cov.get("total_requirements") or 0
+    covered = cov.get("covered_requirements") or 0
+
+    # Never advertise a requirement we have forbidden. This list is framed as
+    # "prefer these — each one you cover raises coverage", so an out-of-scope
+    # requirement appearing here directly contradicts the session constraints
+    # that forbid it — and because nothing is covered at the start of a run, the
+    # forbidden ones sit at the very top as the highest-value targets. Coverage
+    # pressure beat the constraint: the planner generated an account-registration
+    # and a seller-only test while signed in as a buyer, and livelocked trying to
+    # reach a screen that role cannot open.
+    excluded = 0
+    if _settings.OUT_OF_SCOPE:
+        terms = [t.lower() for t in _settings.OUT_OF_SCOPE]
+        kept = []
+        for r in uncovered:
+            hay = f"{r.get('ref_id','')} {r.get('feature','')} {r.get('text','')}".lower()
+            if any(t in hay for t in terms):
+                excluded += 1
+            else:
+                kept.append(r)
+        uncovered = kept
+
+    if not (uncovered or rules):
+        return ""
+
+    lines = [
+        f"Requirement coverage: {covered}/{total} requirements have at least one test.",
+        "Cite ids EXACTLY as written below in 'requirement_ids'. Ids not in this list do not exist.",
+    ]
+    if uncovered:
+        lines.append("")
+        note = f" ({excluded} out-of-scope requirement(s) withheld)" if excluded else ""
+        lines.append(f"UNTESTED requirements (prefer these — each one you cover raises coverage){note}:")
+        for r in uncovered[:20]:
+            lines.append(f"- [{r.get('ref_id','?')}] ({r.get('feature','')}) {str(r.get('text',''))[:240]}")
+
+    by_req: dict[str, list[str]] = {}
+    for r in rules:
+        by_req.setdefault(str(r.get("requirement_id", "")), []).append(str(r.get("rule", "")))
+    if by_req:
+        lines.append("")
+        lines.append("Validation rules extracted from the SRS (violations are bugs):")
+        shown = 0
+        for ref, rs in by_req.items():
+            if not ref or shown >= limit_rules:
+                break
+            for rule in rs[:4]:
+                lines.append(f"- [{ref}] {rule[:200]}")
+                shown += 1
+    return "\n".join(lines)

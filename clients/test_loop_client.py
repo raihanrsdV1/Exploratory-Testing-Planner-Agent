@@ -1,12 +1,13 @@
 import json
 import os
+import sys
+
 import requests
 
-GATEWAY_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:9100").rstrip("/")
-PROJECT = os.getenv("PROJECT_NAME", "contacts-app")
-APP_NAME = os.getenv("APP_NAME", "contacts app")
-SRS_PATH = os.getenv("SRS_PATH", "./data/inputs/Sample-Contacts-App-SRS.txt")
-GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from settings import (  # noqa: E402
+    GATEWAY_URL, APP_NAME, SRS_PATH, GATEWAY_API_KEY, PROJECT_NAME as PROJECT,
+)
 
 
 def _headers():

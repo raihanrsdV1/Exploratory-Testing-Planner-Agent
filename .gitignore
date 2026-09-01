@@ -12,7 +12,7 @@ dist/
 build/
 _notes/
 
-
+.claude
 # ── Virtual environments ──────────────────────────────────────────────────────
 .venv
 venv/
@@ -47,3 +47,5 @@ pids/
 .idea/
 *.swp
 *.swo
+.env.bak.*
+.env.*.bak
