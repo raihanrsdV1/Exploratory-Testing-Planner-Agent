@@ -11,6 +11,7 @@ function lineClass(l) {
 const SOURCES = [
   { id: 'mobilerun', label: '📱 Device (mobilerun)' },
   { id: 'planner', label: '🧠 Planner' },
+  { id: 'web', label: '🌐 Web (Playwright)' },
 ]
 
 /** One independently-polled, auto-scrolling log stream. */

@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from . import actions as actions_mod
 from . import llm as llm_mod
 from . import snapshot
+from . import trace
 
 _SYSTEM_PROMPT = """\
 You are an exploratory QA engineer driving a real web browser to execute one test case.
@@ -91,11 +92,14 @@ class WebAgent:
 
             reply = self.client.chat(self._messages(goal, history, observation, step, max_steps))
             action = llm_mod.parse_action(reply)
+            trace.step(step, max_steps, snap, action)
+            trace.observation(snap)
 
             if action.get("action") == "finish":
                 success = bool(action.get("success"))
                 reason = str(action.get("reason") or "no reason given").strip()
                 history.append(f"finish(success={success}): {reason}")
+                trace.outcome(f"FINISH success={success}: {reason}", ok=success)
                 return AgentResult(success, reason, step, history, urls)
 
             if action.get("action") == "_error":
@@ -104,6 +108,7 @@ class WebAgent:
                     f"discarded ({action.get('reason', '')}). Reply with ONE JSON "
                     f"object and nothing else."
                 )
+                trace.outcome("model reply was not a JSON action — reprompting", ok=False)
                 continue
 
             # Livelock guard: identical action against an identical page.
@@ -111,6 +116,7 @@ class WebAgent:
             repeat_count = repeat_count + 1 if signature == repeat_signature else 0
             repeat_signature = signature
             if repeat_count >= 4:
+                trace.outcome("LIVELOCK — the page is not responding to this action", ok=False)
                 return AgentResult(
                     False,
                     "Livelock: repeated the same action against an unchanged page "
@@ -123,19 +129,24 @@ class WebAgent:
                     "page. It is not working. Do something different, or finish and "
                     "report what the unchanged page means."
                 )
+                trace.outcome("warning: same action on an unchanged page", ok=False)
 
             try:
                 note = await self.dispatcher.perform(action, snap)
                 history.append(f"step {step}: {note}")
+                trace.outcome(note)
             except actions_mod.ActionError as exc:
                 history.append(f"step {step}: FAILED — {exc}")
+                trace.outcome(f"REFUSED/FAILED — {exc}", ok=False)
                 if exc.category == "BLOCKED_BY_GUARDRAIL":
                     # Not negotiable, and not worth spending the rest of the
                     # budget discovering that it is still not negotiable.
                     return AgentResult(False, str(exc), step, history, urls)
             except Exception as exc:
                 history.append(f"step {step}: FAILED — {type(exc).__name__}: {exc}")
+                trace.outcome(f"FAILED — {type(exc).__name__}: {str(exc)[:160]}", ok=False)
 
+        trace.outcome(f"STEP LIMIT — used all {max_steps} steps without a verdict", ok=False)
         return AgentResult(
             False,
             f"Step limit reached: used all {max_steps} steps without reaching a verdict.",

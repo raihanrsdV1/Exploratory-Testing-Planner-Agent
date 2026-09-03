@@ -22,9 +22,19 @@ driving of the target differs.
 pip install -r requirements.txt
 playwright install chromium
 
-# .env — at minimum:
-#   WEB_BASE_URL=https://your-site.example.com
-#   PROJECT=your-project
+py -m targets.run --list          # what can I test?
+py -m targets.run wikipedia       # run a target profile
+```
+
+A **target profile** (`targets/profiles/*.json`) says which site to test, which
+`project` scopes its knowledge graph, and what the agent may not touch — see
+[targets/README.md](../targets/README.md). Prefer it over editing `.env`: the
+variable that decides what the planner retrieves is `PROJECT`, and a half-edited
+`.env` is why a run "keeps testing the old app".
+
+To drive this player directly instead, set `WEB_BASE_URL` and `PROJECT` in `.env`:
+
+```bash
 py -m web_player.runner --rounds 5
 ```
 
@@ -42,6 +52,46 @@ model key, or Playwright is missing — before the first test case, not during i
 5. `failures.classify()` — attribute the failure: app, agent, or environment
 6. self-heal — one adaptive retry for recoverable categories (WP7)
 7. `gateway.log_verdict()` + `log_execution()` — which drives the next test case
+
+## Watching a run
+
+Four views, in increasing order of detail.
+
+**1. The terminal / the trace log.** Every agent turn is printed as it happens and
+appended to `logs/web_player.log`:
+
+```
+  [4/30] https://shop.example.com/cart
+      think: The cart shows 0 items after adding one, so the count did not update.
+      act:   {"action": "finish", "success": false, "reason": "Cart still shows 0 items"}
+      page:  12 controls, messages: Item added to cart
+      !!     FINISH success=False: Cart still shows 0 items after adding one.
+```
+
+`think` is the model's own reasoning for that step — it is the difference between
+watching an exploration and watching a cursor move. From another terminal:
+
+```bash
+tail -f logs/web_player.log
+```
+
+**2. The browser itself — on by default.** The run opens a real Chromium window
+and you watch it work. `WEB_SLOW_MO_MS` (default `300`) pauses before each action,
+because Playwright otherwise drives faster than anyone can follow.
+
+```bash
+WEB_HEADLESS=true     # no window — for CI or a long unattended batch
+WEB_SLOW_MO_MS=0      # full speed
+```
+
+**3. The dashboard.** The log panel has a **🌐 Web (Playwright)** stream next to
+the device and planner ones (`/dashboard/logs?source=web`). Coverage, verdicts
+and the execution timeline populate from Neo4j exactly as they do for Android,
+because the player writes the same `/tests/log` and `/execution/log` records.
+
+**4. Screenshots.** One per test case at its final state, plus one on a crash, in
+`logs/web_shots/<test-id>-<verdict>.png`. The path is also written into the
+verdict notes, so it is reachable from the graph.
 
 ## The observation
 

@@ -493,7 +493,14 @@ WEB_SITE_NAME = _str("WEB_SITE_NAME", APP_NAME)
 
 # ── Browser ──────────────────────────────────────────────────────────────────
 WEB_BROWSER = _str("WEB_BROWSER", "chromium").lower()   # chromium | firefox | webkit
-WEB_HEADLESS = _bool("WEB_HEADLESS", True)
+# Default FALSE on purpose: the first question anyone asks of an exploratory
+# agent is "what is it actually doing?", and a headless run answers it only in
+# hindsight, through the log. Set WEB_HEADLESS=true for CI or a long batch.
+WEB_HEADLESS = _bool("WEB_HEADLESS", False)
+# Playwright drives faster than a human can follow — a headed run without this
+# is a blur of flashing elements. Milliseconds of pause before each action;
+# 0 disables it (use that with WEB_HEADLESS=true, where nobody is watching).
+WEB_SLOW_MO_MS = _int("WEB_SLOW_MO_MS", 300)
 WEB_VIEWPORT = _str("WEB_VIEWPORT", "1280x800")         # "<width>x<height>"
 # Playwright storageState JSON (cookies + localStorage). This is the web
 # equivalent of "the device is already signed in": produce it once by hand, and

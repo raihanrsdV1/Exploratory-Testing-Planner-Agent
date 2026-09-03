@@ -36,7 +36,11 @@ class BrowserSession:
                 f"WEB_BROWSER='{self.cfg.WEB_BROWSER}' is not a Playwright browser "
                 f"(use chromium, firefox or webkit)."
             )
-        self.browser = await launcher.launch(headless=self.cfg.WEB_HEADLESS)
+        # slow_mo makes a headed run followable; it costs nothing headless.
+        self.browser = await launcher.launch(
+            headless=self.cfg.WEB_HEADLESS,
+            slow_mo=max(0, int(getattr(self.cfg, "WEB_SLOW_MO_MS", 0))),
+        )
 
         context_args = {"viewport": self.cfg.web_viewport()}
         state_path = self.cfg.WEB_STORAGE_STATE

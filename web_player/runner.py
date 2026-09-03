@@ -36,7 +36,7 @@ for _stream in (sys.stdout, sys.stderr):  # emoji on a cp1252 console
 import requests  # noqa: E402
 
 import settings as cfg  # noqa: E402
-from web_player import failures, gateway, goal as goal_mod  # noqa: E402
+from web_player import failures, gateway, goal as goal_mod, trace  # noqa: E402
 from web_player.agent import WebAgent  # noqa: E402
 from web_player.browser import BrowserSession  # noqa: E402
 from web_player.llm import ChatClient  # noqa: E402
@@ -44,9 +44,7 @@ from web_player.oracles import Collector  # noqa: E402
 
 
 def _header(text: str) -> None:
-    print("\n" + "=" * 72)
-    print(text)
-    print("=" * 72)
+    trace.header(text)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -88,6 +86,9 @@ def preflight() -> None:
         sys.exit("  ❌ Playwright is not installed.  pip install playwright"
                  "  &&  playwright install chromium")
     print("  ✅ Playwright importable (browser binary is checked on launch)")
+    print(f"\n📓 Live trace: {trace.LOG_PATH}")
+    print("   Watch it live with:  tail -f logs/web_player.log")
+    print("   Or set WEB_HEADLESS=false to watch the browser itself.")
     print("\n🚀 Preflight passed. Starting web executor loop.\n")
 
 
@@ -103,8 +104,8 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
     goal = goal_mod.build_goal(tc)
 
     _header(f"EXECUTING IN BROWSER: {tc_id}")
-    print(f"Title: {title}")
-    print(f"Goal:\n{goal}\n" + "-" * 72)
+    trace.run_start(tc_id, title, cfg.WEB_BASE_URL)
+    trace.emit(f"Goal:\n{goal}\n" + "-" * 72)
 
     collector.reset()
     started = time.time()
@@ -180,12 +181,14 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
         + (f" | Screenshot: {shot}" if shot else "")
     )
 
-    print(f"\n{'✅' if success else '❌'} Web result: success={success}")
-    print(f"   Steps taken: {steps}")
-    print(f"   Reason: {reason[:300]}")
-    print(f"   Browser signals: {findings.counts()}")
+    trace.emit(f"\n{'✅' if success else '❌'} Web result: success={success}")
+    trace.emit(f"   Steps taken: {steps}")
+    trace.emit(f"   Reason: {reason[:300]}")
+    trace.emit(f"   Browser signals: {findings.counts()}")
     if result.urls:
-        print(f"   Route: {' -> '.join(result.urls[:6])}")
+        trace.emit(f"   Route: {' -> '.join(result.urls[:6])}")
+    if shot:
+        trace.emit(f"   Screenshot: {shot}")
 
     gateway.log_execution(tc, verdict, duration * 1000, steps, result.urls,
                           error_type=logged_error_type,

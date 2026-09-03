@@ -198,8 +198,10 @@ def dashboard_logs(lines: int = 250, source: str = "mobilerun"):
     source=mobilerun -> the device agent's thinking/actions (logs/mobilerun.log)
     source=planner   -> the planner's retrieval/generation reasoning (logs/gateway.log,
                         polling noise filtered out).
+    source=web       -> the browser agent's thinking/actions (logs/web_player.log)
     """
-    fname = {"mobilerun": "mobilerun.log", "planner": "gateway.log"}.get(source, "mobilerun.log")
+    fname = {"mobilerun": "mobilerun.log", "planner": "gateway.log",
+             "web": "web_player.log"}.get(source, "mobilerun.log")
     log_path = Path(__file__).resolve().parent.parent / "logs" / fname
     if not log_path.exists():
         return {"exists": False, "source": source, "lines": []}

@@ -1,0 +1,40 @@
+{
+  "name": "wikipedia",
+  "kind": "web",
+  "project": "wikipedia",
+  "display_name": "Wikipedia",
+  "description": "Public encyclopedia — read-only exploration, no account, no documents.",
+
+  "web": {
+    "base_url": "https://en.wikipedia.org",
+    "browser": "chromium",
+    "headless": false,
+    "slow_mo_ms": 300,
+    "viewport": "1280x800",
+    "same_origin_only": true,
+    "blocked_texts": [
+      "log out", "logout", "sign out",
+      "edit", "edit source", "publish changes", "undo", "rollback",
+      "create account", "delete", "move", "protect"
+    ],
+    "blocked_url_patterns": [
+      "action=edit", "action=delete", "action=submit", "/w/index.php?title=special:userlogout",
+      "special:createaccount", "special:userlogout"
+    ],
+    "fail_on_page_error": false,
+    "fail_on_http_5xx": true,
+    "console_ignore": ["favicon", "third-party cookie", "mw.loader", "deprecated"]
+  },
+
+  "knowledge": {},
+
+  "run": {
+    "rounds": 5,
+    "max_steps": 30,
+    "timeout": 420,
+    "clean_slate": true,
+    "self_heal": true
+  },
+
+  "model": {}
+}

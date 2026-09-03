@@ -313,6 +313,12 @@ clients/                  Execution scripts
   simulator_runner.py     Simulated loop (no device) for demos/testing
   test_loop_client.py     Minimal interactive loop client
 
+targets/                  Target profiles — WHAT is under test (see targets/README.md)
+  run.py                  One entry point:  py -m targets.run <profile>
+  schema.py               Profile shape + validation (UI-ready: returns errors)
+  loader.py  env.py       Load/save profiles · profile -> settings.py variables
+  profiles/*.json         One file per app or site (wikipedia, contacts-app, ...)
+
 web_player/               Website executor (Playwright) — see web_player/README.md
   runner.py               CLI batch loop:  py -m web_player.runner
   agent.py                observe -> decide -> act loop
