@@ -58,6 +58,10 @@ _RECOVERY = {
         "action": "the test needs data or a state the site does not have; report rather than retry",
         "retry": False,
     },
+    "LLM_UNAVAILABLE": {
+        "action": "the executor model was unreachable; nothing was learned about the app — rerun when it is back",
+        "retry": False,
+    },
     "BLOCKED_BY_GUARDRAIL": {
         "action": "the test requires a control the guardrails forbid; report as blocked",
         "retry": False,
@@ -75,6 +79,13 @@ def classify(reason: str, success: bool = False) -> str:
     if success:
         return ""
     r = (reason or "").lower()
+
+    # 0. Our own toolchain failed. Checked FIRST because these messages carry
+    #    HTTP statuses ("403", "503") that every later rule would misread as the
+    #    site's own failure — an OpenRouter outage was recorded as a site CRASH.
+    if any(k in r for k in ("openrouter", "gemini", "llmerror", "api key",
+                            "model backend", "no choices", "no candidates")):
+        return "LLM_UNAVAILABLE"
 
     # 1. Not the app's fault, and not ours either — the run was refused or the
     #    test was impossible as written.

@@ -474,7 +474,12 @@ ENV_FAULT = frozenset({"PRECONDITION_NOT_MET", "PERMISSION_DENIED",
                        "STEP_LIMIT_EXCEEDED",
                        # Web-only: the agent was stopped by a configured
                        # guardrail (a destructive control, or a foreign origin).
-                       "BLOCKED_BY_GUARDRAIL"})
+                       "BLOCKED_BY_GUARDRAIL",
+                       # OUR model provider was unreachable mid-test. Nothing was
+                       # learned about the app. Previously this landed in CRASH —
+                       # an APP fault — so an OpenRouter outage was recorded as a
+                       # defect discovered in the site under test.
+                       "LLM_UNAVAILABLE"})
 
 # ══════════════════════════════════════════════════════════════════════════════
 # WEB PLAYER (Playwright)  —  see web_player/
@@ -597,10 +602,12 @@ def web_safety_block() -> str:
     if not WEB_BLOCKED_TEXTS:
         return ""
     shown = ", ".join(f"'{t}'" for t in WEB_BLOCKED_TEXTS[:8])
+    more = f" (and {len(WEB_BLOCKED_TEXTS) - 8} more)" if len(WEB_BLOCKED_TEXTS) > 8 else ""
     return (
-        f"NEVER activate a control whose label matches any of: {shown}. These end "
-        f"the session or destroy the account and would abort every remaining test. "
-        f"If the test appears to require one, stop and report it as blocked instead."
+        f"NEVER activate a control whose label matches any of: {shown}{more}. These "
+        f"change or destroy something this test has no authority to change — the "
+        f"session, the account, or the site's own content. If the test appears to "
+        f"require one, stop and report it as blocked instead."
     )
 
 

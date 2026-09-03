@@ -160,6 +160,36 @@ def main():
     check("an empty page still renders", "none found" in snapshot.render(
         {"url": "u", "elements": []}), True)
 
+    print("our own display limits are never mistaken for the app's behaviour")
+    # A real run typed 300 characters into Wikipedia's search box, read back the
+    # 100-character rendering, and concluded the field had truncated its input.
+    # The truncation was ours. The observation must say so.
+    long_snap = {"url": "u", "elements": [
+        {"ref": "e1", "role": "textbox", "name": "Search", "value": "a" * 100,
+         "value_length": 300},
+        {"ref": "e2", "role": "textbox", "name": "Short", "value": "abc"},
+    ]}
+    long_text = snapshot.render(long_snap)
+    check("a shortened value declares its true length", "300 chars total" in long_text, True)
+    check("and says the shortening was the observer's",
+          "NOT truncated" in long_text, True)
+    check("an untruncated value claims no length", "chars total" in long_text.split("Short")[1], False)
+
+    print("an executor-model outage is never a defect in the site")
+    # OpenRouter returned a Cloudflare challenge mid-run. It was recorded as
+    # CRASH — an APP fault — so an outage on our side counted as a bug found in
+    # the site under test.
+    for reason in ("OpenRouter 403: <!DOCTYPE html> Just a moment...",
+                   "Gemini 400: API key not valid. Please pass a valid API key.",
+                   "Model backend (OpenRouter) unavailable: 403 Client Error"):
+        check(f"LLM_UNAVAILABLE <- {reason[:34]}", failures.classify(reason), "LLM_UNAVAILABLE")
+    check("LLM_UNAVAILABLE is an environment fault, not an app fault",
+          ("LLM_UNAVAILABLE" in st.ENV_FAULT, "LLM_UNAVAILABLE" in st.APP_FAULT), (True, False))
+    check("an outage is never retried", failures.recovery_strategy("LLM_UNAVAILABLE")["retry"], False)
+    # The status codes inside a provider error must not read as the site's own.
+    check("a provider 403 does not become an HTTP_ERROR about the app",
+          failures.classify("OpenRouter 503: upstream overloaded"), "LLM_UNAVAILABLE")
+
     print("model replies are parsed out of whatever wrapping they arrive in")
     check("bare JSON", llm.parse_action('{"action":"click","ref":"e1"}')["ref"], "e1")
     check("fenced JSON", llm.parse_action('```json\n{"action":"click","ref":"e2"}\n```')["ref"], "e2")

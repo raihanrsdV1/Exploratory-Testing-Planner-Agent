@@ -39,7 +39,7 @@ import settings as cfg  # noqa: E402
 from web_player import failures, gateway, goal as goal_mod, trace  # noqa: E402
 from web_player.agent import WebAgent  # noqa: E402
 from web_player.browser import BrowserSession  # noqa: E402
-from web_player.llm import ChatClient  # noqa: E402
+from web_player.llm import ChatClient, LLMError  # noqa: E402
 from web_player.oracles import Collector  # noqa: E402
 
 
@@ -124,6 +124,19 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
 
     try:
         result = await agent.run(goal, cfg.WEB_MAX_STEPS, cfg.WEB_TIMEOUT)
+    except LLMError as exc:
+        # Our executor model, not the site. Recording this as a CRASH would file
+        # a defect against the app for an outage on our side — and CRASH is an
+        # APP fault, so it would inflate the discovered-defect count.
+        duration = time.time() - started
+        notes = (f"Executor model unavailable after {duration:.1f}s — the test did not "
+                 f"run to a verdict and NOTHING was learned about the site. {exc}")
+        trace.emit("")
+        trace.emit(f"🛑 Executor model unavailable: {str(exc)[:200]}")
+        gateway.log_execution(tc, "failed", duration * 1000, 0, result_urls(),
+                              error_type="LLM_UNAVAILABLE", error_message=str(exc)[:500])
+        return {"verdict": "failed", "notes": notes, "duration_seconds": duration,
+                "aborted": True}
     except Exception as exc:
         duration = time.time() - started
         notes = (f"Web execution CRASHED after {duration:.1f}s. "
@@ -155,6 +168,9 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
                 else:
                     reason = retry.reason
                     recovery_action = f"{error_type}: {strategy['action']} -> still failed"
+            except LLMError as exc:
+                recovery_action = f"{error_type}: model unavailable during recovery ({exc})"
+                error_type = "LLM_UNAVAILABLE"
             except Exception as exc:
                 recovery_action = f"{error_type}: recovery attempt errored ({exc})"
         else:
@@ -201,6 +217,11 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
 # Batch loop
 # ──────────────────────────────────────────────────────────────────────────────
 
+def result_urls() -> list[str]:
+    """No route to report when the run never produced one."""
+    return []
+
+
 def _show_testcase(tc: dict) -> None:
     print(f"  ID:       {tc.get('test_case_id', '?')}")
     print(f"  Title:    {tc.get('title', '?')}")
@@ -227,7 +248,13 @@ async def main(rounds: int) -> None:
             print(f"  ⚠️  reset failed: {exc}")
 
     _header("PLANNER → GENERATING FIRST TEST CASE")
-    tc = (gateway.next_testcase() or {}).get("next_testcase", {})
+    try:
+        tc = (gateway.next_testcase() or {}).get("next_testcase", {})
+    except Exception as exc:
+        print(f"❌ Could not get a test case from the planner: {_short_error(exc)}")
+        print("   The gateway is up but its model backend is not. Check the "
+              "planner's model provider before rerunning.")
+        return
     if not tc or not tc.get("steps"):
         print("❌ Planner returned an empty test case. Aborting.")
         return
@@ -258,11 +285,26 @@ async def main(rounds: int) -> None:
             except Exception as exc:
                 print(f"  ⚠️  Failed to log verdict: {exc}")
 
+            if outcome.get("aborted"):
+                # The model is gone; every remaining round would fail the same
+                # way, each one writing another bogus record.
+                trace.emit("")
+                trace.emit("🛑 Stopping the batch: the executor model is unavailable.")
+                break
+
             if i == rounds:
                 break
 
             _header("PLANNER → GENERATING NEXT TEST CASE")
-            tc = (gateway.next_testcase() or {}).get("next_testcase", {})
+            try:
+                tc = (gateway.next_testcase() or {}).get("next_testcase", {})
+            except Exception as exc:
+                # Losing the planner must not also lose the results of the rounds
+                # that DID run — that is what the summary below is for.
+                trace.emit("")
+                trace.emit(f"🛑 Planner unavailable, ending the batch early: "
+                           f"{_short_error(exc)}")
+                break
             if not tc or not tc.get("steps"):
                 print("  ❌ Planner returned an empty test case. Ending loop.")
                 break
@@ -270,6 +312,15 @@ async def main(rounds: int) -> None:
             _show_testcase(tc)
 
     _summarize(results)
+
+
+def _short_error(exc: Exception) -> str:
+    """The cause, not a wall of HTML. Provider errors arrive as whole web pages."""
+    text = " ".join(str(exc).split())
+    body = getattr(getattr(exc, "response", None), "text", "") or ""
+    if body:
+        text = f"{text} | {' '.join(body.split())}"
+    return text[:300]
 
 
 def _summarize(results: list[dict]) -> None:

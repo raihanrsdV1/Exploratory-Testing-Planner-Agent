@@ -62,8 +62,12 @@ class ChatClient:
     def _openrouter(self, messages: list[dict]) -> str:
         resp = requests.post(
             f"{self.base_url.rstrip('/')}/chat/completions",
+            # OpenRouter asks callers to identify themselves; unidentified
+            # traffic is likelier to be treated as a bot.
             headers={"Authorization": f"Bearer {self.api_key}",
-                     "Content-Type": "application/json"},
+                     "Content-Type": "application/json",
+                     "HTTP-Referer": "https://github.com/exploratory-testing-planner-agent",
+                     "X-Title": "Exploratory Testing Planner Agent"},
             json={"model": self.model, "messages": messages,
                   "max_tokens": self.max_tokens, "temperature": 0.2},
             timeout=180,

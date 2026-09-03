@@ -99,7 +99,52 @@ class Dispatcher:
         handler = getattr(self, f"_do_{kind}", None)
         if handler is None:
             raise ActionError(f"Unknown action '{kind}'. Use one of the listed actions.")
-        return await handler(action, snap)
+        try:
+            return await handler(action, snap)
+        except ActionError:
+            raise
+        except Exception as exc:
+            diagnosed = await self._diagnose(exc, action)
+            if diagnosed is None:
+                raise
+            raise diagnosed from exc
+
+    async def _diagnose(self, exc: Exception, action: dict) -> ActionError | None:
+        """Turn a driver exception into a categorised, actionable failure.
+
+        A bare "Timeout 10000ms exceeded" tells the agent nothing it can act on.
+        The common cause is the element being re-rendered away between the
+        observation and the click — frameworks re-mount whole widgets, taking our
+        stamped ref with them (Wikipedia's search does this the moment
+        suggestions appear). Asking the page whether the ref still exists
+        separates "it vanished" (re-observe) from "it is there but unusable".
+        """
+        # Only timeouts are re-categorised. Anything else is left to propagate
+        # with its own message: inventing a category for an unrecognised driver
+        # error would mean guessing at attribution, and the default guess
+        # (ASSERTION_FAILURE) counts as a defect found in the app.
+        if not _is_timeout(exc):
+            return None
+        ref = action.get("ref")
+        if ref:
+            try:
+                if await self._locator(ref).count() == 0:
+                    return ActionError(
+                        f"[{ref}] no longer exists — the page re-rendered after your "
+                        f"last action and this element was replaced. Re-observe and "
+                        f"use the new ref.",
+                        category="STALE_ELEMENT",
+                    )
+            except Exception:
+                pass
+            return ActionError(
+                f"[{ref}] is still on the page but did not accept the action within "
+                f"the timeout — it may be covered by an overlay, off-screen, or "
+                f"disabled. Try scrolling to it, dismissing any overlay, or a "
+                f"different control.",
+                category="TIMEOUT",
+            )
+        return ActionError(f"Timed out performing {action.get('action')}.", category="TIMEOUT")
 
     async def _do_click(self, action: dict, snap: dict) -> str:
         el = self._require(action, snap)
@@ -182,6 +227,15 @@ class Dispatcher:
 
     def _locator(self, ref: str):
         return self.page.locator(f'[data-etp-ref="{ref}"]')
+
+
+def _is_timeout(exc: Exception) -> bool:
+    """Recognise Playwright's TimeoutError without importing Playwright.
+
+    ``actions`` is imported by tests that run with no browser installed, so the
+    class cannot be imported at module level just to be caught here.
+    """
+    return "timeout" in type(exc).__name__.lower() or "timeout" in str(exc).lower()
 
 
 def _matches_word(needle: str, haystack: str) -> bool:

@@ -115,8 +115,14 @@ _COLLECT_JS = r"""
     // half, so reporting both spends prompt tokens on nothing.
     const valueIsNoise = ['checkbox', 'radio'].includes(entry.role);
     if (!valueIsNoise && 'value' in el && el.value !== undefined && el.value !== null) {
+      const raw = String(el.value);
       // Never echo a secret back into the prompt or the logs.
-      entry.value = entry.role === 'password' ? ('*'.repeat(String(el.value).length)) : clean(String(el.value));
+      entry.value = entry.role === 'password' ? ('*'.repeat(raw.length)) : clean(raw);
+      // Report the TRUE length whenever we shorten the value for display.
+      // Without this the agent reads a 300-character entry back as ~100 and
+      // concludes the field truncated its input — a defect report about our own
+      // rendering. It happened on the first real run.
+      if (raw.length > entry.value.length) entry.value_length = raw.length;
     }
     if (el.tagName.toLowerCase() === 'a' && el.getAttribute('href')) {
       entry.href = clean(el.getAttribute('href'));
@@ -232,6 +238,9 @@ def _render_element(el: dict) -> str:
     parts.append(f'"{name}"' if name else '""')
     if el.get("value"):
         parts.append(f'value="{el["value"]}"')
+        if el.get("value_length"):
+            parts.append(f"({el['value_length']} chars total — shown shortened by the "
+                         f"observer, the field is NOT truncated)")
     if el.get("checked") is not None and el.get("role") in ("checkbox", "radio"):
         parts.append("checked" if el["checked"] else "unchecked")
     if el.get("required"):
