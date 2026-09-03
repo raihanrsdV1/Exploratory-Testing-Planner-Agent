@@ -3,7 +3,7 @@
   "kind": "web",
   "project": "wikipedia",
   "display_name": "Wikipedia",
-  "description": "Public encyclopedia — read-only exploration, no account, no documents.",
+  "description": "English Wikipedia — signed-out reader experience. Read-only: editing is blocked.",
 
   "web": {
     "base_url": "https://en.wikipedia.org",
@@ -12,21 +12,72 @@
     "slow_mo_ms": 300,
     "viewport": "1280x800",
     "same_origin_only": true,
+
     "blocked_texts": [
-      "log out", "logout", "sign out",
-      "edit", "edit source", "publish changes", "undo", "rollback",
-      "create account", "delete", "move", "protect"
+      "edit",
+      "edit source",
+      "view source",
+      "publish changes",
+      "save changes",
+      "undo",
+      "rollback",
+      "revert",
+      "move",
+      "protect",
+      "delete",
+      "upload file",
+      "create account",
+      "log in",
+      "log out",
+      "logout",
+      "sign out",
+      "talk",
+      "new section"
     ],
+
     "blocked_url_patterns": [
-      "action=edit", "action=delete", "action=submit", "/w/index.php?title=special:userlogout",
-      "special:createaccount", "special:userlogout"
+      "action=edit",
+      "action=submit",
+      "action=delete",
+      "action=history",
+      "veaction=",
+      "special:createaccount",
+      "special:userlogin",
+      "special:userlogout",
+      "special:upload",
+      "special:movepage",
+      "/wiki/talk:",
+      "/wiki/user_talk:"
     ],
-    "fail_on_page_error": false,
+
+    "storage_state": "",
+    "fail_on_page_error": true,
     "fail_on_http_5xx": true,
-    "console_ignore": ["favicon", "third-party cookie", "mw.loader", "deprecated"]
+    "console_ignore": [
+      "favicon",
+      "third-party cookie",
+      "devtools",
+      "mw.loader",
+      "deprecated",
+      "mwperformance",
+      "eventlogging",
+      "preloaded"
+    ],
+
+    "login": {
+      "url": "",
+      "user": "",
+      "password": "",
+      "hint": "",
+      "role": "anonymous reader"
+    }
   },
 
-  "knowledge": {},
+  "knowledge": {
+    "srs_path": "./data/inputs/wikipedia-spec.md",
+    "figma_path": "",
+    "defects_path": ""
+  },
 
   "run": {
     "rounds": 5,
@@ -36,5 +87,8 @@
     "self_heal": true
   },
 
-  "model": {}
+  "model": {
+    "provider": "",
+    "model": ""
+  }
 }

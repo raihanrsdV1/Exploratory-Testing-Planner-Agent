@@ -117,6 +117,25 @@ def main():
     check("an unknown action is rejected",
           refuses({"action": "teleport"}), "ASSERTION_FAILURE")
 
+    print("guardrails match whole words, so they do not over-block")
+    # A bare substring test would refuse "Credits" for containing "edit" and
+    # "Remove" for containing "move" — spurious BLOCKED_BY_GUARDRAIL against
+    # controls that were never dangerous.
+    from web_player.actions import _matches_word  # noqa: E402
+    for needle, name, want in (
+        ("edit", "edit", True),
+        ("edit", "edit source", True),
+        ("edit", "credits", False),
+        ("edit", "edition", False),
+        ("move", "move page", True),
+        ("move", "remove", False),
+        ("talk", "talk", True),
+        ("talk", "talking", False),
+        ("delete account", "delete account", True),
+        ("log out", "log out of wikipedia", True),
+    ):
+        check(f"{needle!r} blocks {name!r}: {want}", _matches_word(needle, name), want)
+
     print("the observation renders every fact the agent needs to act")
     snap2 = {
         "url": "https://shop.example.com/checkout", "title": "Checkout",

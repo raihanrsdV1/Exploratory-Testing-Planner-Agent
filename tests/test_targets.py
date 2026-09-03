@@ -183,7 +183,20 @@ def main():
                                         "SRS_PATH": "./data/inputs/Sample-Contacts-App-SRS.txt"})
     check("the profile wins over an inherited PROJECT",
           out.stdout.split()[0] if out.stdout.split() else out.stderr[-120:], "wikipedia")
-    check("another target's SRS does not leak in", "''" in out.stdout, True)
+    # The profile supplies its own spec; the inherited contacts SRS must be gone.
+    # Replacement, not emptiness — a profile with no SRS clears it instead.
+    check("another target's SRS does not leak in",
+          "Sample-Contacts-App-SRS" not in out.stdout, True)
+    check("the profile's own SRS is the one used", "wikipedia-spec" in out.stdout, True)
+
+    nodoc = subprocess.run(
+        [sys.executable, "-c",
+         "from targets.schema import TargetProfile; from targets import env;"
+         "print(repr(env.build(TargetProfile.from_dict("
+         "{'name':'x','kind':'web','project':'x','web':{'base_url':'https://a.b'}}))['SRS_PATH']))"],
+        capture_output=True, text=True, cwd=root)
+    check("a profile with no SRS clears it rather than inheriting",
+          nodoc.stdout.strip(), "''")
 
     print(f"\n{_passed}/{_passed + _failed} checks passed")
     return 1 if _failed else 0

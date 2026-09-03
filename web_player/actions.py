@@ -13,6 +13,7 @@ must still be stopped.
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlparse
 
 from . import snapshot
@@ -62,11 +63,12 @@ class Dispatcher:
         if not name:
             return
         for blocked in self.cfg.WEB_BLOCKED_TEXTS:
-            if blocked and blocked in name:
+            if blocked and _matches_word(blocked, name):
                 raise ActionError(
                     f"Refused to activate '{element.get('name')}' — it matches the "
-                    f"blocked control '{blocked}'. This would end the session or "
-                    f"destroy the account.",
+                    f"blocked control '{blocked}' for this target. Activating it "
+                    f"would change or destroy something the test has no authority "
+                    f"to change. Report the test as blocked instead.",
                     category="BLOCKED_BY_GUARDRAIL",
                 )
 
@@ -180,6 +182,18 @@ class Dispatcher:
 
     def _locator(self, ref: str):
         return self.page.locator(f'[data-etp-ref="{ref}"]')
+
+
+def _matches_word(needle: str, haystack: str) -> bool:
+    """Whole-word containment, not bare substring.
+
+    A substring test over-blocks badly on a real site: blocking "edit" would also
+    refuse "Credits" and "Edition", and blocking "move" would refuse "Remove" —
+    each one a spurious BLOCKED_BY_GUARDRAIL against a control that was never
+    dangerous. Word boundaries keep "Edit source" blocked and "Credits" clickable.
+    Multi-word entries ("delete account") still match as a phrase.
+    """
+    return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack) is not None
 
 
 def _origin_of(url: str) -> str:

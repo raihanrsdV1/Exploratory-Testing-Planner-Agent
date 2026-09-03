@@ -3,19 +3,27 @@
   "kind": "android",
   "project": "contacts-app",
   "display_name": "contacts app",
-  "description": "Android Contacts — the original target, with its SRS and Figma export.",
+  "description": "Android Contacts — the original target. Mirrors the .env setup exactly.",
 
   "android": {
     "package": "com.google.android.contacts",
     "activity": "",
-    "labels": ["Contacts"],
-    "target_app_only": true,
-    "device_reset": "pm_clear"
+    "labels": [],
+    "target_app_only": false,
+    "device_reset": "pm_clear",
+    "login": {
+      "url": "",
+      "user": "",
+      "password": "",
+      "hint": "",
+      "role": ""
+    }
   },
 
   "knowledge": {
     "srs_path": "./data/inputs/Sample-Contacts-App-SRS.txt",
-    "figma_path": "./data/inputs/GENERATED_JSON.json"
+    "figma_path": "./data/inputs/GENERATED_JSON.json",
+    "defects_path": ""
   },
 
   "run": {
@@ -26,5 +34,8 @@
     "self_heal": true
   },
 
-  "model": {}
+  "model": {
+    "provider": "",
+    "model": ""
+  }
 }
