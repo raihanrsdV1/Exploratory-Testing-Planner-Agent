@@ -7,6 +7,11 @@ python-dotenv
 droidrun
 logtail-python
 
+# ── Web player (web_player/) ────────────────────────────────────────────────
+# Browser driver for the website executor. After installing, fetch the browser
+# binaries once:   playwright install chromium
+playwright
+
 # ── Smart ingestion ─────────────────────────────────────────────────────────
 # Format-agnostic document loading (PDF/DOCX/PPTX/HTML/MD/...).
 markitdown
