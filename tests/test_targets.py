@@ -128,6 +128,20 @@ def main():
           all(t in wiki.web.blocked_texts for t in ("edit", "undo", "rollback")), True)
     check("wikipedia is watchable by default", wiki.web.headless, False)
 
+    print("every shipped profile is valid — none is silently skipped")
+    # list_profiles() drops what it cannot load, so a broken shipped profile would
+    # quietly disappear from `--list` rather than announce itself.
+    shipped = [f for f in sorted(os.listdir(loader.PROFILE_DIR)) if f.endswith(".json")]
+    check("there are shipped profiles to check", len(shipped) >= 3, True)
+    for filename in shipped:
+        try:
+            prof = loader.load(os.path.join(loader.PROFILE_DIR, filename))
+            check(f"{filename} loads and validates", prof.name, os.path.splitext(filename)[0])
+        except loader.ProfileError as exc:
+            check(f"{filename} loads and validates", exc.report(), "valid")
+    check("no two profiles share a project (that would merge their graphs)",
+          len({p.project for p in loader.list_profiles()}), len(loader.list_profiles()))
+
     print("loader failures are actionable, never a stack trace")
     with tempfile.TemporaryDirectory() as tmp:
         bad = os.path.join(tmp, "broken.json")
