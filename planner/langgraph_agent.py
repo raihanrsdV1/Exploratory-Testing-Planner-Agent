@@ -66,6 +66,7 @@ class AgentState(TypedDict):
     model_thinking: str
     failure_context: str
     requirements_context: str
+    agent_difficulty_context: str
 
 
 @timed_node("bootstrap_context")
@@ -82,8 +83,9 @@ def bootstrap_context(state: AgentState) -> AgentState:
         if t.get("title") and str(t.get("verdict", "")).lower() == "failed"
     ]
     done_areas = [str(t.get("area", "")) for t in recent_tests if t.get("area")]
-    failure_context = context_builders.build_failure_context(project, recent_tests)
+    failure_context = context_builders.build_failure_context(project, recent_tests, state.get("objective", ""))
     requirements_context = context_builders.build_requirements_context(project)
+    agent_difficulty_context = context_builders.build_agent_difficulty_context(project)
     # Honour ENABLED_SOURCES here, not just when advertising sources to the
     # retrieval planner. These two feed the generation prompt directly, so
     # reading them unconditionally let a disabled design file describe screens
@@ -108,6 +110,7 @@ def bootstrap_context(state: AgentState) -> AgentState:
         "failed_titles": failed_titles,
         "failure_context": failure_context,
         "requirements_context": requirements_context,
+        "agent_difficulty_context": agent_difficulty_context,
         "done_areas": done_areas,
         "figma_screens": figma_screens,
         "figma_overview": figma_overview,
@@ -304,7 +307,7 @@ def generate_testcase(state: AgentState) -> AgentState:
 
     # REQ-301.5 / 302.4 / 303: learned-intelligence context, injected when available.
     available_names = {s["name"] for s in state.get("available_sources", [])}
-    defect_context, nav_context, failed_nav, strategy_context, risk_context, anomaly_context = \
+    defect_context, nav_context, failed_nav, strategy_context, risk_context, anomaly_context, risk_areas = \
         context_builders.build_learned_context(
             state["project"], available_names, state["objective"],
             state["selected_screens"], state["defect_blocks"], state["nav_blocks"],
@@ -329,9 +332,11 @@ def generate_testcase(state: AgentState) -> AgentState:
         strategy_context=strategy_context,
         target_env=target_env,
         risk_context=risk_context,
+        risk_areas=risk_areas,
         anomaly_context=anomaly_context,
         failure_context=state.get("failure_context", ""),
         requirements_context=state.get("requirements_context", ""),
+        agent_difficulty_context=state.get("agent_difficulty_context", ""),
     )
 
     model_data = model_client.call_model(prompt, state["max_new_tokens"], state["enable_thinking"])
@@ -402,6 +407,7 @@ def duplicate_check(state: AgentState) -> AgentState:
             recent_tests=state["recent_tests"],
             failure_context=state.get("failure_context", ""),
             requirements_context=state.get("requirements_context", ""),
+            agent_difficulty_context=state.get("agent_difficulty_context", ""),
         ) + "\n\nBlocked titles (semantic overlap with any of these is FORBIDDEN):\n" + blocked
         
         model_data = model_client.call_model(retry_prompt, state["max_new_tokens"], state["enable_thinking"])

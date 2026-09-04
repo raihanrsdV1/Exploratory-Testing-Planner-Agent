@@ -4,6 +4,7 @@ import LogsPanel from './LogsPanel.jsx'
 import Intelligence from './Intelligence.jsx'
 import PlannerTrace from './PlannerTrace.jsx'
 import RunSteps from './RunSteps.jsx'
+import Targets from './Targets.jsx'
 
 const REFRESH_MS = 4000
 const num = (n) => (n == null || isNaN(n) ? '—' : Number(n).toLocaleString())
@@ -33,6 +34,7 @@ export default function App() {
   const [err, setErr] = useState(null)
   const [ago, setAgo] = useState('connecting…')
   const [auto, setAuto] = useState(true)
+  const [tab, setTab] = useState('dashboard')
   const [selectedExec, setSelectedExec] = useState(null)
   const [openSteps, setOpenSteps] = useState(null)
   const lastOk = useRef(0)
@@ -109,6 +111,10 @@ export default function App() {
         <h1>🐝 QA Agent — Live Dashboard</h1>
         <span className="pill">project: {d.project || project}</span>
         <span className="pill accent">model: {(d.model && (d.model.model || d.model.backend)) || '—'}</span>
+        <nav className="tabs">
+          <button className={'tab' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>Dashboard</button>
+          <button className={'tab' + (tab === 'targets' ? ' active' : '')} onClick={() => setTab('targets')}>Targets</button>
+        </nav>
         <span className="spacer" />
         <span className="live"><span className={dotCls} /><span className="pill">{ago}</span></span>
         <input defaultValue={project} onBlur={(e) => changeProject(e.target.value)}
@@ -121,6 +127,7 @@ export default function App() {
       <main>
         {err ? <div className="banner">Could not reach the gateway (/dashboard/data): {err}. Is it running on :9100?</div> : null}
 
+        {tab === 'targets' ? <Targets /> : <>
         <section className="kpis">
           <Tile label="Total Tests" value={num(s.test_case_count)} sub={planned.length ? `${s.test_run_count || 0} runs · ${planned.length} planned` : `${s.test_run_count || 0} runs`} />
           <Tile label="Pass Rate" value={passRate + '%'} sub={`${passed.length}/${executedCount} executed`} cls="pass" />
@@ -300,6 +307,7 @@ export default function App() {
             </div>
           </div>
         </div>
+        </>}
       </main>
     </>
   )

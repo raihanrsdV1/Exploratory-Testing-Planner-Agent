@@ -1,0 +1,41 @@
+{
+  "name": "contacts-app",
+  "kind": "android",
+  "project": "contacts-app",
+  "display_name": "contacts app",
+  "description": "Android Contacts — the original target. Mirrors the .env setup exactly.",
+
+  "android": {
+    "package": "com.google.android.contacts",
+    "activity": "",
+    "labels": [],
+    "target_app_only": false,
+    "device_reset": "pm_clear",
+    "login": {
+      "url": "",
+      "user": "",
+      "password": "",
+      "hint": "",
+      "role": ""
+    }
+  },
+
+  "knowledge": {
+    "srs_path": "./data/inputs/Sample-Contacts-App-SRS.txt",
+    "figma_path": "./data/inputs/GENERATED_JSON.json",
+    "defects_path": ""
+  },
+
+  "run": {
+    "rounds": 10,
+    "max_steps": 30,
+    "timeout": 300,
+    "clean_slate": true,
+    "self_heal": true
+  },
+
+  "model": {
+    "provider": "",
+    "model": ""
+  }
+}

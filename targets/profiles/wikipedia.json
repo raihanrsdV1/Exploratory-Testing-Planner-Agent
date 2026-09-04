@@ -1,0 +1,94 @@
+{
+  "name": "wikipedia",
+  "kind": "web",
+  "project": "wikipedia",
+  "display_name": "Wikipedia",
+  "description": "English Wikipedia — signed-out reader experience. Read-only: editing is blocked.",
+
+  "web": {
+    "base_url": "https://en.wikipedia.org",
+    "browser": "chromium",
+    "headless": false,
+    "slow_mo_ms": 300,
+    "viewport": "1280x800",
+    "same_origin_only": true,
+
+    "blocked_texts": [
+      "edit",
+      "edit source",
+      "view source",
+      "publish changes",
+      "save changes",
+      "undo",
+      "rollback",
+      "revert",
+      "move",
+      "protect",
+      "delete",
+      "upload file",
+      "create account",
+      "log in",
+      "log out",
+      "logout",
+      "sign out",
+      "talk",
+      "new section"
+    ],
+
+    "blocked_url_patterns": [
+      "action=edit",
+      "action=submit",
+      "action=delete",
+      "action=history",
+      "veaction=",
+      "special:createaccount",
+      "special:userlogin",
+      "special:userlogout",
+      "special:upload",
+      "special:movepage",
+      "/wiki/talk:",
+      "/wiki/user_talk:"
+    ],
+
+    "storage_state": "",
+    "fail_on_page_error": true,
+    "fail_on_http_5xx": true,
+    "console_ignore": [
+      "favicon",
+      "third-party cookie",
+      "devtools",
+      "mw.loader",
+      "deprecated",
+      "mwperformance",
+      "eventlogging",
+      "preloaded"
+    ],
+
+    "login": {
+      "url": "",
+      "user": "",
+      "password": "",
+      "hint": "",
+      "role": "anonymous reader"
+    }
+  },
+
+  "knowledge": {
+    "srs_path": "./data/inputs/wikipedia-spec.md",
+    "figma_path": "",
+    "defects_path": ""
+  },
+
+  "run": {
+    "rounds": 5,
+    "max_steps": 30,
+    "timeout": 420,
+    "clean_slate": true,
+    "self_heal": true
+  },
+
+  "model": {
+    "provider": "",
+    "model": ""
+  }
+}

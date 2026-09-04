@@ -36,6 +36,7 @@ RAG_API_KEY = os.getenv("RAG_API_KEY", "")
 
 CHUNK_VECTOR_INDEX = "chunk_embedding"
 REQUIREMENT_VECTOR_INDEX = "requirement_embedding"
+TESTRUN_VECTOR_INDEX = "testrun_embedding"
 
 driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
@@ -50,7 +51,8 @@ def _ensure_vector_indexes(session) -> None:
     dim = embeddings.embedding_dim()
     if not dim:
         return
-    for index_name, label in ((CHUNK_VECTOR_INDEX, "Chunk"), (REQUIREMENT_VECTOR_INDEX, "Requirement")):
+    for index_name, label in ((CHUNK_VECTOR_INDEX, "Chunk"), (REQUIREMENT_VECTOR_INDEX, "Requirement"),
+                              (TESTRUN_VECTOR_INDEX, "TestRun")):
         try:
             session.run(
                 f"""
@@ -1496,6 +1498,12 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
     run_id = f"{internal_test_id}::run::{now}"
     area_slug = _slug(req.area)
 
+    # Embed the run's notes at write time so later generation can retrieve past
+    # failures by RELEVANCE to what it's about to test, not just by recency —
+    # the notes text is already short (executor-side truncated before this call
+    # ever sees it), so this is one small embed, not a re-embed of a trajectory.
+    note_vec = embeddings.embed_query(req.notes) if req.notes and req.notes.strip() else None
+
     with driver.session() as session:
         session.run(
             """
@@ -1514,7 +1522,7 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             MERGE (t)-[:COVERS_FEATURE]->(fa)
             MERGE (r:TestRun {id:$run_id})
             SET r.project = $project, r.verdict = $verdict,
-                r.notes = $notes, r.created_at = $now
+                r.notes = $notes, r.created_at = $now, r.embedding = $note_vec
             MERGE (t)-[:HAS_RUN]->(r)
             WITH t, fa
             // REQ-301.6: mark defect-area traceability when this area has known defects.
@@ -1528,7 +1536,7 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             internal_test_id=internal_test_id,
             external_test_case_id=req.test_case_id,
             title=req.title, area=req.area, verdict=req.verdict, test_type=req.test_type,
-            notes=req.notes, now=now, run_id=run_id,
+            notes=req.notes, now=now, run_id=run_id, note_vec=note_vec,
             feature_key=f"{req.project}::{area_slug}",
         )
 
@@ -2462,6 +2470,46 @@ def execution_error_patterns(project: str, authorization: str | None = Header(de
     now = _utc_now()
     with driver.session() as session:
         return {"project": project, "error_patterns": learning_mod.mine_error_patterns(session, project, now)}
+
+
+@app.post("/execution/notes/retrieve")
+def execution_notes_retrieve(req: RetrieveNotesRequest, authorization: str | None = Header(default=None)):
+    """Semantically relevant past failure notes for the CURRENT objective, ranked by
+    the same embedding vector search already used for chunks/requirements — replaces
+    a plain recency LIMIT scan of raw notes with real retrieval (WP8 follow-up: the
+    investigator/executor's output was reaching the planner as an unranked dump of
+    the last N notes; this ranks by relevance instead, so a 50-run history doesn't
+    have to be truncated blind)."""
+    _check_auth(authorization)
+    if not embeddings.is_enabled():
+        return {"project": req.project, "enabled": False, "notes": []}
+    vec = embeddings.embed_query(req.query)
+    if not vec:
+        return {"project": req.project, "enabled": False, "notes": []}
+    with driver.session() as session:
+        rows = session.run(
+            f"""
+            CALL db.index.vector.queryNodes('{TESTRUN_VECTOR_INDEX}', $k, $vec)
+            YIELD node, score
+            WITH node AS r, score WHERE r.project = $project AND r.verdict = 'failed'
+            MATCH (t:TestCase)-[:HAS_RUN]->(r)
+            RETURN t.title AS title, t.area AS area, t.external_id AS test_case_id,
+                   r.notes AS notes, r.created_at AS created_at, score
+            ORDER BY score DESC
+            """,
+            project=req.project, vec=vec, k=req.top_k,
+        )
+        notes = [dict(r) for r in rows]
+    return {"project": req.project, "enabled": True, "notes": notes}
+
+
+@app.get("/execution/agent-difficulty")
+def execution_agent_difficulty(project: str, authorization: str | None = Header(default=None)):
+    """Screens where OUR agent (not the app) tends to fail to finish, plus typical
+    step cost per area — steers test DESIGN, never treated as defect evidence."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": project, **learning_mod.mine_agent_difficulty(session, project)}
 
 
 @app.get("/coverage/heatmap")

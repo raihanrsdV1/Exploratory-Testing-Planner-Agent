@@ -243,7 +243,14 @@ def verification_block() -> str:
         "screen means and report it.\n"
         "REPORT WHAT YOU SAW: state the observed outcome and whether it matches "
         "the expected result. 'The list was empty, so no record was created' is "
-        "a complete and valid result."
+        "a complete and valid result.\n"
+        "CONFIRM A SUSPECTED DEFECT BEFORE REPORTING IT: if you see evidence the "
+        "expected result was violated (an error message, a validation that should "
+        "have fired but didn't, a value that reverted), take ONE more targeted "
+        "action on the SAME screen to confirm it before calling finish — e.g. "
+        "re-read the field, or repeat the exact triggering action once. This is "
+        "confirmation, not exploration: stop after that one check either way, and "
+        "never use it as a reason to try something different or leave the screen."
     )
 
 
@@ -461,11 +468,202 @@ DEVICE_FIXTURE_DEST = _str("DEVICE_FIXTURE_DEST", "/sdcard/Pictures")
 # script, the two copies drifted, and NAVIGATION_LIVELOCK ended up counted as an
 # agent fault in one and as "unclassified" in the other. The reporting copy was
 # the one missing it, so autonomy read 100% when it was 67%.
-APP_FAULT = frozenset({"ASSERTION_FAILURE", "CRASH", "APP_UNRESPONSIVE"})
+APP_FAULT = frozenset({"ASSERTION_FAILURE", "CRASH", "APP_UNRESPONSIVE",
+                       # Web-only, and unambiguously the app's fault: the page
+                       # threw, or one of its own requests came back 5xx.
+                       "PAGE_ERROR", "HTTP_ERROR"})
 AGENT_FAULT = frozenset({"TIMEOUT", "ELEMENT_NOT_FOUND", "NAVIGATION_FAILURE",
-                         "NAVIGATION_LIVELOCK"})
+                         "NAVIGATION_LIVELOCK",
+                         # Web-only: the DOM moved under us between snapshot
+                         # and act. Ours to re-observe, not a defect.
+                         "STALE_ELEMENT"})
 ENV_FAULT = frozenset({"PRECONDITION_NOT_MET", "PERMISSION_DENIED",
-                       "STEP_LIMIT_EXCEEDED"})
+                       "STEP_LIMIT_EXCEEDED",
+                       # Web-only: the agent was stopped by a configured
+                       # guardrail (a destructive control, or a foreign origin).
+                       "BLOCKED_BY_GUARDRAIL",
+                       # OUR model provider was unreachable mid-test. Nothing was
+                       # learned about the app. Previously this landed in CRASH —
+                       # an APP fault — so an OpenRouter outage was recorded as a
+                       # defect discovered in the site under test.
+                       "LLM_UNAVAILABLE"})
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WEB PLAYER (Playwright)  —  see web_player/
+# ══════════════════════════════════════════════════════════════════════════════
+# The web player is a SECOND executor, parallel to the Android one. It shares the
+# planner, the gateway and the knowledge graph; only the driving of the target
+# differs. Every value below is web-only — nothing here is read by the Android
+# path, so a project that never tests a website can ignore this section entirely.
+
+# The site under test. No default, for the same reason TARGET_APP_PACKAGE has
+# none: a default here means an unconfigured run silently drives whatever site
+# the default names instead of failing loudly.
+WEB_BASE_URL = _str("WEB_BASE_URL", "")
+# Display name used in prompts. Falls back to the shared APP_NAME.
+WEB_SITE_NAME = _str("WEB_SITE_NAME", APP_NAME)
+
+# ── Browser ──────────────────────────────────────────────────────────────────
+WEB_BROWSER = _str("WEB_BROWSER", "chromium").lower()   # chromium | firefox | webkit
+# Default FALSE on purpose: the first question anyone asks of an exploratory
+# agent is "what is it actually doing?", and a headless run answers it only in
+# hindsight, through the log. Set WEB_HEADLESS=true for CI or a long batch.
+WEB_HEADLESS = _bool("WEB_HEADLESS", False)
+# Playwright drives faster than a human can follow — a headed run without this
+# is a blur of flashing elements. Milliseconds of pause before each action;
+# 0 disables it (use that with WEB_HEADLESS=true, where nobody is watching).
+WEB_SLOW_MO_MS = _int("WEB_SLOW_MO_MS", 300)
+WEB_VIEWPORT = _str("WEB_VIEWPORT", "1280x800")         # "<width>x<height>"
+# Playwright storageState JSON (cookies + localStorage). This is the web
+# equivalent of "the device is already signed in": produce it once by hand, and
+# every test starts authenticated without spending steps on a login form.
+WEB_STORAGE_STATE = _str("WEB_STORAGE_STATE", "")
+WEB_NAV_TIMEOUT_MS = _int("WEB_NAV_TIMEOUT_MS", 30_000)
+WEB_ACTION_TIMEOUT_MS = _int("WEB_ACTION_TIMEOUT_MS", 10_000)
+
+
+def web_viewport() -> dict:
+    """Parse WEB_VIEWPORT into Playwright's {'width','height'}; fall back on junk."""
+    try:
+        w, h = WEB_VIEWPORT.lower().split("x", 1)
+        return {"width": int(w), "height": int(h)}
+    except (ValueError, AttributeError):
+        return {"width": 1280, "height": 800}
+
+
+# ── Run budget ───────────────────────────────────────────────────────────────
+WEB_ROUNDS = _int("WEB_ROUNDS", 2)            # test cases per batch
+WEB_MAX_STEPS = _int("WEB_MAX_STEPS", 30)     # agent actions per test case
+WEB_TIMEOUT = _int("WEB_TIMEOUT", 420)        # wall-clock seconds per test case
+WEB_SNAPSHOT_MAX_ELEMENTS = _int("WEB_SNAPSHOT_MAX_ELEMENTS", 60)
+
+# Consecutive steps whose page content (url/elements/messages/texts) does not
+# change at all, regardless of which action was tried, before the run is ended
+# as NAVIGATION_LIVELOCK instead of burning the rest of WEB_MAX_STEPS. This
+# catches "wandering" (varying actions, e.g. scrolling, that never change the
+# page) which the exact-repeat guard misses because it requires the SAME action.
+WEB_STALL_STEPS = _int("WEB_STALL_STEPS", 6)
+
+# ── Executor model (defaults to the Android executor's; override per domain) ──
+WEB_LLM_PROVIDER = _str("WEB_LLM_PROVIDER", EXECUTOR_LLM_PROVIDER)
+WEB_LLM_MODEL = _str("WEB_LLM_MODEL", EXECUTOR_LLM_MODEL)
+WEB_LLM_MAX_TOKENS = _int("WEB_LLM_MAX_TOKENS", 1500)
+
+# ── Guardrails ───────────────────────────────────────────────────────────────
+# An exploratory agent on a website is one click away from ending its own run or
+# mutating something it should not. On Android the app sandbox and TARGET_APP_ONLY
+# contain the blast radius; on the web nothing does, so the limits are explicit.
+
+# Never leave the origin of WEB_BASE_URL. Off-origin means OAuth screens, the
+# open internet, and an agent that never comes back.
+WEB_SAME_ORIGIN_ONLY = _bool("WEB_SAME_ORIGIN_ONLY", True)
+
+# Controls the agent must refuse to activate, matched case-insensitively against
+# an element's accessible name. The defaults cover the two irreversible classes:
+# destroying the account, and destroying the session the whole batch depends on.
+# Override (comma-separated) when one of these IS the thing under test.
+WEB_BLOCKED_TEXTS = tuple(x.strip().lower() for x in _str(
+    "WEB_BLOCKED_TEXTS",
+    "delete account,delete my account,close account,deactivate account,"
+    "log out,logout,sign out,signout",
+).split(",") if x.strip())
+
+# URL substrings the agent must not navigate to (checked on every goto).
+WEB_BLOCKED_URL_PATTERNS = tuple(x.strip().lower() for x in _str(
+    "WEB_BLOCKED_URL_PATTERNS", "/logout,/signout,/sign-out",
+).split(",") if x.strip())
+
+# ── Passive oracles ──────────────────────────────────────────────────────────
+# The browser reports things the app never says out loud. Collected always;
+# whether they can FAIL a test on their own is opt-in, because a site with a
+# noisy console would otherwise fail every test it has.
+WEB_COLLECT_CONSOLE = _bool("WEB_COLLECT_CONSOLE", True)
+WEB_COLLECT_NETWORK = _bool("WEB_COLLECT_NETWORK", True)
+WEB_FAIL_ON_PAGE_ERROR = _bool("WEB_FAIL_ON_PAGE_ERROR", False)
+WEB_FAIL_ON_HTTP_5XX = _bool("WEB_FAIL_ON_HTTP_5XX", False)
+# Console noise every site produces; never treated as a finding.
+WEB_CONSOLE_IGNORE = tuple(x.strip().lower() for x in _str(
+    "WEB_CONSOLE_IGNORE",
+    "favicon,third-party cookie,devtools,react devtools,download the react",
+).split(",") if x.strip())
+
+WEB_SCREENSHOT_DIR = _str("WEB_SCREENSHOT_DIR", os.path.join(_ROOT, "logs", "web_shots"))
+
+# ── Credentials (executor-only, exactly like app_login_block) ────────────────
+WEB_LOGIN_URL = _str("WEB_LOGIN_URL", "")
+WEB_LOGIN_USER = _str("WEB_LOGIN_USER", "")
+WEB_LOGIN_PASSWORD = _str("WEB_LOGIN_PASSWORD", "")
+WEB_LOGIN_HINT = _str("WEB_LOGIN_HINT", "")
+
+
+def site_identity_block() -> str:
+    """Which site is under test and how to reach it — the web `app_identity_block`."""
+    lines = [
+        f"The system under test is the website '{WEB_SITE_NAME}', served at "
+        f"{WEB_BASE_URL}. A browser is already open on it."
+    ]
+    if WEB_SAME_ORIGIN_ONLY:
+        lines.append(
+            "Stay on this origin for the whole test. Do not follow links to other "
+            "sites, sign-in providers, or documentation. If you land off-origin, "
+            "go back immediately."
+        )
+    return "\n".join(lines)
+
+
+def web_safety_block() -> str:
+    """Destructive controls the agent must refuse, or '' when none are configured."""
+    if not WEB_BLOCKED_TEXTS:
+        return ""
+    shown = ", ".join(f"'{t}'" for t in WEB_BLOCKED_TEXTS[:8])
+    more = f" (and {len(WEB_BLOCKED_TEXTS) - 8} more)" if len(WEB_BLOCKED_TEXTS) > 8 else ""
+    return (
+        f"NEVER activate a control whose label matches any of: {shown}{more}. These "
+        f"change or destroy something this test has no authority to change — the "
+        f"session, the account, or the site's own content. If the test appears to "
+        f"require one, stop and report it as blocked instead."
+    )
+
+
+def web_input_block() -> str:
+    """Text-entry guidance for the browser agent.
+
+    The Android counterpart warns that the IME drops characters. The browser has
+    the opposite failure: filling a field is mechanically reliable, but a
+    framework-controlled input can silently discard a value it did not handle
+    itself, so a field that looks typed may never have reached the app's state.
+    """
+    return (
+        "TEXT ENTRY: after typing into a field, the value you see is not proof the "
+        "page accepted it — some inputs are controlled by the page's own code and "
+        "discard values they did not handle. Read the field back in the next "
+        "observation and confirm it holds exactly what you intended. Clear a field "
+        "before retyping rather than appending to it."
+    )
+
+
+def web_login_block() -> str:
+    """Credentials as a prompt fragment for the BROWSER agent, or '' if unset.
+
+    Only the executor sees the secret — never the planner. Same split as
+    app_login_block/app_session_block, for the same reason: the planning prompt
+    is far larger and far more widely logged.
+    """
+    if not WEB_LOGIN_USER:
+        return ""
+    lines = ["If the site shows a sign-in form, sign in with these credentials "
+             "instead of registering a new account:"]
+    if WEB_LOGIN_URL:
+        lines.append(f"  sign-in page: {WEB_LOGIN_URL}")
+    lines.append(f"  username / email: {WEB_LOGIN_USER}")
+    if WEB_LOGIN_PASSWORD:
+        lines.append(f"  password: {WEB_LOGIN_PASSWORD}")
+    if WEB_LOGIN_HINT:
+        lines.append(f"  note: {WEB_LOGIN_HINT}")
+    lines.append("Never register a new account and never change or reset this "
+                 "account's password — both would lock the suite out.")
+    return "\n".join(lines)
+
 
 # ── Logging / observability ──────────────────────────────────────────────────
 LOG_LEVEL = _str("LOG_LEVEL", "INFO").upper()

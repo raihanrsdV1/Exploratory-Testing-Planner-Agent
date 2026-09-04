@@ -25,25 +25,47 @@ def _failure_reason(notes: str) -> str:
     return " ".join(text.split())[:1200]
 
 
-def build_failure_context(project: str, recent_tests: list[dict]) -> str:
+def build_failure_context(project: str, recent_tests: list[dict], objective: str = "") -> str:
     """What previous runs actually discovered, so generation can build on it.
 
     Without this the planner only sees the *titles* of failed tests and keeps
     re-deriving variants of a defect it already found. Combines each failure's
     real reason with the recurring ErrorPattern signatures mined from execution
     history (REQ-303.2), which were previously computed but never fed back in.
+
+    The findings list prefers SEMANTIC retrieval (ranked by relevance to
+    ``objective``, via the testrun_embedding vector index) over the plain
+    recency scan ``recent_tests`` already is (a `LIMIT 100` Cypher read, not
+    RAG). This is what lets a long execution history steer generation by
+    relevance instead of by "was it one of the last 25 to run" — falls back
+    to the recency view when embeddings are unavailable or the call fails, so
+    behaviour is unchanged for a project with EMBEDDING_BACKEND=none.
     """
     lines: list[str] = []
-    for t in recent_tests:
-        if str(t.get("verdict", "")).lower() != "failed":
-            continue
-        reason = _failure_reason(t.get("notes", ""))
-        title = str(t.get("title", "")).strip()
-        if not title:
-            continue
-        lines.append(f"- {title}\n    → what happened: {reason or 'no reason recorded'}")
-        if len(lines) >= 25:
-            break
+    if objective:
+        try:
+            data = rag_client.get_relevant_failure_notes(project, objective, top_k=15)
+        except Exception:
+            data = {"enabled": False}
+        if data.get("enabled"):
+            for n in data.get("notes") or []:
+                title = str(n.get("title", "")).strip()
+                if not title:
+                    continue
+                reason = _failure_reason(n.get("notes", ""))
+                lines.append(f"- {title}\n    → what happened: {reason or 'no reason recorded'}")
+
+    if not lines:
+        for t in recent_tests:
+            if str(t.get("verdict", "")).lower() != "failed":
+                continue
+            reason = _failure_reason(t.get("notes", ""))
+            title = str(t.get("title", "")).strip()
+            if not title:
+                continue
+            lines.append(f"- {title}\n    → what happened: {reason or 'no reason recorded'}")
+            if len(lines) >= 25:
+                break
 
     patterns: list[str] = []
     try:
@@ -64,6 +86,39 @@ def build_failure_context(project: str, recent_tests: list[dict]) -> str:
     if patterns:
         out += ["", "Recurring failure patterns across runs:", *patterns]
     return "\n".join(out)
+
+
+def build_agent_difficulty_context(project: str) -> str:
+    """'Known Agent Difficulty' block (docs/PLANNER_IMPROVEMENTS_FUTURE.md #1/#2).
+
+    Deliberately NOT defect evidence — a screen the agent struggles to finish on
+    says nothing about whether the app works. This steers test DESIGN only: write
+    a narrower test there, and scope new tests to the step budget an area
+    typically needs. Kept as its own block (never merged into build_failure_context
+    or defect_context) so it can never be mistaken for "the app is broken here".
+    """
+    try:
+        data = rag_client.get_agent_difficulty(project)
+    except Exception:
+        return ""
+
+    lines: list[str] = []
+    screens = data.get("difficulty_screens") or []
+    for s in screens[:5]:
+        lines.append(
+            f"- {s.get('screen', '?')}: {s.get('occurrences', 0)} recent runs stalled/timed out here "
+            f"({', '.join(s.get('error_types', []))}). Prefer a narrower, single-action test on this "
+            f"screen rather than a full multi-field flow."
+        )
+
+    areas = data.get("step_cost_by_area") or []
+    for a in areas[:5]:
+        lines.append(
+            f"- Typical step cost: '{a.get('area', '?')}' tests average {a.get('avg_steps', '?')} steps "
+            f"(median {a.get('median_steps', '?')}, {a.get('sample_count', 0)} runs) — keep new tests "
+            f"here scoped to fit the remaining step budget."
+        )
+    return "\n".join(lines)
 
 
 def pick_relevant_screens(screens: list[dict], done_areas: list[str], recent_tests: list[dict]) -> list[str]:
@@ -117,13 +172,13 @@ def build_learned_context(
     selected_screens: list[str],
     defect_blocks: list[str],
     nav_blocks: list[str],
-) -> tuple[str, str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str, list[str]]:
     """Assemble defect / navigation / failed-path / strategy / risk / anomaly context.
 
     Uses whatever the retrieval loop already gathered, and best-effort fills the
     gaps from dedicated endpoints. All app-agnostic — nothing is fetched unless the
     source is available for this project. Returns (defect_context, nav_context,
-    failed_nav, strategy_context, risk_context, anomaly_context)."""
+    failed_nav, strategy_context, risk_context, anomaly_context, risk_areas)."""
     from .sources.navtree import format_path
 
     # Defects (REQ-301.5): prefer gathered blocks, else fetch a focused block.
@@ -177,6 +232,7 @@ def build_learned_context(
 
     # WP7 (REQ-306.2): bias generation toward the highest regression-risk areas.
     risk_context = ""
+    risk_areas: list[str] = []
     try:
         scores = rag_client.rag_get("/risk/scores", {"project": project}).get("risk_scores", [])
         ranked = [s for s in scores if s.get("regression_risk_score", 0) > 0][:20]
@@ -186,6 +242,10 @@ def build_learned_context(
                 f"{s.get('defect_count',0)} defects, {s.get('failed_tests',0)}/{s.get('total_tests',0)} runs failed)"
                 for s in ranked
             )
+            # Already ranked by regression_risk_score (rag_api/risk.py) — feed the
+            # ordered names to the exploration directive so risk actually competes
+            # for [PRIORITY] instead of sitting in an informational block only.
+            risk_areas = [str(s.get("area", "")).strip() for s in ranked if s.get("area")]
     except Exception:
         risk_context = ""
 
@@ -202,7 +262,7 @@ def build_learned_context(
     except Exception:
         anomaly_context = ""
 
-    return defect_context, nav_context, failed_nav, strategy_context, risk_context, anomaly_context
+    return defect_context, nav_context, failed_nav, strategy_context, risk_context, anomaly_context, risk_areas
 
 
 def build_figma_overview_context(figma_overview: list[dict]) -> str:

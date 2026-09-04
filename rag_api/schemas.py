@@ -165,3 +165,10 @@ class AnomaliesDetectRequest(BaseModel):
     project: str = Field(..., min_length=1)
 
 
+class RetrieveNotesRequest(BaseModel):
+    """Semantic retrieval of past failure notes by relevance to the current objective."""
+    project: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1)
+    top_k: int = 8
+
+

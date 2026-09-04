@@ -24,13 +24,14 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, Header
+from fastapi import Body, FastAPI, Header
 from fastapi.responses import HTMLResponse, Response
 
 from observability import setup_logging
 from observability.middleware import RequestLoggingMiddleware
 from observability.metrics import get_metrics
 
+from gateway import targets_api
 from planner import config, model_client, pipeline
 from planner.schemas import (
     ChatRequest,
@@ -68,6 +69,7 @@ app = FastAPI(
         {"name": "project", "description": "Manage project-level data (reset slices, lifecycle)."},
         {"name": "agent",   "description": "Core exploratory test generation and coverage tracking."},
         {"name": "chat",    "description": "RAG-backed free-form Q&A against the project knowledge graph."},
+        {"name": "targets", "description": "Configure and launch target profiles (targets/profiles/*.json) — what is under test."},
     ],
 )
 
@@ -198,8 +200,10 @@ def dashboard_logs(lines: int = 250, source: str = "mobilerun"):
     source=mobilerun -> the device agent's thinking/actions (logs/mobilerun.log)
     source=planner   -> the planner's retrieval/generation reasoning (logs/gateway.log,
                         polling noise filtered out).
+    source=web       -> the browser agent's thinking/actions (logs/web_player.log)
     """
-    fname = {"mobilerun": "mobilerun.log", "planner": "gateway.log"}.get(source, "mobilerun.log")
+    fname = {"mobilerun": "mobilerun.log", "planner": "gateway.log",
+             "web": "web_player.log"}.get(source, "mobilerun.log")
     log_path = Path(__file__).resolve().parent.parent / "logs" / fname
     if not log_path.exists():
         return {"exists": False, "source": source, "lines": []}
@@ -635,3 +639,78 @@ def agent_coverage(project: str, authorization: str | None = Header(default=None
 )
 def chat(req: ChatRequest, authorization: str | None = Header(default=None)):
     return pipeline.chat(req, authorization)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Target profiles — what is under test (targets/profiles/*.json). See
+# targets/README.md's "Porting to a UI" table; gateway/targets_api.py is that
+# UI-serving layer. A run is always launched as a separate process — see that
+# module's docstring for why.
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.get(
+    "/targets",
+    tags=["targets"],
+    summary="List target profiles",
+    description="Every profile in targets/profiles/ — including invalid ones, with their validation errors, so a UI can offer to fix them.",
+)
+def list_targets(authorization: str | None = Header(default=None)):
+    return targets_api.list_targets(authorization)
+
+
+@app.get(
+    "/targets/{name}",
+    tags=["targets"],
+    summary="Get one target profile",
+    description="Raw profile (credentials redacted) + validation errors. Loads even an invalid profile so it can be fixed in a form.",
+    responses={404: {"description": "No profile with that name."}},
+)
+def get_target(name: str, authorization: str | None = Header(default=None)):
+    return targets_api.get_target(name, authorization)
+
+
+@app.post(
+    "/targets/validate",
+    tags=["targets"],
+    summary="Validate a profile without saving",
+    description="For live inline form feedback while editing.",
+)
+def validate_target(body: dict = Body(...), authorization: str | None = Header(default=None)):
+    return targets_api.validate_target(body, authorization)
+
+
+@app.put(
+    "/targets/{name}",
+    tags=["targets"],
+    summary="Create or update a target profile",
+    description="Validates first and refuses to save an invalid profile (422 with the error list).",
+    responses={
+        400: {"description": "Body 'name' does not match the URL."},
+        422: {"description": "Profile failed validation — not saved."},
+    },
+)
+def save_target(name: str, body: dict = Body(...), authorization: str | None = Header(default=None)):
+    return targets_api.save_target(name, body, authorization)
+
+
+@app.post(
+    "/targets/{name}/run",
+    tags=["targets"],
+    summary="Run a target profile",
+    description="Launches `py -m targets.run <name>` as a separate process (never in-process — see module docstring) and returns immediately.",
+    responses={
+        409: {"description": "A run for this profile is already in progress."},
+        422: {"description": "Profile is invalid — nothing was launched."},
+    },
+)
+def run_target(name: str, rounds: int | None = None, authorization: str | None = Header(default=None)):
+    return targets_api.run_target(name, rounds, authorization)
+
+
+@app.get(
+    "/targets/{name}/run-status",
+    tags=["targets"],
+    summary="Poll the last launched run for this profile",
+)
+def target_run_status(name: str, authorization: str | None = Header(default=None)):
+    return targets_api.run_status(name, authorization)

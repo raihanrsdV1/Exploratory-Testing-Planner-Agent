@@ -1,0 +1,60 @@
+{
+  "name": "saucedemo",
+  "kind": "web",
+  "project": "saucedemo",
+  "display_name": "Swag Labs",
+  "description": "Sauce Labs' public demo storefront — built for automated testing, and seeded with real defects.",
+
+  "web": {
+    "base_url": "https://www.saucedemo.com",
+    "browser": "chromium",
+    "headless": false,
+    "slow_mo_ms": 300,
+    "viewport": "1280x800",
+    "same_origin_only": true,
+
+    "blocked_texts": [
+      "logout",
+      "reset app state"
+    ],
+
+    "blocked_url_patterns": [],
+
+    "storage_state": "",
+
+    "fail_on_page_error": true,
+    "fail_on_http_5xx": true,
+    "console_ignore": [
+      "favicon",
+      "third-party cookie",
+      "devtools"
+    ],
+
+    "login": {
+      "url": "https://www.saucedemo.com/",
+      "user": "standard_user",
+      "password": "secret_sauce",
+      "hint": "The accepted usernames and the shared password are printed on the login page itself. Other accounts (problem_user, performance_glitch_user, error_user, visual_user) use the same password and are in scope; locked_out_user is expected to be refused.",
+      "role": "signed-in shopper"
+    }
+  },
+
+  "knowledge": {
+    "srs_path": "./data/inputs/saucedemo-spec.md",
+    "figma_path": "",
+    "defects_path": ""
+  },
+
+  "run": {
+    "rounds": 8,
+    "max_steps": 30,
+    "timeout": 420,
+    "clean_slate": true,
+    "self_heal": true
+  },
+
+  "model": {
+    "provider": "",
+    "model": ""
+  }
+}

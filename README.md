@@ -264,9 +264,16 @@ See `System_Architecture.md` for the multi-stage retrieval design.
           ▲
           │ test cases / verdicts
   ┌───────┴────────┐
-  │ executor       │  clients/executor_runner.py (Droidrun) · clients/simulator_runner.py (demo)
+  │ executors      │  clients/executor_runner.py (Android, Droidrun)
+  │                │  web_player/runner.py      (Website, Playwright)
+  │                │  clients/simulator_runner.py (demo, no device)
   └────────────────┘
 ```
+
+Two **players**, one brain. The planner, the knowledge graph and the gateway are
+platform-agnostic; only the driving of the target differs. Web runs are tagged
+`platform="web"` (a WP6 dimension the graph already understands), so Android and
+website results share one project without polluting each other's retrieval.
 
 - **`rag_api/main.py`** (port 9010) — Neo4j-backed knowledge graph: ingest, hybrid retrieval, coverage, graph endpoints. Auto-creates vector indexes on startup.
 - **`gateway/main.py`** (port 9100) — thin FastAPI router over the **`planner/`** package. Uses **LangGraph** to orchestrate the iterative retrieval + test-generation loop.
@@ -305,6 +312,21 @@ clients/                  Execution scripts
   executor_runner.py      Real Android device executor (via Droidrun)
   simulator_runner.py     Simulated loop (no device) for demos/testing
   test_loop_client.py     Minimal interactive loop client
+
+targets/                  Target profiles — WHAT is under test (see targets/README.md)
+  run.py                  One entry point:  py -m targets.run <profile>
+  schema.py               Profile shape + validation (UI-ready: returns errors)
+  loader.py  env.py       Load/save profiles · profile -> settings.py variables
+  profiles/*.json         One file per app or site (wikipedia, contacts-app, ...)
+
+web_player/               Website executor (Playwright) — see web_player/README.md
+  runner.py               CLI batch loop:  py -m web_player.runner
+  agent.py                observe -> decide -> act loop
+  snapshot.py             page -> compact, ref-addressable observation
+  actions.py              action vocabulary + guardrail enforcement
+  oracles.py              console / page-error / HTTP signals (free defect oracles)
+  failures.py             web failure taxonomy + self-healing strategies
+  browser.py  goal.py  gateway.py  llm.py
 
 scripts/
   ingest_all.py           One-shot ingest helper (reset → SRS → Figma → stats)
