@@ -94,12 +94,21 @@ def build_coverage_block(coverage_map: dict) -> str:
     return "\n".join(lines)
 
 
-def build_exploration_directive(coverage_map: dict, recent_tests: list[dict], mode: str | None = None) -> str:
+def build_exploration_directive(coverage_map: dict, recent_tests: list[dict], mode: str | None = None,
+                                risk_areas: list[str] | None = None) -> str:
     """Prioritised, data-driven next-action directive for the planner.
 
     ``mode`` sets the explore/exploit balance for the run (see config.EXPLORATION_MODE):
     ``exploit`` puts defect-prone depth first, ``explore`` puts untested breadth first,
     ``balanced`` investigates failures then expands.
+
+    ``risk_areas`` are FeatureAreas ranked by regression_risk_score (rag_api/risk.py)
+    — defect density + fail ratio + recency + nav instability, i.e. risk that isn't
+    necessarily visible yet in THIS session's own hot_spots (which need >=2 failures
+    already seen this session). Without this, risk scoring was computed and shown to
+    the model as a separate informational block but never actually competed for
+    priority against hot_spots/uncovered — a high-risk area with no failures yet in
+    this session could be silently outranked by breadth.
     """
     mode = (mode or config.EXPLORATION_MODE or "balanced").strip().lower()
     recent_tests = [t for t in recent_tests if str(t.get("verdict", "")).lower() != "planned"]
@@ -108,11 +117,17 @@ def build_exploration_directive(coverage_map: dict, recent_tests: list[dict], mo
     dead_ends = coverage_map.get("dead_ends", [])
     uncovered = coverage_map.get("uncovered_purposes", [])
     exhausted = coverage_map.get("exhausted_areas", [])
+    # Risk areas already flagged as hot spots would just repeat the same names.
+    risk_only = [a for a in (risk_areas or []) if a not in hot_spots][:3]
 
     investigate = (
         f"[INVESTIGATE] Areas with repeated failures need deeper edge-case coverage: "
         f"{', '.join(hot_spots[:3])}"
     ) if hot_spots else ""
+    risk = (
+        f"[RISK] Highest regression-risk areas (defect-dense, failure-prone, or recently "
+        f"broken — even without a failure yet THIS session): {', '.join(risk_only)}"
+    ) if risk_only else ""
     expand = (
         f"[EXPAND] Areas with ZERO test coverage yet: {', '.join(uncovered[:5])}"
     ) if uncovered else ""
@@ -120,13 +135,13 @@ def build_exploration_directive(coverage_map: dict, recent_tests: list[dict], mo
     if mode == "exploit":
         lines.append("[MODE: EXPLOIT] Go DEEP on areas that have already broken. Prefer another "
                      "angle on a known-fragile area over opening a new one.")
-        ordered = [investigate, expand]
+        ordered = [investigate, risk, expand]
     elif mode == "explore":
         lines.append("[MODE: EXPLORE] Go BROAD. Cover untested areas first; only revisit a "
                      "known-fragile area once no untested area remains.")
-        ordered = [expand, investigate]
+        ordered = [expand, investigate, risk]
     else:
-        ordered = [investigate, expand]
+        ordered = [investigate, risk, expand]
 
     for i, block in enumerate([b for b in ordered if b], start=1):
         lines.append(f"[PRIORITY {i}] " + block)

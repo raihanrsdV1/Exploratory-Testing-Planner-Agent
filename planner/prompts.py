@@ -214,14 +214,16 @@ def build_testcase_prompt(
     strategy_context: str = "",
     target_env: str = "",
     risk_context: str = "",
+    risk_areas: list[str] | None = None,
     anomaly_context: str = "",
     failure_context: str = "",
     requirements_context: str = "",
+    agent_difficulty_context: str = "",
 ) -> str:
     cmap = coverage_map or {}
     rtests = recent_tests or []
     coverage_block = coverage.build_coverage_block(cmap)
-    directive = coverage.build_exploration_directive(cmap, rtests)
+    directive = coverage.build_exploration_directive(cmap, rtests, risk_areas=risk_areas)
 
     # ── Global prompt budget (replaces per-block magic-number caps) ───────────
     # Everything variable competes for one ceiling, filled priority-first:
@@ -242,6 +244,7 @@ def build_testcase_prompt(
         budget.Block("nav", nav_context, priority=2),
         budget.Block("failed_nav", failed_nav, priority=2),
         budget.Block("strategy", strategy_context, priority=2),
+        budget.Block("agent_difficulty", agent_difficulty_context, priority=2),
         budget.Block("figma_overview", figma_overview_context, priority=3),
         budget.Block("figma_flow", figma_flow_context, priority=3),
         budget.Block("failed_titles", "\n".join(f"- {t}" for t in failed_titles), priority=3),
@@ -259,6 +262,7 @@ def build_testcase_prompt(
     nav_context = _fitted.get("nav", "")
     failed_nav = _fitted.get("failed_nav", "")
     strategy_context = _fitted.get("strategy", "")
+    agent_difficulty_context = _fitted.get("agent_difficulty", "")
     figma_overview_context = _fitted.get("figma_overview", "")
     figma_flow_context = _fitted.get("figma_flow", "")
     history_text = _fitted.get("done_titles", "")
@@ -411,6 +415,21 @@ def build_testcase_prompt(
             "(These exploratory strategies have found the most defects on this app — prefer one "
             "of them for this test, and set 'test_type' accordingly.)",
             strategy_context,
+            "",
+        ]
+
+    # docs/PLANNER_IMPROVEMENTS_FUTURE.md #1/#2 — screens/areas where OUR AGENT
+    # (not the app) tends to fail to finish. NOT defect evidence — never conflate
+    # with defect_context above. Scope the test to what the agent can actually
+    # complete, not to what would be most interesting to probe.
+    if agent_difficulty_context:
+        parts += [
+            "## Known Agent Difficulty (steer test design, not defect evidence)",
+            "(These are OUR agent's execution limits, not app defects. Prefer a narrower, "
+            "single-action test on a difficult screen over a full multi-field flow, and scope "
+            "step count to the typical cost shown for that area — don't write a test structurally "
+            "too large to finish in the step budget.)",
+            agent_difficulty_context,
             "",
         ]
 

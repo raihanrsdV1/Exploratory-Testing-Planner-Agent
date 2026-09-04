@@ -243,7 +243,14 @@ def verification_block() -> str:
         "screen means and report it.\n"
         "REPORT WHAT YOU SAW: state the observed outcome and whether it matches "
         "the expected result. 'The list was empty, so no record was created' is "
-        "a complete and valid result."
+        "a complete and valid result.\n"
+        "CONFIRM A SUSPECTED DEFECT BEFORE REPORTING IT: if you see evidence the "
+        "expected result was violated (an error message, a validation that should "
+        "have fired but didn't, a value that reverted), take ONE more targeted "
+        "action on the SAME screen to confirm it before calling finish — e.g. "
+        "re-read the field, or repeat the exact triggering action once. This is "
+        "confirmation, not exploration: stop after that one check either way, and "
+        "never use it as a reason to try something different or leave the screen."
     )
 
 
@@ -529,6 +536,13 @@ WEB_ROUNDS = _int("WEB_ROUNDS", 2)            # test cases per batch
 WEB_MAX_STEPS = _int("WEB_MAX_STEPS", 30)     # agent actions per test case
 WEB_TIMEOUT = _int("WEB_TIMEOUT", 420)        # wall-clock seconds per test case
 WEB_SNAPSHOT_MAX_ELEMENTS = _int("WEB_SNAPSHOT_MAX_ELEMENTS", 60)
+
+# Consecutive steps whose page content (url/elements/messages/texts) does not
+# change at all, regardless of which action was tried, before the run is ended
+# as NAVIGATION_LIVELOCK instead of burning the rest of WEB_MAX_STEPS. This
+# catches "wandering" (varying actions, e.g. scrolling, that never change the
+# page) which the exact-repeat guard misses because it requires the SAME action.
+WEB_STALL_STEPS = _int("WEB_STALL_STEPS", 6)
 
 # ── Executor model (defaults to the Android executor's; override per domain) ──
 WEB_LLM_PROVIDER = _str("WEB_LLM_PROVIDER", EXECUTOR_LLM_PROVIDER)
