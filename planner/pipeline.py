@@ -234,9 +234,30 @@ def session_end(req, authorization: str | None) -> dict:
 # ── Core: next test case ─────────────────────────────────────────────────────────
 
 def generate_next_testcase(req: NextTestCaseRequest, authorization: str | None) -> dict:
+    """Dispatch to the configured planner (settings.PLANNER_MODE).
+
+    Both planners return the same test-case contract, so the executor, dashboard
+    and batch reporting are identical either way — which is what makes the two
+    comparable over a campaign. The tool planner needs a backend that speaks the
+    tools/tool_calls contract; on any other backend it degrades to the pipeline
+    rather than failing the round.
+    """
     config.check_gateway_auth(authorization)
+    args = req.model_dump()
+
+    if _settings.PLANNER_MODE == "tools":
+        if model_client.supports_tools():
+            from .agent_loop import run_agent_tools
+            return run_agent_tools(args)
+        degradations.record(
+            "planner_mode_downgraded", degradations.MAJOR,
+            detail=f"PLANNER_MODE=tools but MODEL_BACKEND={config.MODEL_BACKEND} "
+                   f"cannot call tools; using the pipeline planner",
+            project=args.get("project", ""),
+        )
+
     from .langgraph_agent import run_agent
-    return run_agent(req.model_dump())
+    return run_agent(args)
 
 
 # ── Verdict logging + adaptive loop ──────────────────────────────────────────────

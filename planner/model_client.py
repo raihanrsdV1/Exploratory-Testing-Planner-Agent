@@ -33,9 +33,39 @@ QA_SYSTEM_INSTRUCTION = (
 # *upstream* status embedded in the message and explicitly exclude permanent
 # failures — otherwise a 400 "bad model id" gets retried three times and still
 # fails, just slower.
+# When a model is rate-limited upstream it usually stays that way for a while:
+# the shared provider pool does not clear between one turn and the next. Without
+# a memory of that, every turn of a tool loop re-runs the full 2+4+8s backoff on
+# a model that is certainly still limited — measured at ~112s of pure waiting in
+# a 115s planning round, i.e. nearly the whole call. After a model exhausts its
+# retries, it is skipped in favour of FALLBACK_MODEL for this long.
+_RATE_LIMIT_COOLDOWN_S = 180.0
+_cooldown_until: dict[str, float] = {}
+
 _RETRY_STATUS = ("429", "500 ", "502", "503 ", "504", "too many requests", "overloaded", "timed out")
 _PERMANENT = ("400", "401", "403", "404", "not a valid model", "invalid api key")
 _MAX_ATTEMPTS = 4
+
+
+def _effective_model(requested: str | None) -> tuple[str, bool]:
+    """Resolve which model to actually call, honouring the rate-limit cooldown.
+
+    Returns (model, was_substituted). Falling back BEFORE the request avoids
+    re-paying the backoff on a model already known to be limited; the caller
+    still gets a working answer, just without the wait.
+    """
+    import time
+    model = requested or config.OPENROUTER_MODEL
+    fallback = config.FALLBACK_MODEL
+    if (fallback and fallback != model
+            and _cooldown_until.get(model, 0.0) > time.time()):
+        return fallback, True
+    return model, False
+
+
+def _mark_rate_limited(model: str) -> None:
+    import time
+    _cooldown_until[model] = time.time() + _RATE_LIMIT_COOLDOWN_S
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -80,15 +110,19 @@ def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool,
 
     result = None
     last_exc: Exception | None = None
+    active_model, substituted = _effective_model(model)
+    if substituted:
+        log.info("llm_cooldown_skip", skipped=model or config.OPENROUTER_MODEL, using=active_model)
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
-            result = _dispatch(model)
+            result = _dispatch(active_model)
             break
         except Exception as exc:
             last_exc = exc
             if not _is_transient(exc):
                 raise  # a bad request/API key fails identically on any model — no point retrying
             if attempt >= _MAX_ATTEMPTS:
+                _mark_rate_limited(active_model)
                 break  # primary model's retries exhausted — fall through to the fallback below
             delay = 2 ** attempt
             log.warning("llm_retry", backend=config.MODEL_BACKEND, attempt=attempt,
@@ -268,3 +302,130 @@ def backend_info() -> dict:
     else:
         info["api"] = config.MODEL_API_URL
     return info
+
+
+# ── Tool-calling transport (OpenRouter only) ─────────────────────────────────
+
+def supports_tools() -> bool:
+    """Whether the configured backend can drive a tool loop at all.
+
+    Only the OpenRouter path speaks the tools/tool_calls contract. The gemini and
+    ngrok backends take a plain prompt, so a caller must fall back to the
+    single-prompt planner rather than silently produce a toolless loop.
+    """
+    return config.MODEL_BACKEND == "openrouter"
+
+
+def chat_tools(messages: list[dict], tools: list[dict], model: str | None = None,
+               app_label: str | None = None, reasoning_effort: str | None = None,
+               temperature: float = 0.7, force_tool: str | None = None) -> dict:
+    """One tool-calling turn: send the conversation, return the assistant message.
+
+    Deliberately a transport, not a loop — the loop belongs with the agent that
+    knows what its tools mean (planner/agent_loop.py). Returns the raw message
+    dict (``content`` and/or ``tool_calls``) so the caller can append it to the
+    conversation verbatim, which the API requires.
+
+    ``force_tool`` pins tool_choice to one function, which is how a caller ends
+    an open-ended loop: a model left on "auto" will happily keep investigating
+    until the turn ceiling and never commit (observed — ten straight turns of
+    tool calls with no proposal).
+
+    Shares call_model's retry + FALLBACK_MODEL behaviour: providers rate-limit
+    (429) constantly on the shared pool — the planner model returned 429 on six
+    consecutive attempts during this feature's own bring-up — and an unretried
+    one would kill a whole planning round.
+    """
+    import time
+    if not supports_tools():
+        raise HTTPException(status_code=503,
+                            detail=f"MODEL_BACKEND={config.MODEL_BACKEND} does not support tool calling")
+    if not config.OPENROUTER_API_KEY:
+        raise HTTPException(status_code=503, detail="OPENROUTER_API_KEY not set in .env")
+
+    start = time.perf_counter()
+    inc("llm_calls_total")
+    title = app_label or "QA Planner Agent"
+    headers = {
+        "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": _APP_REFERERS.get(title, _APP_REFERERS["QA Planner Agent"]),
+        "X-Title": title,
+    }
+
+    def _send(use_model: str):
+        choice = ({"type": "function", "function": {"name": force_tool}}
+                  if force_tool else "auto")
+        payload = {"model": use_model, "messages": messages, "tools": tools,
+                   "tool_choice": choice, "temperature": temperature}
+        if reasoning_effort:
+            payload["reasoning"] = {"effort": reasoning_effort}
+        resp = requests.post(f"{config.OPENROUTER_BASE_URL}/chat/completions",
+                             headers=headers, json=payload, timeout=600)
+        if resp.status_code == 400 and "reasoning" in (resp.text or "").lower():
+            payload.pop("reasoning", None)
+            resp = requests.post(f"{config.OPENROUTER_BASE_URL}/chat/completions",
+                                 headers=headers, json=payload, timeout=600)
+        if resp.status_code == 400 and force_tool and "tool" in (resp.text or "").lower():
+            # Not every provider honours a forced tool_choice. Falling back to
+            # "auto" keeps the round alive; the caller has already appended an
+            # explicit "propose now" instruction, so the model is still steered.
+            log.warning("tool_choice_force_rejected", model=use_model,
+                        error=(resp.text or "")[:200])
+            payload["tool_choice"] = "auto"
+            resp = requests.post(f"{config.OPENROUTER_BASE_URL}/chat/completions",
+                                 headers=headers, json=payload, timeout=600)
+        if resp.status_code >= 400:
+            # Carry the provider's own message into the exception. A bare
+            # "400 Client Error" says nothing about WHICH part of the payload
+            # was rejected, and this call has several candidates (tools,
+            # tool_choice, reasoning), so the message is the whole diagnosis.
+            detail = ""
+            try:
+                detail = str(resp.json().get("error", {}).get("message", ""))[:300]
+            except Exception:
+                detail = (resp.text or "")[:300]
+            raise RuntimeError(f"{resp.status_code} from OpenRouter: {detail}")
+        data = resp.json()
+        if not data.get("choices"):
+            raise RuntimeError(f"no choices in response: {str(data)[:200]}")
+        return data["choices"][0].get("message") or {}
+
+    primary, substituted = _effective_model(model)
+    if substituted:
+        log.info("llm_cooldown_skip", skipped=model or config.OPENROUTER_MODEL, using=primary)
+    last_exc: Exception | None = None
+    message = None
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            message = _send(primary)
+            break
+        except Exception as exc:
+            last_exc = exc
+            if not _is_transient(exc):
+                raise
+            if attempt >= _MAX_ATTEMPTS:
+                _mark_rate_limited(primary)
+                break
+            delay = 2 ** attempt
+            log.warning("llm_retry", backend="openrouter", attempt=attempt, delay_s=delay,
+                        error=str(exc)[:180])
+            inc("llm_retries_total")
+            time.sleep(delay)
+
+    if message is None:
+        if config.FALLBACK_MODEL and config.FALLBACK_MODEL != primary:
+            log.warning("llm_fallback", primary=primary, fallback=config.FALLBACK_MODEL,
+                        error=str(last_exc)[:180])
+            try:
+                message = _send(config.FALLBACK_MODEL)
+            except Exception as fallback_exc:
+                raise last_exc from fallback_exc
+        else:
+            raise last_exc
+
+    log.info("llm_tool_call", backend="openrouter",
+             latency_ms=round((time.perf_counter() - start) * 1000, 1),
+             tool_calls=len(message.get("tool_calls") or []),
+             has_content=bool(message.get("content")))
+    return message

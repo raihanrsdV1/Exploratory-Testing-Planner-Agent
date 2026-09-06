@@ -127,7 +127,7 @@ MODEL_BACKEND = _str("MODEL_BACKEND", "openrouter").lower()
 MODEL_API_URL = _str("MODEL_API_URL")
 PLANNER_GEMINI_MODEL = _str("PLANNER_GEMINI_MODEL", "gemini-2.5-pro")
 OPENROUTER_API_KEY = _str("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = _str("OPENROUTER_MODEL", "qwen/qwen3.8-flash")
+OPENROUTER_MODEL = _str("OPENROUTER_MODEL", "qwen/qwen3.7-flash")
 OPENROUTER_BASE_URL = _str("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 GEMINI_API_KEY = _str("GEMINI_API_KEY")
 
@@ -198,6 +198,17 @@ TOP_K = _int("TOP_K", 8)
 # (see planner/budget.py). This is the main cost dial — every call pays it.
 PROMPT_BUDGET_TOKENS = _int("PROMPT_BUDGET_TOKENS", 50_000)
 MAX_RETRIEVAL_ROUNDS = _int("MAX_RETRIEVAL_ROUNDS", 3)
+
+# Which planner runs: "pipeline" (the LangGraph retrieval loop) or "tools" (the
+# tool-using agent in planner/agent_loop.py). Both produce the same test-case
+# contract, so the executor is unaffected either way and a campaign can be run
+# on each for comparison. See docs/PLANNER_REDESIGN.md.
+PLANNER_MODE = _str("PLANNER_MODE", "pipeline").lower()
+
+# Scratchpad budget for the planner's tool loop. Same lever as the evaluator's:
+# on a reasoning model the time goes to reasoning tokens, and a tool loop pays
+# that cost once per turn rather than once per test case. Empty = provider default.
+PLANNER_REASONING_EFFORT = _str("PLANNER_REASONING_EFFORT", "low")
 # Generation token ceiling. Reasoning models spend 3-7k tokens on their scratchpad
 # before the JSON answer; too low a cap truncates it and the response fails to parse.
 GENERATION_MAX_TOKENS = _int("GENERATION_MAX_TOKENS", 12000)

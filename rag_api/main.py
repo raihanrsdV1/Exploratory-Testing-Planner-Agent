@@ -1618,6 +1618,27 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
     }
 
 
+@app.get("/requirements/ids")
+def requirement_ids(project: str, authorization: str | None = Header(default=None)):
+    """Every citable requirement ref_id for a project.
+
+    The planner may only cite ids that exist: an invented one ("FR-64") matches
+    no Requirement node, so its COVERS edge silently fails and requirement
+    coverage under-reports. Previously the prompt just *asked* the model not to
+    invent ids; this endpoint lets a proposal be rejected when it does.
+    """
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(r:Requirement)
+            WHERE r.ref_id IS NOT NULL
+            RETURN r.ref_id AS ref_id ORDER BY r.ref_id ASC
+            """, project=project)
+        ids = [r["ref_id"] for r in rows]
+    return {"project": project, "count": len(ids), "ref_ids": ids}
+
+
 @app.get("/coverage/requirements")
 def coverage_requirements(project: str, authorization: str | None = Header(default=None)):
     """

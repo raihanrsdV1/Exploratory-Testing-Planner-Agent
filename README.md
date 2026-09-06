@@ -313,6 +313,8 @@ start.sh                  Bring up the whole stack (Neo4j + emulator + services)
 stop.sh                   Tear it all down (services + emulator + Neo4j)
 requirements.txt          Local Python dependencies
 docs/                     Architecture diagrams and documentation
+  INVESTIGATOR.md         Trajectory -> findings: the post-execution learning loop
+  PLANNER_REDESIGN.md     Proposal: replace the retrieval pipeline with a tool-using agent
 data/inputs/              Sample SRS + Figma export
 ```
 

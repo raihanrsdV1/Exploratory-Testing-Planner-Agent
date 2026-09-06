@@ -4,7 +4,10 @@ This is the detailed reference for `planner/langgraph_agent.py` — what happens
 executor asking "what should I test next?" and a JSON test case coming back. For what's
 actually *inside* the biggest prompt (the generation call), see
 [PLANNER_PROMPT_ANATOMY.md](PLANNER_PROMPT_ANATOMY.md). For proposed next steps, see
-[PLANNER_IMPROVEMENTS_FUTURE.md](PLANNER_IMPROVEMENTS_FUTURE.md).
+[PLANNER_IMPROVEMENTS_FUTURE.md](PLANNER_IMPROVEMENTS_FUTURE.md), and for a proposed replacement
+of this whole state machine with a tool-using agent, [PLANNER_REDESIGN.md](PLANNER_REDESIGN.md).
+For what happens to a run *after* execution — how a trajectory becomes the findings this planner
+is grounded on — see [INVESTIGATOR.md](INVESTIGATOR.md).
 
 ## 1. High-level system
 

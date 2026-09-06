@@ -228,18 +228,28 @@ Every path is best-effort — a failure here costs one learning opportunity, nev
 
 ## 9. Measured before / after
 
-Same test, same trajectory, same model:
+**Single replay** — same test, same trajectory, same model, old prompt vs new:
 
 | | before | after |
 |---|---|---|
-| Latency | 600 s timeout | **22.1 s** |
+| Latency | 600 s client timeout | **22.1 s** |
 | Prior knowledge in prompt | 86,008 ch (5 reports) | **1,333 ch** (5 one-liners) |
 | Planner's observations block | 35,233 ch (69% of prompt) | **2,010 ch** |
 | Output | 20,093 ch prose | 2,784 ch structured |
 | Format stability | JSON 7/14, prose 7/14 | one contract |
-| Repeat handling | restated in full every round | `times_seen++`, cited by ref |
 
----
+**Live 3-round campaign** (6 Sep 2026, `shobarkhamar`, 21 min, 2 pass / 1 fail):
+
+| | old design (n=14) | new design (n=5) |
+|---|---|---|
+| Mean evaluator input | 32,751 ch | **17,063 ch** |
+| Mean evaluator output | 11,673 ch | **3,286 ch** |
+
+Four evaluations produced 19 findings, **3 of them reinforcing an existing finding by ref**
+rather than restating it. The direction of travel is the point: the prompt got *smaller* as the
+campaign went on — 20,466 → 19,010 → 15,291 → 10,959 characters — because later runs cite prior
+findings instead of re-deriving them. Under the prose design the same sequence grew from 28,344
+to 97,796.
 
 ## 10. Inspecting a run
 
