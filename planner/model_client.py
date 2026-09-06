@@ -47,7 +47,7 @@ def _is_transient(exc: Exception) -> bool:
 
 def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool,
                model: str | None = None, image_b64: str | None = None,
-               app_label: str | None = None) -> dict:
+               app_label: str | None = None, reasoning_effort: str | None = None) -> dict:
     """Call the configured backend. ``model`` overrides the default for this call,
     which is how ingestion can use a stronger model than the planner loop.
     ``image_b64`` (raw base64, no data-URI prefix) attaches a screenshot to the
@@ -55,7 +55,16 @@ def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool,
     ``app_label`` sets OpenRouter's X-Title so different call sites (planner,
     evaluator, ingestion) show up distinctly in OpenRouter's usage dashboard
     instead of all reading "QA Planner Agent" — OpenRouter only, ignored
-    elsewhere."""
+    elsewhere.
+    ``reasoning_effort`` ("low"/"medium"/"high") caps the model's scratchpad
+    rather than its total output. On a reasoning model that refuses
+    ``{"enabled": false}`` outright — z-ai/glm-5.3-flash answers 400 "Reasoning
+    is mandatory for this endpoint" — the scratchpad is where the time actually
+    goes: measured on one real 50-step evaluation prompt, default reasoning took
+    113.8s (12,673 chars of reasoning for 5,104 of answer) against 22.7s at
+    effort=low for comparable content. Capping ``max_new_tokens`` instead is a
+    trap here: reasoning is billed against it, so the budget is consumed before
+    any answer is emitted and the call returns empty."""
     import time
     start = time.perf_counter()
     inc("llm_calls_total")
@@ -65,7 +74,8 @@ def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool,
             return _call_gemini(prompt, max_new_tokens, enable_thinking)
         if config.MODEL_BACKEND == "openrouter":
             return _call_openrouter(prompt, max_new_tokens, enable_thinking, model=use_model,
-                                    image_b64=image_b64, app_label=app_label)
+                                    image_b64=image_b64, app_label=app_label,
+                                    reasoning_effort=reasoning_effort)
         return _call_ngrok(prompt, max_new_tokens, enable_thinking)
 
     result = None
@@ -178,7 +188,7 @@ _APP_REFERERS = {
 
 def _call_openrouter(prompt: str, max_new_tokens: int, enable_thinking: bool,
                      model: str | None = None, image_b64: str | None = None,
-                     app_label: str | None = None) -> dict:
+                     app_label: str | None = None, reasoning_effort: str | None = None) -> dict:
     if not config.OPENROUTER_API_KEY:
         raise HTTPException(status_code=503, detail="OPENROUTER_API_KEY not set in .env")
 
@@ -218,7 +228,10 @@ def _call_openrouter(prompt: str, max_new_tokens: int, enable_thinking: bool,
         # preference, not a requirement: some endpoints reject it outright
         # ("Reasoning is mandatory for this endpoint"), so a 400 naming reasoning
         # is retried once without the flag instead of failing the whole ingest.
-        payload["reasoning"] = {"enabled": False}
+        # An explicit effort is the fallback that endpoints DO accept: it keeps
+        # the scratchpad small rather than asking for it to be switched off.
+        payload["reasoning"] = ({"effort": reasoning_effort} if reasoning_effort
+                                else {"enabled": False})
     try:
         resp = requests.post(
             f"{config.OPENROUTER_BASE_URL}/chat/completions",

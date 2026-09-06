@@ -31,44 +31,44 @@ def _failure_reason(notes: str) -> str:
 
 
 def build_failure_context(project: str, recent_tests: list[dict]) -> str:
-    """What previous runs actually discovered, so generation can build on it.
+    """What previous runs actually established, so generation can build on it.
 
-    Without this the planner only sees the *titles* of past tests and keeps
-    re-deriving variants of something it already found (or already ruled out).
-    Combines each run's real observation with the recurring ErrorPattern
-    signatures mined from execution history (REQ-303.2).
+    Reads FINDINGS from the graph, not the evaluator's prose. The prose version
+    inlined each run's full report: on this project's TC-007 that was 35,233 of
+    a 51,002-character generation prompt (69%), growing every round, with the
+    same discoveries restated across several of them.
 
-    Covers BOTH verdicts. A `trajectory_summary` — an evaluator's assessment of
-    the run's actual device trajectory against what it was trying to verify,
-    attached by the gateway's /execution/evaluate — is preferred when present,
-    for either verdict: a passed run's summary can still hold real information
-    (what was confirmed, what the executor actually found), and a failed run's
-    raw notes tail alone was never enough to know whether anything was learned
-    at all. Only INFORMATIVE failures are included at all — coverage.py's
-    NON_INFORMATIVE_ERRORS (livelock, timeout, precondition-not-met, ...) mean
-    the run never got far enough to observe app behaviour, so including them
-    here told the planner those areas were "already proven" when nothing had
-    actually been learned. A pass with no summary is skipped too — a bare "it
-    passed" adds nothing beyond the title already shown elsewhere.
+    Findings are atomic and deduplicated on write, so the same knowledge arrives
+    bounded and each claim appears once with a ``times_seen`` count — which also
+    lets the planner distinguish a one-off observation from behaviour confirmed
+    across independent runs. Only the ``oracle`` group is pulled: control
+    inventories and our own agent's difficulties are deliberately NOT bug
+    evidence and are routed to their own consumers.
+
+    Falls back to the old per-test notes when no findings exist yet (a project
+    before its first evaluation, or one where evaluation is failing) — the
+    planner should degrade to a weaker signal, never to none.
     """
     lines: list[str] = []
-    for t in recent_tests:
-        verdict = str(t.get("verdict", "")).lower()
-        title = str(t.get("title", "")).strip()
-        summary = str(t.get("trajectory_summary", "") or "").strip()
-        if not title:
-            continue
-        if verdict == "failed":
-            if str(t.get("error_type", "") or "").upper() in coverage.NON_INFORMATIVE_ERRORS:
-                continue
-            text = summary or _failure_reason(t.get("notes", "")) or "no reason recorded"
-            lines.append(f"- {title} [FAILED]\n    → {text}")
-        elif verdict in ("pass", "passed") and summary:
-            lines.append(f"- {title} [PASSED]\n    → {summary}")
-        else:
-            continue
-        if len(lines) >= 25:
-            break
+    try:
+        found = rag_client.rag_get(
+            "/findings", {"project": project, "group": "oracle", "limit": 25},
+        ).get("findings", []) or []
+    except Exception:
+        found = []
+
+    for f in found:
+        seen = f.get("times_seen") or 1
+        screen = f.get("screen") or ""
+        head = f"- [{str(f.get('kind', '?')).replace('_', ' ').lower()}"
+        head += f", confirmed {seen}x" if seen > 1 else ""
+        head += f"] {f.get('claim', '')}"
+        if screen:
+            head += f"  (on: {screen})"
+        lines.append(head)
+
+    if not lines:
+        lines = _legacy_failure_lines(recent_tests)
 
     patterns: list[str] = []
     try:
@@ -84,13 +84,34 @@ def build_failure_context(project: str, recent_tests: list[dict]) -> str:
 
     out: list[str] = []
     if lines:
-        out += ["Recent test observations (do NOT re-test a confirmed FAILED defect — probe a "
-                "DIFFERENT rule, screen or interaction instead; a PASSED entry confirms that "
-                "specific behaviour works, so don't re-verify it, but adjacent cases may still "
-                "be untested):", *lines]
+        out += ["What previous runs established (do NOT re-verify a confirmed behaviour and do "
+                "NOT re-test a defect already recorded here — probe a DIFFERENT rule, screen or "
+                "interaction; adjacent cases around these may still be untested):", *lines]
     if patterns:
         out += ["", "Recurring failure patterns across runs:", *patterns]
     return "\n".join(out)
+
+
+def _legacy_failure_lines(recent_tests: list[dict]) -> list[str]:
+    """Pre-findings fallback: one line per informative past run, from its notes.
+
+    Only INFORMATIVE failures qualify — coverage.NON_INFORMATIVE_ERRORS (timeout,
+    precondition-not-met, ...) mean the run never got far enough to observe the
+    app, and including them told the planner an area was "already proven" when
+    nothing had been learned.
+    """
+    lines: list[str] = []
+    for t in recent_tests:
+        verdict = str(t.get("verdict", "")).lower()
+        title = str(t.get("title", "")).strip()
+        if not title or verdict != "failed":
+            continue
+        if str(t.get("error_type", "") or "").upper() in coverage.NON_INFORMATIVE_ERRORS:
+            continue
+        lines.append(f"- {title} [FAILED]\n    → {_failure_reason(t.get('notes', '')) or 'no reason recorded'}")
+        if len(lines) >= 25:
+            break
+    return lines
 
 
 def pick_relevant_screens(screens: list[dict], done_areas: list[str], recent_tests: list[dict]) -> list[str]:

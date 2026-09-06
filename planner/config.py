@@ -31,6 +31,9 @@ OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/ap
 # OPENROUTER_MODEL; named separately so it can be tuned without that also
 # changing what the planner generates with.
 EVALUATOR_MODEL = _s.EVALUATOR_MODEL
+EVALUATOR_MAX_TOKENS = _s.EVALUATOR_MAX_TOKENS
+EVALUATOR_REASONING_EFFORT = _s.EVALUATOR_REASONING_EFFORT
+EVALUATOR_KNOWN_FINDINGS = _s.EVALUATOR_KNOWN_FINDINGS
 # Tried once after the primary model's retries are exhausted, only for a
 # transient failure (rate limit). Empty = no fallback (raise as before).
 FALLBACK_MODEL = _s.FALLBACK_MODEL

@@ -168,3 +168,29 @@ def parse_action(raw: str, fallback_screens: list[str]) -> dict:
         "target_screens": cleaned_ts,
         "reason": str(data.get("reason", "")).strip(),
     }
+
+
+def parse_evaluation(raw: str):
+    """Parse the trajectory evaluator's structured output.
+
+    Returns ``{"run_verdict": {...}, "findings": [...]}`` or **None** when the
+    model did not produce usable structure. None is deliberate: ``parse_testcase``
+    returns ``{"raw": ...}`` on failure because a half-parsed test is still worth
+    showing, but a findings batch that silently comes back empty is
+    indistinguishable from "this run discovered nothing" — which is a legitimate
+    and expected result. The caller must be able to tell those apart, record a
+    degradation, and fall back to storing the raw text.
+    """
+    obj = parse_testcase(raw)
+    if not isinstance(obj, dict) or "raw" in obj:
+        return None
+    findings = obj.get("findings")
+    verdict = obj.get("run_verdict")
+    # An object carrying neither key is some other JSON entirely, not an
+    # evaluation with nothing to report.
+    if not isinstance(findings, list) and not isinstance(verdict, dict):
+        return None
+    return {
+        "run_verdict": verdict if isinstance(verdict, dict) else {},
+        "findings": [f for f in (findings or []) if isinstance(f, dict)],
+    }

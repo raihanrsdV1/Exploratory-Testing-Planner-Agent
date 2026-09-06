@@ -159,6 +159,26 @@ EXTRACTION_JUDGE_MODEL = _str("EXTRACTION_JUDGE_MODEL", "")
 # OPENROUTER_MODEL; named separately so it can be tuned independently later
 # without that meaning "also change what the planner generates with".
 EVALUATOR_MODEL = _str("EVALUATOR_MODEL", "")
+
+# 0 = uncapped, and deliberately so. The evaluator model is a reasoning model
+# that bills its scratchpad against max_tokens, so ANY total cap is spent on
+# reasoning before an answer is emitted — a 6000 cap produced a completely empty
+# response on a real 50-step run. What bounds the answer now is the structured
+# contract (a run verdict plus at most findings._MAX_FINDINGS_PER_RUN findings
+# with clamped fields), not a token ceiling. Cap EVALUATOR_REASONING_EFFORT
+# instead; that is where the time goes.
+EVALUATOR_MAX_TOKENS = _int("EVALUATOR_MAX_TOKENS", 0)
+
+# Scratchpad budget for the evaluator: "low" | "medium" | "high".
+# Measured on one real 50-step evaluation prompt: default reasoning 113.8s
+# (12,673 chars of reasoning for 5,104 of answer) vs 22.7s at "low" for
+# comparable content — a 5x latency cut on the call that was timing out at 600s.
+EVALUATOR_REASONING_EFFORT = _str("EVALUATOR_REASONING_EFFORT", "low")
+
+# How many already-known findings the evaluator is shown for the screens a run
+# touched, so it can cite and reinforce them instead of restating them. Bounded
+# per-screen relevance replaced re-feeding every previous report in full.
+EVALUATOR_KNOWN_FINDINGS = _int("EVALUATOR_KNOWN_FINDINGS", 12)
 # Tried once, for any call, after the primary model's own retries are exhausted
 # — only for a TRANSIENT failure (rate-limited, temporarily unavailable). A 429
 # means THIS model's shared OpenRouter capacity is full right now, not that

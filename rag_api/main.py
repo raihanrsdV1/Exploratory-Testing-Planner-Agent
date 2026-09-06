@@ -26,6 +26,7 @@ from . import dimensions as dimensions_mod
 from . import risk as risk_mod
 from . import metrics as metrics_mod
 from . import anomalies as anomalies_mod
+from . import findings as findings_mod
 from ingestion import ui_normalizer, app_state, defect_loader
 
 # `or default` (not just getenv default) so an empty value in .env doesn't crash startup.
@@ -658,6 +659,20 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
                         shot.unlink()
                     except OSError:
                         pass
+            # Findings belong to this slice, NOT to delete_tests. By the rule
+            # settings.CLEAN_SLATE_APPMODEL already states: test results are
+            # outcomes and must be wiped for a clean measurement, while the app
+            # map is knowledge ABOUT THE APP. A finding ("this screen accepts an
+            # empty required field") is knowledge of exactly that kind — it
+            # outlives the run that discovered it, and wiping it every campaign
+            # would make the investigator re-derive the same conclusions forever,
+            # which is the growth problem findings exist to end. Stated here so
+            # the lifetime is a decision rather than an accident of which slice
+            # happens to name the label.
+            session.run(
+                "MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding) DETACH DELETE f",
+                project=req.project,
+            )
 
         # remove orphan feature nodes belonging to this project
         session.run(
@@ -2203,6 +2218,59 @@ def execution_attach_summary(req: ExecutionSummaryRequest, authorization: str | 
     if not row:
         raise HTTPException(status_code=404, detail="No ExecutionLog with that id for this project")
     return {"status": "ok", "log_id": req.log_id}
+
+
+@app.post("/findings/record")
+def findings_record(req: RecordFindingsRequest, authorization: str | None = Header(default=None)):
+    """Persist one run's atomic findings into the knowledge graph.
+
+    Replaces re-feeding whole prose reports between rounds: each claim is matched
+    semantically against what is already known, so a repeat REINFORCES the
+    existing finding (times_seen++) instead of creating a near-duplicate. That
+    makes "independently observed N times" a real signal, and keeps every
+    downstream prompt bounded no matter how long the campaign runs.
+    """
+    _check_auth(authorization)
+    with driver.session() as session:
+        out = findings_mod.record(
+            session, req.project, [f.model_dump() for f in req.findings],
+            log_id=req.log_id, test_case_id=req.test_case_id,
+            embed_texts=_embed_texts, now=_utc_now(),
+        )
+    return {"project": req.project, **out}
+
+
+@app.get("/findings")
+def findings_list(project: str, screens: str = "", kinds: str = "", group: str = "", limit: int = 20,
+                  exclude_log_id: str = "", authorization: str | None = Header(default=None)):
+    """Findings for a project, narrowed to screens and/or kinds.
+
+    ``screens`` and ``kinds`` are pipe-separated ('Chats|Medicine'). ``screens``
+    accepts UIState ids or observed labels, so callers that only have the labels
+    a run walked (the executor's path_labels) need no id lookup of their own.
+
+    ``group`` ('oracle' | 'defect' | 'ui' | 'agent') expands to a kind set defined
+    once, server-side. Callers use it instead of listing kinds so the taxonomy
+    has exactly one definition — a duplicated one is how this project previously
+    mis-reported autonomy.
+    """
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = findings_mod.query(
+            session, project,
+            screens=[s for s in screens.split("|") if s.strip()],
+            kinds=[k for k in kinds.split("|") if k.strip()] or findings_mod.group_kinds(group),
+            limit=limit, exclude_log_id=exclude_log_id,
+        )
+    return {"project": project, "count": len(rows), "findings": rows}
+
+
+@app.get("/findings/stats")
+def findings_stats(project: str, authorization: str | None = Header(default=None)):
+    """Finding counts per kind — dashboard, and the 'is it still learning?' signal."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": project, **findings_mod.stats(session, project)}
 
 
 @app.get("/execution/logs")

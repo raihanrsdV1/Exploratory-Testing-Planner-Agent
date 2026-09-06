@@ -184,3 +184,28 @@ class AnomaliesDetectRequest(BaseModel):
     project: str = Field(..., min_length=1)
 
 
+
+class FindingIn(BaseModel):
+    """One atomic finding from a run's trajectory (see rag_api/findings.py).
+
+    Field lengths are clamped server-side rather than validated away — a slightly
+    over-long claim is worth keeping, a rejected batch is not."""
+    claim: str = ""
+    kind: str = ""
+    screen: str = ""
+    evidence: str = ""
+    severity: str = "medium"
+    confidence: str = "medium"
+    requirement_ids: list[str] = Field(default_factory=list)
+    # Ref of an existing finding this one restates ('F-1a2b3c4d'), as judged by
+    # the evaluator, which holds the step evidence. Authoritative over the
+    # embedding safety net when it resolves.
+    confirms: str = ""
+
+
+class RecordFindingsRequest(BaseModel):
+    """Persist one run's findings, reinforcing existing ones on semantic match."""
+    project: str = Field(..., min_length=1)
+    log_id: str = ""
+    test_case_id: str = ""
+    findings: list[FindingIn] = Field(default_factory=list)
