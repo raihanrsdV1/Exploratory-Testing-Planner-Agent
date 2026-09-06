@@ -73,7 +73,13 @@ NEO4J_PASSWORD=your-password
 # ── Planner model backend ──
 MODEL_BACKEND=openrouter
 OPENROUTER_API_KEY=sk-or-...
-OPENROUTER_MODEL=qwen/qwen3.8-flash
+OPENROUTER_MODEL=qwen/qwen3.7-flash
+FALLBACK_MODEL=z-ai/glm-5.3-flash   # used when the primary is rate-limited (429)
+PLANNER_MODE=pipeline               # "tools" = the tool-calling planner (docs/PLANNER_REDESIGN.md)
+
+# ── Trajectory evaluator ("the investigator") ──
+EVALUATOR_MODEL=z-ai/glm-5.3-flash
+EVALUATOR_REASONING_EFFORT=low      # the latency lever; see docs/INVESTIGATOR.md §7
 
 # ── Device-agent model (drives the emulator; fires on every step) ──
 EXECUTOR_LLM_PROVIDER=OpenRouter

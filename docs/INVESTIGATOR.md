@@ -5,7 +5,7 @@ For the planner's own generation call see [PLANNER_PROMPT_ANATOMY.md](PLANNER_PR
 for the state machine that produces test cases see [System_Architecture.md](System_Architecture.md).
 
 The investigator is the **third LLM role** in the system, alongside the planner
-(`qwen/qwen3.8-flash`) and the executor (`qwen/qwen3.7-flash`). It runs as
+(`qwen/qwen3.7-flash`) and the executor (`qwen/qwen3.7-flash`). It runs as
 `POST /execution/evaluate` on the gateway, uses `EVALUATOR_MODEL`
 (`z-ai/glm-5.3-flash`), and appears in OpenRouter's dashboard as **QA Evaluator Agent**.
 
@@ -275,7 +275,7 @@ curl "http://127.0.0.1:9010/findings?project=$PROJECT&group=agent&limit=10"   | 
 
 1. **`AGENT_DIFFICULTY` findings are collected but nothing reads them yet.** They are stored,
    grouped and retrievable (`group=agent`); no prompt block consumes them. This is
-   [PLANNER_IMPROVEMENTS_FUTURE.md](PLANNER_IMPROVEMENTS_FUTURE.md) #1, and the data it asked
+   [ROADMAP.md](ROADMAP.md) #1, and the data it asked
    for now exists as a first-class kind rather than needing to be mined from `ExecutionLog`
    error types.
 2. **Screen attribution is by label.** `_resolve_screens` matches the observed `UIState.label`
