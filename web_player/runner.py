@@ -222,11 +222,26 @@ def result_urls() -> list[str]:
     return []
 
 
+def _is_executable(tc: dict) -> bool:
+    """A test case the agent can actually attempt.
+
+    Needs something to DO (an objective, or a legacy step list) and something to
+    judge it BY (an expected result). A title alone is not a test — that is the
+    unparsed `{"raw": ...}` blob the planner emits when generation fails.
+    """
+    if not tc:
+        return False
+    has_intent = bool(tc.get("objective") or tc.get("steps"))
+    return bool(has_intent and tc.get("expected_result"))
+
+
 def _show_testcase(tc: dict) -> None:
     print(f"  ID:       {tc.get('test_case_id', '?')}")
     print(f"  Title:    {tc.get('title', '?')}")
-    print(f"  Page:     {tc.get('screen', '?')}")
+    print(f"  Page:     {tc.get('screen_hint') or tc.get('screen') or '?'}")
     print(f"  Area:     {tc.get('area', '?')}")
+    if tc.get("objective"):
+        print(f"  Objective: {tc['objective']}")
     for i, step in enumerate(tc.get("steps", []), 1):
         print(f"    {i}. {step}")
     print(f"  Expected: {tc.get('expected_result', '?')}")
@@ -255,7 +270,10 @@ async def main(rounds: int) -> None:
         print("   The gateway is up but its model backend is not. Check the "
               "planner's model provider before rerunning.")
         return
-    if not tc or not tc.get("steps"):
+    # The planner is goal-based since the redesign: it emits objective +
+    # screen_hint, not a step list (see planner/prompts.py's output contract).
+    # Requiring 'steps' here aborted every run against a current planner.
+    if not _is_executable(tc):
         print("❌ Planner returned an empty test case. Aborting.")
         return
     print("Generated test case:")
@@ -305,7 +323,7 @@ async def main(rounds: int) -> None:
                 trace.emit(f"🛑 Planner unavailable, ending the batch early: "
                            f"{_short_error(exc)}")
                 break
-            if not tc or not tc.get("steps"):
+            if not _is_executable(tc):
                 print("  ❌ Planner returned an empty test case. Ending loop.")
                 break
             print("Next test case:")

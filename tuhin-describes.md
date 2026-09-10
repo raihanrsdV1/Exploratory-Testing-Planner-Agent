@@ -99,8 +99,14 @@ appearing/not-repeating/degrading cleanly.
 
 Diagnosed both players before changing anything:
 
+
 - **Web:** the exact-repeat guard was too narrow — fixed by #2 above.
-- **Android:** `clients/executor_runner.py` has **no** in-loop stuck
+- **Android:** `clients/executor_runner.py` has **no** in-loop stuck| col1 | col2 | col3 |
+  | ---- | ---- | ---- |
+  |      |      |      |
+  |      |      |      |
+
+
   detection at all today. It used to — a real livelock detector with cycle
   detection, content-vs-screen discrimination, `APP_UNRESPONSIVE` vs
   `NAVIGATION_LIVELOCK` classification (`tests/test_livelock.py`, 103 checks)
@@ -154,11 +160,13 @@ is about to test next, only by recency.
 ## Files touched
 
 **New:**
+
 - `dashboard-react/src/Targets.jsx`
 - `gateway/targets_api.py`
 - `tests/test_planner_coverage.py`
 
 **Modified:**
+
 - `dashboard-react/src/App.jsx`, `dashboard-react/src/styles.css`
 - `gateway/main.py`
 - `planner/context_builders.py`, `planner/coverage.py`,

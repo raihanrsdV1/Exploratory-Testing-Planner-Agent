@@ -4,6 +4,9 @@ pydantic
 requests
 neo4j
 python-dotenv
+# Required by FastAPI to parse multipart form data — the dashboard's SRS/Figma
+# upload (POST /targets/upload-knowledge) fails at import time without it.
+python-multipart
 droidrun
 logtail-python
 
