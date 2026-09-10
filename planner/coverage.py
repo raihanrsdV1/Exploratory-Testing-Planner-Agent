@@ -87,10 +87,21 @@ def build_coverage_block(coverage_map: dict) -> str:
     unc = coverage_map.get("uncovered_purposes", [])
     if unc:
         lines.append(f"Completely untested areas: {', '.join(unc)}")
-    lines.append(
-        f"Overall coverage: {coverage_map.get('total_areas_tested', 0)}/"
-        f"{coverage_map.get('total_areas_available', 0)} known areas ({coverage_map.get('coverage_pct', 0)}%)"
-    )
+    available = coverage_map.get("total_areas_available", 0)
+    if available:
+        lines.append(
+            f"Overall coverage: {coverage_map.get('total_areas_tested', 0)}/"
+            f"{available} known areas ({coverage_map.get('coverage_pct', 0)}%)"
+        )
+    else:
+        # total_areas_available comes from Figma screen purposes. A project with
+        # no Figma export (fully supported — Live App Model works without one)
+        # always has 0 here, which rendered as the nonsensical "8/0 (0%)" —
+        # claiming zero coverage on a project with real, substantial history.
+        lines.append(
+            f"Overall coverage: {coverage_map.get('total_areas_tested', 0)} area(s) tested so far "
+            f"(no design-file area index available for this project to compute a % against)"
+        )
     return "\n".join(lines)
 
 

@@ -324,15 +324,24 @@ def build_droidrun_goal(test_case: dict) -> str:
     Convert the planner's structured JSON test case into a natural language
     goal string that Droidrun's LLM agent can interpret and execute.
 
+    The planner names a LIKELY screen and states an OBJECTIVE — it does not
+    prescribe exact taps. It has no live view of the app, so a literal step
+    script is often simply wrong: measured across one real campaign, the
+    planner's named screen matched a real observed screen only ~16% of the
+    time. The executor has live vision and the real accessibility tree, so it
+    is better placed to work out HOW than the planner is to dictate it. This
+    goal states WHAT to verify and trusts the executor to find its own way,
+    correcting course when the screen_hint doesn't match what it actually finds.
+
     Example output:
-      "Open the Contacts app. Navigate to 'Create Contact' screen.
-       Step 1: Enter 'John' in the 'First name' field.
-       Step 2: Click the 'Save' button.
-       Expected: The contact is saved successfully and appears in the list."
+      "Open the Contacts app. I believe the relevant screen is 'Create Contact'
+       — that is a lead, not a fact.
+       Your objective: create a new contact and verify it is saved and appears
+       in the list."
     """
-    screen = test_case.get("screen", "")
+    screen_hint = test_case.get("screen_hint", "")
     preconditions = test_case.get("preconditions", [])
-    steps = test_case.get("steps", [])
+    objective = test_case.get("objective", "")
     expected = test_case.get("expected_result", "")
 
     # Build the goal instruction
@@ -348,9 +357,14 @@ def build_droidrun_goal(test_case: dict) -> str:
     if login:
         goal_parts.append(login)
 
-    # Screen navigation
-    if screen:
-        goal_parts.append(f"Navigate to the '{screen}' screen if not already there.")
+    # Screen hint — a lead, not an instruction to obey against contrary evidence.
+    if screen_hint:
+        goal_parts.append(
+            f"I believe the relevant screen is '{screen_hint}' — that is a LEAD to check, not "
+            f"a fact; I cannot see the live app. If it does not exist or isn't right, explore and "
+            f"find the real screen for this objective yourself. Do not stall trying to match that "
+            f"name exactly."
+        )
 
     # Preconditions as context
     kept_pre, dropped_pre = filter_preconditions(preconditions)
@@ -374,11 +388,10 @@ def build_droidrun_goal(test_case: dict) -> str:
     goal_parts.append(device_input_block())
     goal_parts.append(verification_block())
 
-    # Steps — numbered imperatives
-    if steps:
-        goal_parts.append("")  # blank line for readability
-        for i, step in enumerate(steps, 1):
-            goal_parts.append(f"Step {i}: {step}")
+    # Objective — state WHAT to verify; deciding HOW (which screens, which taps) is the
+    # executor's job, since it has live information the planner does not.
+    if objective:
+        goal_parts.append(f"\nYour objective: {objective}")
 
     # Expected outcome
     if expected:
@@ -386,8 +399,12 @@ def build_droidrun_goal(test_case: dict) -> str:
 
     # Final instruction to Droidrun
     goal_parts.append(
-        "\nAfter performing all steps, report whether the expected result was achieved. "
-        "If any step fails or the app crashes, report the failure."
+        "\nDecide the concrete steps yourself from what you actually see on screen — you have "
+        "live access to the app that the objective above does not. After acting, report whether "
+        "the expected result was achieved. If the screen or feature described above genuinely "
+        "does not seem to exist after a reasonable search, say so explicitly rather than "
+        "continuing to search indefinitely. If any step fails or the app crashes, report the "
+        "failure."
     )
 
     return "\n".join(goal_parts)
@@ -471,7 +488,7 @@ def build_retry_goal(test_case: dict, category: str, reason: str, strategy: dict
 
 def _learned_nav_hint(test_case: dict) -> str:
     """Best-effort learned shortest path to the target screen (for NAVIGATION_FAILURE recovery)."""
-    screen = test_case.get("screen", "")
+    screen = test_case.get("screen_hint", "")
     if not screen:
         return ""
     try:
@@ -841,9 +858,13 @@ def _device_env() -> dict:
 
 def _log_execution(tc: dict, verdict: str, duration_ms: float, device_steps: int,
                    path: list, error_type: str = "", error_message: str = "",
-                   recovery_action: str = "") -> None:
+                   recovery_action: str = "") -> str:
     """Persist one execution record (WP3/WP7): timing, steps, environment, walked
-    path, classified failure category, and any self-healing recovery outcome."""
+    path, classified failure category, and any self-healing recovery outcome.
+
+    Returns the created ExecutionLog's exact id (empty string on failure) — used
+    to attach the trajectory evaluator's assessment to precisely this record,
+    not a 'most recent' guess."""
     env = _device_env()
     payload = {
         "project": PROJECT,
@@ -864,10 +885,87 @@ def _log_execution(tc: dict, verdict: str, duration_ms: float, device_steps: int
         "path_labels": [s["label"] for s in path],
     }
     try:
-        requests.post(f"{RAG_URL}/execution/log", json=payload, timeout=30).raise_for_status()
+        resp = requests.post(f"{RAG_URL}/execution/log", json=payload, timeout=30)
+        resp.raise_for_status()
         print(f"   📋 Execution logged: {len(path)} states, verdict={verdict}")
+        return str(resp.json().get("log_id") or "")
     except Exception as e:
         cloud_log("warning", f"Execution log failed for {tc.get('test_case_id')}: {e}")
+        return ""
+
+
+_TRAJECTORY_DIR = os.path.join("logs", "trajectories")
+_EVAL_SKIP_LOG = os.path.join("logs", "evaluation_skips.log")
+
+
+def _log_eval_skip(test_case_id: str, reason: str) -> None:
+    """Append-only, never-cleared record of every time evaluation was skipped or
+    failed. cloud_log() only reaches the console/Logtail (not grep-able here),
+    and degradations.jsonl gets wiped by degradations.reset() (e.g. a test run) —
+    this file is the one place this class of failure is guaranteed to survive
+    long enough to be investigated."""
+    try:
+        os.makedirs(os.path.dirname(_EVAL_SKIP_LOG), exist_ok=True)
+        with open(_EVAL_SKIP_LOG, "a", encoding="utf-8") as fh:
+            fh.write(f"{_timestamp()} | {test_case_id or '?'} | {reason}\n")
+    except Exception:
+        pass
+
+
+def _trajectory_snapshot() -> set:
+    """Folder names under logs/trajectories right now — call before agent.run()
+    so the run's own folder can be identified by diffing afterward, instead of
+    guessing by timestamp."""
+    try:
+        return set(os.listdir(_TRAJECTORY_DIR))
+    except OSError:
+        return set()
+
+
+def _evaluate_run(tc: dict, log_id: str, exec_path: list, traj_before: set | None) -> None:
+    """Best-effort: ask the gateway to evaluate this run's trajectory against the
+    test's own objective, so the planner learns what actually happened instead of
+    a terse verdict. Fire-and-check, never blocks or fails the primary pipeline —
+    a failure here is a missed learning opportunity, not a broken test run."""
+    if not log_id or traj_before is None:
+        reason = "no log_id" if not log_id else "agent.run() was never reached"
+        cloud_log("warning", f"Skipping evaluation for {tc.get('test_case_id')}: {reason}")
+        _log_eval_skip(tc.get("test_case_id", ""), reason)
+        return
+    try:
+        after = _trajectory_snapshot()
+        new_folders = after - traj_before
+        if not new_folders:
+            reason = f"no new trajectory folder found (before={len(traj_before)}, after={len(after)})"
+            cloud_log("warning", f"Skipping evaluation for {tc.get('test_case_id')}: {reason}")
+            _log_eval_skip(tc.get("test_case_id", ""), reason)
+            return
+        # The common case is exactly one new folder; if self-heal ran a second
+        # agent, the most recently modified one is the one worth evaluating.
+        folder = max(new_folders, key=lambda n: os.path.getmtime(os.path.join(_TRAJECTORY_DIR, n)))
+        # /execution/evaluate is a GATEWAY endpoint (it calls the model), not a
+        # rag_api one — posting to RAG_URL here silently hit a nonexistent route.
+        # timeout=600: real evaluate calls run the trajectory through an LLM and
+        # have been observed taking up to ~410s under load; a shorter timeout cut
+        # them off client-side while the gateway kept working regardless, so the
+        # next round got planned before this round's findings ever came back —
+        # exactly the ordering the whole feedback loop depends on getting right.
+        resp = requests.post(f"{GATEWAY_URL}/execution/evaluate", json={
+            "project": PROJECT,
+            "log_id": log_id,
+            "test_case_id": tc.get("test_case_id", ""),
+            "title": tc.get("title", ""),
+            "objective": tc.get("objective", ""),
+            "screen_hint": tc.get("screen_hint", ""),
+            "expected_result": tc.get("expected_result", ""),
+            "path_labels": [s.get("label", "") for s in exec_path],
+            "trajectory_folder": folder,
+        }, timeout=600)
+        resp.raise_for_status()
+    except Exception as e:
+        _degrade("trajectory_evaluation_failed", degradations.MINOR,
+                 detail=f"could not evaluate run for {tc.get('test_case_id')}: {e}")
+        _log_eval_skip(tc.get("test_case_id", ""), f"request failed: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -916,8 +1014,8 @@ async def execute_test_on_device(test_case: dict) -> dict:
         test_case_id=tc_id,
         title=title,
         droidrun_goal=goal,
-        screen=test_case.get("screen", ""),
-        steps=test_case.get("steps", []),
+        screen_hint=test_case.get("screen_hint", ""),
+        objective=test_case.get("objective", ""),
         expected_result=test_case.get("expected_result", ""),
     )
 
@@ -928,6 +1026,10 @@ async def execute_test_on_device(test_case: dict) -> dict:
     agent = None
     driver = None
     observations = []  # (elements_list, screenshot_bytes) captured per observed UI state
+    # None until agent.run() is actually reached — a setup failure before then means
+    # no trajectory folder exists for this run at all, so _evaluate_run must skip
+    # rather than diff against an empty set and pick up an unrelated older folder.
+    traj_before = None
 
     try:
         # Set up device driver (connects to default adb device)
@@ -942,13 +1044,33 @@ async def execute_test_on_device(test_case: dict) -> dict:
 
         # Set up LLM for Droidrun
         provider = "OpenRouter" if EXECUTOR_LLM_PROVIDER.lower() == "openrouter" else EXECUTOR_LLM_PROVIDER
-        llm = load_llm(
-            provider,
+        llm_kwargs = dict(
             model=EXECUTOR_LLM_MODEL,
             api_key=api_key,
             max_tokens=EXECUTOR_MAX_TOKENS,
             context_window=EXECUTOR_CONTEXT_WINDOW,
         )
+        if provider == "OpenRouter":
+            # Without this, these calls show up as "Unknown" in OpenRouter's usage
+            # dashboard — indistinguishable from every other app on the account.
+            # Only OpenRouter's underlying client accepts this kwarg. Must be a
+            # distinct ORIGIN from the planner-side referers in model_client.py's
+            # _APP_REFERERS, not just a distinct path on the same origin — a
+            # shared origin let this app's (far more frequent) calls retroactively
+            # overwrite the evaluator's display name on OpenRouter's dashboard,
+            # since HTTP Referer is conventionally compared at the origin level.
+            llm_kwargs["default_headers"] = {
+                "X-Title": "QA Executor Agent",
+                "HTTP-Referer": "https://executor.qa-planner-agent.local/",
+            }
+        llm = load_llm(provider, **llm_kwargs)
+
+        # Snapshot BEFORE constructing MobileAgent, not before .run() — mobilerun
+        # creates its trajectory folder inside MobileAgent.__init__() itself (via
+        # its own Trajectory class), not at .run() time. A snapshot taken after
+        # construction already includes this run's own folder, so the diff in
+        # _evaluate_run finds nothing new and silently no-ops every time.
+        traj_before = _trajectory_snapshot()
 
         # Create and run the agent. Trajectory capture is enabled so we can feed the
         # real per-step UI states + screenshots into the Live App Model (WP1).
@@ -1082,9 +1204,10 @@ async def execute_test_on_device(test_case: dict) -> dict:
             recovery_action=recovery_action,
         )
 
-        _log_execution(test_case, verdict, duration * 1000, steps_taken, exec_path,  # WP3 + WP7
-                       error_type=logged_error_type, error_message=("" if success else reason[:500]),
-                       recovery_action=recovery_action)
+        log_id = _log_execution(test_case, verdict, duration * 1000, steps_taken, exec_path,  # WP3 + WP7
+                                error_type=logged_error_type, error_message=("" if success else reason[:500]),
+                                recovery_action=recovery_action)
+        _evaluate_run(test_case, log_id, exec_path, traj_before)
         return {"verdict": verdict, "notes": notes, "duration_seconds": duration}
 
     except asyncio.TimeoutError:
@@ -1100,7 +1223,9 @@ async def execute_test_on_device(test_case: dict) -> dict:
             exec_path = _record_observations(observations, tc_id, driver_shot=await _safe_screenshot(driver))  # partial exploration still enriches the map
         except Exception:
             pass
-        _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path, error_type="TIMEOUT", error_message=notes)
+        log_id = _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path,
+                                error_type="TIMEOUT", error_message=notes)
+        _evaluate_run(test_case, log_id, exec_path, traj_before)
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
 
     except WorkflowTimeoutError:
@@ -1133,8 +1258,9 @@ async def execute_test_on_device(test_case: dict) -> dict:
         print(f"\n⏰ Workflow timeout after {EXECUTOR_TIMEOUT}s -> tagged {error_type}")
         cloud_log("error", f"Test {tc_id} workflow-timed-out -> {error_type}",
                   test_case_id=tc_id, title=title, timeout=EXECUTOR_TIMEOUT, steps=len(exec_path))
-        _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path,
-                       error_type=error_type, error_message=notes)
+        log_id = _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path,
+                                error_type=error_type, error_message=notes)
+        _evaluate_run(test_case, log_id, exec_path, traj_before)
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
 
     except Exception as e:
@@ -1151,7 +1277,9 @@ async def execute_test_on_device(test_case: dict) -> dict:
             exec_path = _record_observations(observations, tc_id, driver_shot=await _safe_screenshot(driver))  # partial exploration still enriches the map
         except Exception:
             pass
-        _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path, error_type="CRASH", error_message=str(e))
+        log_id = _log_execution(test_case, "failed", duration * 1000, len(exec_path), exec_path,
+                                error_type="CRASH", error_message=str(e))
+        _evaluate_run(test_case, log_id, exec_path, traj_before)
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
 
 
@@ -1161,17 +1289,13 @@ async def execute_test_on_device(test_case: dict) -> dict:
 
 def _show_testcase(tc: dict):
     """Pretty-print a generated test case."""
-    print(f"  ID:       {tc.get('test_case_id', '?')}")
-    print(f"  Title:    {tc.get('title', '?')}")
-    print(f"  Screen:   {tc.get('screen', '?')}")
-    print(f"  Area:     {tc.get('area', '?')}")
-    print(f"  Priority: {tc.get('priority', '?')}")
-    steps = tc.get("steps", [])
-    if steps:
-        print(f"  Steps:")
-        for i, s in enumerate(steps, 1):
-            print(f"    {i}. {s}")
-    print(f"  Expected: {tc.get('expected_result', '?')}")
+    print(f"  ID:          {tc.get('test_case_id', '?')}")
+    print(f"  Title:       {tc.get('title', '?')}")
+    print(f"  Screen hint: {tc.get('screen_hint', '?')}")
+    print(f"  Area:        {tc.get('area', '?')}")
+    print(f"  Priority:    {tc.get('priority', '?')}")
+    print(f"  Objective:   {tc.get('objective', '?')}")
+    print(f"  Expected:    {tc.get('expected_result', '?')}")
 
 
 def _show_round_summary(
@@ -1366,7 +1490,7 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
     # Log planner's RAG interaction to cloud
     _log_planner_trace(planner_data, "first")
 
-    if not tc or not tc.get("steps"):
+    if not tc or not tc.get("objective"):
         print(f"DEBUG: tc = {tc}")
         print("❌ Planner returned empty test case. Aborting.")
         return
@@ -1391,10 +1515,10 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
             "round": i,
             "test_case_id": tc.get("test_case_id"),
             "title": tc.get("title"),
-            "screen": tc.get("screen", "?"),
+            "screen_hint": tc.get("screen_hint", "?"),
             "area": tc.get("area", "?"),
             "priority": tc.get("priority", "?"),
-            "steps": tc.get("steps", []),
+            "objective": tc.get("objective", ""),
             "expected_result": tc.get("expected_result", ""),
             "verdict": verdict,
             "duration": duration,
@@ -1423,7 +1547,7 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
                 verdict=verdict,
             )
 
-            if tc and tc.get("steps"):
+            if tc and tc.get("objective"):
                 print("\n  Next test case generated:")
                 _show_testcase(tc)
             else:
@@ -1435,7 +1559,7 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
                     try:
                         retry_data = get_next_testcase()
                         tc = retry_data.get("next_testcase", {})
-                        if tc and tc.get("steps"):
+                        if tc and tc.get("objective"):
                             print(f"  ✅ Retry {_retry+1} succeeded — next test case generated:")
                             _show_testcase(tc)
                             retried = True
@@ -1496,18 +1620,12 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
         print(f"\n  {'─' * 66}")
         print(f"  Round {r['round']}: {r['test_case_id']} | {status} | {r['duration']:.1f}s")
         print(f"  {'─' * 66}")
-        print(f"    Title:    {r['title']}")
-        print(f"    Screen:   {r['screen']}")
-        print(f"    Area:     {r['area']}")
-        print(f"    Priority: {r['priority']}")
-
-        steps = r.get("steps", [])
-        if steps:
-            print(f"    Steps ({len(steps)}):")
-            for j, s in enumerate(steps, 1):
-                print(f"      {j}. {s}")
-
-        print(f"    Expected: {r.get('expected_result', '?')}")
+        print(f"    Title:       {r['title']}")
+        print(f"    Screen hint: {r['screen_hint']}")
+        print(f"    Area:        {r['area']}")
+        print(f"    Priority:    {r['priority']}")
+        print(f"    Objective:   {r.get('objective', '?')}")
+        print(f"    Expected:    {r.get('expected_result', '?')}")
         print(f"    Verdict:  {status}")
         print(f"    Duration: {r['duration']:.1f}s")
 

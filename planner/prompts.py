@@ -35,7 +35,7 @@ def summarize_srs_with_model(srs_text: str, max_new_tokens: int = 4096) -> str:
         "SRS:\n"
         f"{(srs_text or '').strip()}"
     )
-    data = model_client.call_model(prompt, max_new_tokens, False)
+    data = model_client.call_model(prompt, max_new_tokens, False, app_label="QA SRS Ingestion")
     summary = (data.get("answer") or "").strip()
     return textutil.extract_json_text(summary) if summary.startswith("{") else summary
 
@@ -348,7 +348,9 @@ def build_testcase_prompt(
     if figma_context:
         parts += [
             "## Interactive Elements on Relevant Screens",
-            "(Use EXACT element names from the list below in your test steps — do not invent labels)",
+            "(Ground 'screen_hint' in a REAL name from this list when one fits — these are what "
+            "actually exists at runtime. If nothing here fits your objective, say what you're "
+            "looking for instead of inventing a screen name.)",
             figma_context,
             "",
         ]
@@ -423,10 +425,10 @@ def build_testcase_prompt(
         history_block,
         "",
     ]
-    # Prefer the detailed findings block (title + why it failed + recurring
-    # patterns); fall back to bare titles when no reasons were recorded.
+    # Prefer the detailed observations block (title + evaluator assessment +
+    # recurring patterns); fall back to bare titles when no reasons were recorded.
     if failure_context:
-        parts += ["## What Previous Tests Already Proved", failure_context, ""]
+        parts += ["## Recent Test Observations", failure_context, ""]
     else:
         parts += ["## Known Failures — probe adjacent cases and variants around these", failed_block, ""]
     parts += [
@@ -443,7 +445,13 @@ def build_testcase_prompt(
         "1. FORBIDDEN: Any test semantically similar to a title in the executed list above.",
         "2. PRIORITY: Follow the Exploration Directive — hot spots > new areas > breadth > exhausted areas.",
         "3. PREFER negative, boundary, and state-transition tests over happy-path positive tests.",
-        "4. Steps MUST reference actual UI element names from the UI context — no invented labels.",
+        "4. 'screen_hint' is a LEAD for the executor, not a command. Name the screen you believe is "
+        "relevant, preferring a real observed name from the context above — but you cannot see the "
+        "live app, so the executor will verify it and adapt if reality differs. 'objective' MUST "
+        "state WHAT to verify in plain language (the behaviour or rule under test), NEVER a "
+        "numbered sequence of taps or clicks — you do not know the exact UI well enough to script "
+        "it, and a wrong literal instruction is worse than a clear goal. The executor has live "
+        "access to the real app and will work out how to get there.",
         "5. The 'rationale' field MUST name the specific defect class or risk this test is designed to expose.",
         "5b. 'preconditions' MUST be things the tester can CREATE through the UI in this "
         "test's own first steps. NEVER state an environmental assumption the tester can "
@@ -462,8 +470,8 @@ def build_testcase_prompt(
         "(e.g. 'app is open'), not for data you did not create.",
         "",
         "## Output — STRICT JSON only. No markdown fences, no text outside the JSON object.",
-        '{"test_case_id":"...","title":"...","screen":"...","preconditions":[...],"steps":[...],'
-        '"expected_result":"...","priority":"high|medium|low","area":"...",'
+        '{"test_case_id":"...","title":"...","screen_hint":"...","preconditions":[...],'
+        '"objective":"...","expected_result":"...","priority":"high|medium|low","area":"...",'
         '"test_type":"positive|negative|boundary|state_transition|recovery|combination",'
         '"requirement_ids":["<id copied from the list above>"],'
         '"rationale":"what specific bug or risk this test is designed to expose"}',

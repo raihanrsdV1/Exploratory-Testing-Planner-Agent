@@ -127,7 +127,7 @@ MODEL_BACKEND = _str("MODEL_BACKEND", "openrouter").lower()
 MODEL_API_URL = _str("MODEL_API_URL")
 PLANNER_GEMINI_MODEL = _str("PLANNER_GEMINI_MODEL", "gemini-2.5-pro")
 OPENROUTER_API_KEY = _str("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = _str("OPENROUTER_MODEL", "qwen/qwen3.8-flash")
+OPENROUTER_MODEL = _str("OPENROUTER_MODEL", "qwen/qwen3.7-flash")
 OPENROUTER_BASE_URL = _str("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 GEMINI_API_KEY = _str("GEMINI_API_KEY")
 
@@ -153,6 +153,39 @@ EXTRACTION_SAMPLES = _int("EXTRACTION_SAMPLES", 1)
 EXTRACTION_MAX_TOKENS = _int("EXTRACTION_MAX_TOKENS", 8000)
 # Model that judges which sample is best; falls back to EXTRACTION_MODEL.
 EXTRACTION_JUDGE_MODEL = _str("EXTRACTION_JUDGE_MODEL", "")
+# Model for the trajectory evaluator (gateway's /execution/evaluate) — assesses
+# a run's device trajectory against its own objective. One small call per test
+# run, independent of the planner's own generation calls. Leave empty to reuse
+# OPENROUTER_MODEL; named separately so it can be tuned independently later
+# without that meaning "also change what the planner generates with".
+EVALUATOR_MODEL = _str("EVALUATOR_MODEL", "")
+
+# 0 = uncapped, and deliberately so. The evaluator model is a reasoning model
+# that bills its scratchpad against max_tokens, so ANY total cap is spent on
+# reasoning before an answer is emitted — a 6000 cap produced a completely empty
+# response on a real 50-step run. What bounds the answer now is the structured
+# contract (a run verdict plus at most findings._MAX_FINDINGS_PER_RUN findings
+# with clamped fields), not a token ceiling. Cap EVALUATOR_REASONING_EFFORT
+# instead; that is where the time goes.
+EVALUATOR_MAX_TOKENS = _int("EVALUATOR_MAX_TOKENS", 0)
+
+# Scratchpad budget for the evaluator: "low" | "medium" | "high".
+# Measured on one real 50-step evaluation prompt: default reasoning 113.8s
+# (12,673 chars of reasoning for 5,104 of answer) vs 22.7s at "low" for
+# comparable content — a 5x latency cut on the call that was timing out at 600s.
+EVALUATOR_REASONING_EFFORT = _str("EVALUATOR_REASONING_EFFORT", "low")
+
+# How many already-known findings the evaluator is shown for the screens a run
+# touched, so it can cite and reinforce them instead of restating them. Bounded
+# per-screen relevance replaced re-feeding every previous report in full.
+EVALUATOR_KNOWN_FINDINGS = _int("EVALUATOR_KNOWN_FINDINGS", 12)
+# Tried once, for any call, after the primary model's own retries are exhausted
+# — only for a TRANSIENT failure (rate-limited, temporarily unavailable). A 429
+# means THIS model's shared OpenRouter capacity is full right now, not that
+# every model is down, so a differently-provisioned model is likely to just
+# work. Never used for a non-transient failure (bad request, bad API key) —
+# those would fail identically on any model. Leave empty to disable.
+FALLBACK_MODEL = _str("FALLBACK_MODEL", "")
 
 # ── Embeddings (semantic retrieval + dedup) ──────────────────────────────────
 EMBEDDING_BACKEND = _str("EMBEDDING_BACKEND", "auto").lower()
@@ -165,6 +198,17 @@ TOP_K = _int("TOP_K", 8)
 # (see planner/budget.py). This is the main cost dial — every call pays it.
 PROMPT_BUDGET_TOKENS = _int("PROMPT_BUDGET_TOKENS", 50_000)
 MAX_RETRIEVAL_ROUNDS = _int("MAX_RETRIEVAL_ROUNDS", 3)
+
+# Which planner runs: "pipeline" (the LangGraph retrieval loop) or "tools" (the
+# tool-using agent in planner/agent_loop.py). Both produce the same test-case
+# contract, so the executor is unaffected either way and a campaign can be run
+# on each for comparison. See docs/PLANNER_REDESIGN.md.
+PLANNER_MODE = _str("PLANNER_MODE", "pipeline").lower()
+
+# Scratchpad budget for the planner's tool loop. Same lever as the evaluator's:
+# on a reasoning model the time goes to reasoning tokens, and a tool loop pays
+# that cost once per turn rather than once per test case. Empty = provider default.
+PLANNER_REASONING_EFFORT = _str("PLANNER_REASONING_EFFORT", "low")
 # Generation token ceiling. Reasoning models spend 3-7k tokens on their scratchpad
 # before the JSON answer; too low a cap truncates it and the response fails to parse.
 GENERATION_MAX_TOKENS = _int("GENERATION_MAX_TOKENS", 12000)
@@ -390,6 +434,14 @@ STATE_CONTAINMENT_MAX_RATIO = _float("STATE_CONTAINMENT_MAX_RATIO", 2.0)
 # genuinely different screens with similar widget types apart.
 STATE_SKELETON_THRESHOLD = _float("STATE_SKELETON_THRESHOLD", 0.95)
 STATE_SKELETON_MIN_FULL = _float("STATE_SKELETON_MIN_FULL", 0.60)
+
+# A different matching problem from the thresholds above: those dedupe two
+# OBSERVATIONS of a screen. This one resolves a NAME (a Figma design-file screen
+# name, or free text the planner typed) to the one real UIState it refers to, so
+# retrieval can answer "tell me about screen X" instead of always returning a
+# generic whole-app overview. Word-overlap Jaccard on the two labels; below this
+# share of overlapping words, no match is confident enough to return.
+LIVE_SCREEN_MATCH_THRESHOLD = _float("LIVE_SCREEN_MATCH_THRESHOLD", 0.3)
 
 # ── Autonomous crawler ───────────────────────────────────────────────────────
 CRAWL_ROUNDS = _int("CRAWL_ROUNDS", 3)
@@ -674,5 +726,6 @@ def summary() -> dict:
         "enabled_sources": list(ENABLED_SOURCES),
         "extraction_model": EXTRACTION_MODEL or OPENROUTER_MODEL,
         "extraction_samples": EXTRACTION_SAMPLES,
+        "evaluator_model": EVALUATOR_MODEL or OPENROUTER_MODEL,
         "target_app_only": TARGET_APP_ONLY,
     }

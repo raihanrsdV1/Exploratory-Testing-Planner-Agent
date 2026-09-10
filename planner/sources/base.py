@@ -30,6 +30,11 @@ class RetrievedBlock:
     channel: str  # which context bucket this block feeds (srs | figma_ui | figma_flow | ...)
     text: str     # the formatted context block, ready to drop into a prompt
     note: str     # short one-line note for the planner's "retrieved so far" list
+    # Set by a source that resolved the request to one concrete, identifiable
+    # entity (e.g. live_ui matching a screen name to a real UIState) — carries
+    # enough to look that entity up again later (id, label, ...) without forcing
+    # every source to populate it. None for sources with nothing concrete to name.
+    resolved_state: dict | None = None
 
 
 class KnowledgeSource(ABC):
