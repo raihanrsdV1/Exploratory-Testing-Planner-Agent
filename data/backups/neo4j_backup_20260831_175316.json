@@ -1,0 +1,66 @@
+{
+  "timestamp": "2026-08-31T17:53:16.294089",
+  "total_nodes": 3,
+  "total_relationships": 2,
+  "nodes": [
+    {
+      "element_id": "4:4de26db0-dff2-4820-a04e-514555df90cb:1067",
+      "labels": [
+        "Project"
+      ],
+      "properties": {
+        "updated_at": "2026-08-31T11:53:02.160977+00:00",
+        "name": "shobarkhamar"
+      }
+    },
+    {
+      "element_id": "4:4de26db0-dff2-4820-a04e-514555df90cb:1069",
+      "labels": [
+        "SRS"
+      ],
+      "properties": {
+        "project": "shobarkhamar",
+        "id": "shobarkhamar::srs::fake"
+      }
+    },
+    {
+      "element_id": "4:4de26db0-dff2-4820-a04e-514555df90cb:1070",
+      "labels": [
+        "UIState"
+      ],
+      "properties": {
+        "project": "shobarkhamar",
+        "id": "shobarkhamar::state::fake",
+        "label": "fake screen"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "element_id": "5:4de26db0-dff2-4820-a04e-514555df90cb:1152921504606848043",
+      "type": "HAS_SRS",
+      "properties": {},
+      "start_element_id": "4:4de26db0-dff2-4820-a04e-514555df90cb:1067",
+      "end_element_id": "4:4de26db0-dff2-4820-a04e-514555df90cb:1069",
+      "start_labels": [
+        "Project"
+      ],
+      "end_labels": [
+        "SRS"
+      ]
+    },
+    {
+      "element_id": "5:4de26db0-dff2-4820-a04e-514555df90cb:1152944594351031339",
+      "type": "HAS_STATE",
+      "properties": {},
+      "start_element_id": "4:4de26db0-dff2-4820-a04e-514555df90cb:1067",
+      "end_element_id": "4:4de26db0-dff2-4820-a04e-514555df90cb:1070",
+      "start_labels": [
+        "Project"
+      ],
+      "end_labels": [
+        "UIState"
+      ]
+    }
+  ]
+}

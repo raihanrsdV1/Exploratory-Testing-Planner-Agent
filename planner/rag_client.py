@@ -55,6 +55,31 @@ def rag_post(endpoint: str, payload: dict, timeout: int = 120) -> dict:
         raise HTTPException(status_code=503, detail=f"RAG API unavailable ({endpoint}): {e}")
 
 
+def get_state_screenshot(project: str, state_id: str) -> str | None:
+    """Fetch a stored Live App Model screenshot as base64, for attaching to a
+    vision-capable generation call. Unlike rag_get/rag_post, this never raises —
+    a screenshot is an enhancement to generation, not a requirement, so any
+    failure (state has none, file missing, RAG API unreachable) returns None and
+    generation proceeds text-only rather than being aborted over an image fetch."""
+    import base64
+    import time
+    start = time.perf_counter()
+    try:
+        resp = requests.get(
+            f"{config.RAG_API_URL.rstrip('/')}/liveui/screenshot",
+            params={"project": project, "state_id": state_id},
+            headers=rag_headers(), timeout=30,
+        )
+        if resp.status_code != 200:
+            return None
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+        log.info("rag_call", method="GET", endpoint="/liveui/screenshot", latency_ms=duration_ms)
+        return base64.b64encode(resp.content).decode("ascii")
+    except requests.RequestException as e:
+        log.warning("rag_screenshot_unavailable", state_id=state_id, error=str(e)[:160])
+        return None
+
+
 # ── Typed knowledge-graph queries ───────────────────────────────────────────────
 
 def get_srs_and_history(project: str, query: str, top_k: int, dims: dict | None = None) -> dict:
@@ -116,10 +141,3 @@ def get_business_rules(project: str) -> list[dict]:
 def get_agent_difficulty(project: str) -> dict:
     """Screens/areas where OUR agent tends to fail to finish (not app defect evidence)."""
     return rag_get("/execution/agent-difficulty", {"project": project})
-
-
-def get_relevant_failure_notes(project: str, query: str, top_k: int = 8) -> dict:
-    """Past failure notes ranked by semantic relevance to ``query`` (the current
-    session objective), not by recency. Degrades to {'enabled': False} rather than
-    raising when embeddings are off — the caller falls back to the recency view."""
-    return rag_post("/execution/notes/retrieve", {"project": project, "query": query, "top_k": top_k})

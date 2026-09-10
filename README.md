@@ -334,7 +334,11 @@ scripts/
 start.sh                  Bring up the whole stack (Neo4j + emulator + services)
 stop.sh                   Tear it all down (services + emulator + Neo4j)
 requirements.txt          Local Python dependencies
-docs/                     Architecture diagrams and documentation
+docs/                     Documentation — start at docs/README.md
+  WORKFLOW.md             How the whole system works, end to end (read first)
+  ROADMAP.md              Status, findings so far, what to build next
+  INVESTIGATOR.md         Trajectory -> findings: the post-execution learning loop
+  PLANNER_REDESIGN.md     The tool-calling planner (PLANNER_MODE=tools)
 data/inputs/              Sample SRS + Figma export
 ```
 

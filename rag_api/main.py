@@ -26,6 +26,7 @@ from . import dimensions as dimensions_mod
 from . import risk as risk_mod
 from . import metrics as metrics_mod
 from . import anomalies as anomalies_mod
+from . import findings as findings_mod
 from ingestion import ui_normalizer, app_state, defect_loader
 
 # `or default` (not just getenv default) so an empty value in .env doesn't crash startup.
@@ -36,7 +37,6 @@ RAG_API_KEY = os.getenv("RAG_API_KEY", "")
 
 CHUNK_VECTOR_INDEX = "chunk_embedding"
 REQUIREMENT_VECTOR_INDEX = "requirement_embedding"
-TESTRUN_VECTOR_INDEX = "testrun_embedding"
 
 driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
@@ -51,8 +51,7 @@ def _ensure_vector_indexes(session) -> None:
     dim = embeddings.embedding_dim()
     if not dim:
         return
-    for index_name, label in ((CHUNK_VECTOR_INDEX, "Chunk"), (REQUIREMENT_VECTOR_INDEX, "Requirement"),
-                              (TESTRUN_VECTOR_INDEX, "TestRun")):
+    for index_name, label in ((CHUNK_VECTOR_INDEX, "Chunk"), (REQUIREMENT_VECTOR_INDEX, "Requirement")):
         try:
             session.run(
                 f"""
@@ -660,6 +659,20 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
                         shot.unlink()
                     except OSError:
                         pass
+            # Findings belong to this slice, NOT to delete_tests. By the rule
+            # settings.CLEAN_SLATE_APPMODEL already states: test results are
+            # outcomes and must be wiped for a clean measurement, while the app
+            # map is knowledge ABOUT THE APP. A finding ("this screen accepts an
+            # empty required field") is knowledge of exactly that kind — it
+            # outlives the run that discovered it, and wiping it every campaign
+            # would make the investigator re-derive the same conclusions forever,
+            # which is the growth problem findings exist to end. Stated here so
+            # the lifetime is a decision rather than an accident of which slice
+            # happens to name the label.
+            session.run(
+                "MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding) DETACH DELETE f",
+                project=req.project,
+            )
 
         # remove orphan feature nodes belonging to this project
         session.run(
@@ -1297,9 +1310,10 @@ def context_brief(req: BriefContextRequest, authorization: str | None = Header(d
             // from "we never got there", which are opposite signals for exploration.
             OPTIONAL MATCH (e:ExecutionLog {project:$project, test_case_id: coalesce(t.external_id, t.id)})
             WITH t, e ORDER BY e.created_at DESC
-            WITH t, head(collect(coalesce(e.error_type,''))) AS error_type
+            WITH t, head(collect(coalesce(e.error_type,''))) AS error_type,
+                    head(collect(coalesce(e.trajectory_summary,''))) AS trajectory_summary
             RETURN coalesce(t.external_id, t.id) AS id, t.title AS title, t.area AS area,
-                   t.last_verdict AS verdict, t.last_run_at AS ts, error_type,
+                   t.last_verdict AS verdict, t.last_run_at AS ts, error_type, trajectory_summary,
                    // The failure reason is what makes a past failure actionable for the
                    // planner — without it the agent only knows THAT a test failed.
                    t.last_notes AS notes
@@ -1498,12 +1512,6 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
     run_id = f"{internal_test_id}::run::{now}"
     area_slug = _slug(req.area)
 
-    # Embed the run's notes at write time so later generation can retrieve past
-    # failures by RELEVANCE to what it's about to test, not just by recency —
-    # the notes text is already short (executor-side truncated before this call
-    # ever sees it), so this is one small embed, not a re-embed of a trajectory.
-    note_vec = embeddings.embed_query(req.notes) if req.notes and req.notes.strip() else None
-
     with driver.session() as session:
         session.run(
             """
@@ -1515,6 +1523,14 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
                 t.external_id = $external_test_case_id, t.test_type = $test_type,
                 t.last_verdict = $verdict, t.last_notes = $notes,
                 t.last_run_at = $now, t.updated_at = $now
+            """
+            # Only the auto-log call right after generation sends these — the
+            # executor's later verdict-update call to this same endpoint omits
+            # them, and an unconditional SET would overwrite the real stored
+            # values with empty strings on that second call.
+            + ("SET t.generation_prompt = $generation_prompt\n" if req.generation_prompt else "")
+            + ("SET t.generation_answer = $generation_answer\n" if req.generation_answer else "")
+            + """
             MERGE (p)-[:HAS_TEST]->(t)
             MERGE (fa:FeatureArea {key:$feature_key})
             SET fa.project = $project, fa.label = $area, fa.updated_at = $now
@@ -1522,7 +1538,7 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             MERGE (t)-[:COVERS_FEATURE]->(fa)
             MERGE (r:TestRun {id:$run_id})
             SET r.project = $project, r.verdict = $verdict,
-                r.notes = $notes, r.created_at = $now, r.embedding = $note_vec
+                r.notes = $notes, r.created_at = $now
             MERGE (t)-[:HAS_RUN]->(r)
             WITH t, fa
             // REQ-301.6: mark defect-area traceability when this area has known defects.
@@ -1536,8 +1552,9 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             internal_test_id=internal_test_id,
             external_test_case_id=req.test_case_id,
             title=req.title, area=req.area, verdict=req.verdict, test_type=req.test_type,
-            notes=req.notes, now=now, run_id=run_id, note_vec=note_vec,
+            notes=req.notes, now=now, run_id=run_id,
             feature_key=f"{req.project}::{area_slug}",
+            generation_prompt=req.generation_prompt, generation_answer=req.generation_answer,
         )
 
         # Graph-native coverage: link this test to the requirements it exercises.
@@ -1599,6 +1616,27 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
         "run_id": run_id,
         "requirements_linked": covered,
     }
+
+
+@app.get("/requirements/ids")
+def requirement_ids(project: str, authorization: str | None = Header(default=None)):
+    """Every citable requirement ref_id for a project.
+
+    The planner may only cite ids that exist: an invented one ("FR-64") matches
+    no Requirement node, so its COVERS edge silently fails and requirement
+    coverage under-reports. Previously the prompt just *asked* the model not to
+    invent ids; this endpoint lets a proposal be rejected when it does.
+    """
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(r:Requirement)
+            WHERE r.ref_id IS NOT NULL
+            RETURN r.ref_id AS ref_id ORDER BY r.ref_id ASC
+            """, project=project)
+        ids = [r["ref_id"] for r in rows]
+    return {"project": project, "count": len(ids), "ref_ids": ids}
 
 
 @app.get("/coverage/requirements")
@@ -2183,6 +2221,79 @@ def execution_log(req: ExecutionLogRequest, authorization: str | None = Header(d
     return {"status": "ok", "log_id": log_id, "navtree": nav, "strategy": strat}
 
 
+@app.post("/execution/attach-summary")
+def execution_attach_summary(req: ExecutionSummaryRequest, authorization: str | None = Header(default=None)):
+    """Attach an evaluator's assessment of a run's trajectory (what actually
+    happened, checked against what the test was trying to verify) to its
+    ExecutionLog. Matched by the exact log_id from /execution/log — never a
+    'most recent' guess, so this can never attach to the wrong run."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        row = session.run(
+            "MATCH (e:ExecutionLog {id:$id, project:$project}) "
+            "SET e.trajectory_summary=$summary, e.evaluation_prompt=$eval_prompt "
+            "RETURN e.id AS id",
+            id=req.log_id, project=req.project, summary=req.trajectory_summary,
+            eval_prompt=req.evaluation_prompt,
+        ).single()
+    if not row:
+        raise HTTPException(status_code=404, detail="No ExecutionLog with that id for this project")
+    return {"status": "ok", "log_id": req.log_id}
+
+
+@app.post("/findings/record")
+def findings_record(req: RecordFindingsRequest, authorization: str | None = Header(default=None)):
+    """Persist one run's atomic findings into the knowledge graph.
+
+    Replaces re-feeding whole prose reports between rounds: each claim is matched
+    semantically against what is already known, so a repeat REINFORCES the
+    existing finding (times_seen++) instead of creating a near-duplicate. That
+    makes "independently observed N times" a real signal, and keeps every
+    downstream prompt bounded no matter how long the campaign runs.
+    """
+    _check_auth(authorization)
+    with driver.session() as session:
+        out = findings_mod.record(
+            session, req.project, [f.model_dump() for f in req.findings],
+            log_id=req.log_id, test_case_id=req.test_case_id,
+            embed_texts=_embed_texts, now=_utc_now(),
+        )
+    return {"project": req.project, **out}
+
+
+@app.get("/findings")
+def findings_list(project: str, screens: str = "", kinds: str = "", group: str = "", limit: int = 20,
+                  exclude_log_id: str = "", authorization: str | None = Header(default=None)):
+    """Findings for a project, narrowed to screens and/or kinds.
+
+    ``screens`` and ``kinds`` are pipe-separated ('Chats|Medicine'). ``screens``
+    accepts UIState ids or observed labels, so callers that only have the labels
+    a run walked (the executor's path_labels) need no id lookup of their own.
+
+    ``group`` ('oracle' | 'defect' | 'ui' | 'agent') expands to a kind set defined
+    once, server-side. Callers use it instead of listing kinds so the taxonomy
+    has exactly one definition — a duplicated one is how this project previously
+    mis-reported autonomy.
+    """
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = findings_mod.query(
+            session, project,
+            screens=[s for s in screens.split("|") if s.strip()],
+            kinds=[k for k in kinds.split("|") if k.strip()] or findings_mod.group_kinds(group),
+            limit=limit, exclude_log_id=exclude_log_id,
+        )
+    return {"project": project, "count": len(rows), "findings": rows}
+
+
+@app.get("/findings/stats")
+def findings_stats(project: str, authorization: str | None = Header(default=None)):
+    """Finding counts per kind — dashboard, and the 'is it still learning?' signal."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": project, **findings_mod.stats(session, project)}
+
+
 @app.get("/execution/logs")
 def execution_logs(project: str, limit: int = 20, authorization: str | None = Header(default=None)):
     """Recent execution logs with their walked paths (for the dashboard timeline)."""
@@ -2191,11 +2302,20 @@ def execution_logs(project: str, limit: int = 20, authorization: str | None = He
         rows = session.run(
             """
             MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)
+            // Not :FOR_TEST — that relationship links by a title-derived id while
+            // TestCase nodes are keyed by test_case_id, so it almost never matches.
+            // external_id is the same literal test_case_id string on both sides.
+            OPTIONAL MATCH (p)-[:HAS_TEST]->(t:TestCase {external_id: e.test_case_id})
             RETURN e.test_case_id AS test_case_id, e.title AS title, e.verdict AS verdict,
                    e.duration_ms AS duration_ms, e.device_steps AS device_steps,
                    e.states_visited AS states_visited, e.error_type AS error_type,
                    e.recovery_action AS recovery_action,
-                   e.path AS path, e.path_labels AS path_labels, e.created_at AS created_at
+                   e.path AS path, e.path_labels AS path_labels, e.created_at AS created_at,
+                   // Full audit trail for the dashboard: what the planner was given and
+                   // produced (on the TestCase), and what the evaluator was given and
+                   // produced (on this ExecutionLog itself).
+                   t.generation_prompt AS generation_prompt, t.generation_answer AS generation_answer,
+                   e.evaluation_prompt AS evaluation_prompt, e.trajectory_summary AS trajectory_summary
             ORDER BY e.created_at DESC LIMIT $limit
             """,
             project=project, limit=max(1, min(limit, 100)),
@@ -2470,37 +2590,6 @@ def execution_error_patterns(project: str, authorization: str | None = Header(de
     now = _utc_now()
     with driver.session() as session:
         return {"project": project, "error_patterns": learning_mod.mine_error_patterns(session, project, now)}
-
-
-@app.post("/execution/notes/retrieve")
-def execution_notes_retrieve(req: RetrieveNotesRequest, authorization: str | None = Header(default=None)):
-    """Semantically relevant past failure notes for the CURRENT objective, ranked by
-    the same embedding vector search already used for chunks/requirements — replaces
-    a plain recency LIMIT scan of raw notes with real retrieval (WP8 follow-up: the
-    investigator/executor's output was reaching the planner as an unranked dump of
-    the last N notes; this ranks by relevance instead, so a 50-run history doesn't
-    have to be truncated blind)."""
-    _check_auth(authorization)
-    if not embeddings.is_enabled():
-        return {"project": req.project, "enabled": False, "notes": []}
-    vec = embeddings.embed_query(req.query)
-    if not vec:
-        return {"project": req.project, "enabled": False, "notes": []}
-    with driver.session() as session:
-        rows = session.run(
-            f"""
-            CALL db.index.vector.queryNodes('{TESTRUN_VECTOR_INDEX}', $k, $vec)
-            YIELD node, score
-            WITH node AS r, score WHERE r.project = $project AND r.verdict = 'failed'
-            MATCH (t:TestCase)-[:HAS_RUN]->(r)
-            RETURN t.title AS title, t.area AS area, t.external_id AS test_case_id,
-                   r.notes AS notes, r.created_at AS created_at, score
-            ORDER BY score DESC
-            """,
-            project=req.project, vec=vec, k=req.top_k,
-        )
-        notes = [dict(r) for r in rows]
-    return {"project": req.project, "enabled": True, "notes": notes}
 
 
 @app.get("/execution/agent-difficulty")

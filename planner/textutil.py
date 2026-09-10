@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 
 
 # Reasoning models emit their scratchpad in <think>…</think> before the answer.
@@ -81,6 +82,29 @@ def is_similar_to_existing(title: str, existing: list[str], threshold: float = 0
     return any(jaccard(title, t) >= threshold for t in existing)
 
 
+def normalize_unicode(text: str) -> str:
+    """Like normalize(), but script-agnostic: normalize()'s [a-z0-9] filter strips
+    every non-Latin character, so two Bengali (or any non-Latin) strings both
+    normalize to "" and jaccard() silently scores them 0% similar regardless of
+    content. Keeps letters/marks/digits of any script (Bengali vowel signs are
+    combining marks — category M* — not covered by a plain [a-z0-9] or \\w filter,
+    so this checks Unicode category directly rather than a character class)."""
+    out = []
+    for ch in (text or "").lower():
+        cat = unicodedata.category(ch)
+        out.append(ch if cat[0] in ("L", "M", "N") or ch.isspace() else " ")
+    return re.sub(r"\s+", " ", "".join(out)).strip()
+
+
+def unicode_jaccard(a: str, b: str) -> float:
+    """jaccard(), but via normalize_unicode() — use for matching UI screen/element
+    names, which may be in any script, instead of the Latin-only jaccard()."""
+    sa, sb = set(normalize_unicode(a).split()), set(normalize_unicode(b).split())
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
 def next_testcase_id(recent_tests: list[dict], default_prefix: str = "TC") -> str:
     max_n = 0
     for t in recent_tests or []:
@@ -143,4 +167,30 @@ def parse_action(raw: str, fallback_screens: list[str]) -> dict:
         "focus_queries": cleaned_fq,
         "target_screens": cleaned_ts,
         "reason": str(data.get("reason", "")).strip(),
+    }
+
+
+def parse_evaluation(raw: str):
+    """Parse the trajectory evaluator's structured output.
+
+    Returns ``{"run_verdict": {...}, "findings": [...]}`` or **None** when the
+    model did not produce usable structure. None is deliberate: ``parse_testcase``
+    returns ``{"raw": ...}`` on failure because a half-parsed test is still worth
+    showing, but a findings batch that silently comes back empty is
+    indistinguishable from "this run discovered nothing" — which is a legitimate
+    and expected result. The caller must be able to tell those apart, record a
+    degradation, and fall back to storing the raw text.
+    """
+    obj = parse_testcase(raw)
+    if not isinstance(obj, dict) or "raw" in obj:
+        return None
+    findings = obj.get("findings")
+    verdict = obj.get("run_verdict")
+    # An object carrying neither key is some other JSON entirely, not an
+    # evaluation with nothing to report.
+    if not isinstance(findings, list) and not isinstance(verdict, dict):
+        return None
+    return {
+        "run_verdict": verdict if isinstance(verdict, dict) else {},
+        "findings": [f for f in (findings or []) if isinstance(f, dict)],
     }
