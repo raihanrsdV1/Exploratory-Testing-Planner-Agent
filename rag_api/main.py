@@ -2592,6 +2592,15 @@ def execution_error_patterns(project: str, authorization: str | None = Header(de
         return {"project": project, "error_patterns": learning_mod.mine_error_patterns(session, project, now)}
 
 
+@app.get("/execution/agent-difficulty")
+def execution_agent_difficulty(project: str, authorization: str | None = Header(default=None)):
+    """Screens where OUR agent (not the app) tends to fail to finish, plus typical
+    step cost per area — steers test DESIGN, never treated as defect evidence."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        return {"project": project, **learning_mod.mine_agent_difficulty(session, project)}
+
+
 @app.get("/coverage/heatmap")
 def coverage_heatmap(project: str, authorization: str | None = Header(default=None)):
     """Requirement/area/screen/element coverage heatmap (REQ-303.4)."""

@@ -114,6 +114,42 @@ def _legacy_failure_lines(recent_tests: list[dict]) -> list[str]:
     return lines
 
 
+def build_agent_difficulty_context(project: str) -> str:
+    """'Known Agent Difficulty' block (docs/PLANNER_IMPROVEMENTS_FUTURE.md #1/#2,
+    superseded in spirit by the AGENT_DIFFICULTY finding kind — see
+    docs/INVESTIGATOR.md — but that group is "collected, not yet wired"; this stays
+    the live consumer of the statistical (non-LLM-judged) signal in the meantime).
+
+    Deliberately NOT defect evidence — a screen the agent struggles to finish on
+    says nothing about whether the app works. This steers test DESIGN only: write
+    a narrower test there, and scope new tests to the step budget an area
+    typically needs. Kept as its own block (never merged into build_failure_context
+    or defect_context) so it can never be mistaken for "the app is broken here".
+    """
+    try:
+        data = rag_client.get_agent_difficulty(project)
+    except Exception:
+        return ""
+
+    lines: list[str] = []
+    screens = data.get("difficulty_screens") or []
+    for s in screens[:5]:
+        lines.append(
+            f"- {s.get('screen', '?')}: {s.get('occurrences', 0)} recent runs stalled/timed out here "
+            f"({', '.join(s.get('error_types', []))}). Prefer a narrower, single-action test on this "
+            f"screen rather than a full multi-field flow."
+        )
+
+    areas = data.get("step_cost_by_area") or []
+    for a in areas[:5]:
+        lines.append(
+            f"- Typical step cost: '{a.get('area', '?')}' tests average {a.get('avg_steps', '?')} steps "
+            f"(median {a.get('median_steps', '?')}, {a.get('sample_count', 0)} runs) — keep new tests "
+            f"here scoped to fit the remaining step budget."
+        )
+    return "\n".join(lines)
+
+
 def pick_relevant_screens(screens: list[dict], done_areas: list[str], recent_tests: list[dict]) -> list[str]:
     """Choose up to 2 screens to detail, biased toward untested, interaction-rich screens."""
     if not screens:
@@ -165,13 +201,13 @@ def build_learned_context(
     selected_screens: list[str],
     defect_blocks: list[str],
     nav_blocks: list[str],
-) -> tuple[str, str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str, list[str]]:
     """Assemble defect / navigation / failed-path / strategy / risk / anomaly context.
 
     Uses whatever the retrieval loop already gathered, and best-effort fills the
     gaps from dedicated endpoints. All app-agnostic — nothing is fetched unless the
     source is available for this project. Returns (defect_context, nav_context,
-    failed_nav, strategy_context, risk_context, anomaly_context)."""
+    failed_nav, strategy_context, risk_context, anomaly_context, risk_areas)."""
     from .sources.navtree import format_path
 
     # Defects (REQ-301.5): prefer gathered blocks, else fetch a focused block.
@@ -225,6 +261,7 @@ def build_learned_context(
 
     # WP7 (REQ-306.2): bias generation toward the highest regression-risk areas.
     risk_context = ""
+    risk_areas: list[str] = []
     try:
         scores = rag_client.rag_get("/risk/scores", {"project": project}).get("risk_scores", [])
         ranked = [s for s in scores if s.get("regression_risk_score", 0) > 0][:20]
@@ -234,6 +271,10 @@ def build_learned_context(
                 f"{s.get('defect_count',0)} defects, {s.get('failed_tests',0)}/{s.get('total_tests',0)} runs failed)"
                 for s in ranked
             )
+            # Already ranked by regression_risk_score (rag_api/risk.py) — feed the
+            # ordered names to the exploration directive so risk actually competes
+            # for [PRIORITY] instead of sitting in an informational block only.
+            risk_areas = [str(s.get("area", "")).strip() for s in ranked if s.get("area")]
     except Exception:
         risk_context = ""
 
@@ -250,7 +291,7 @@ def build_learned_context(
     except Exception:
         anomaly_context = ""
 
-    return defect_context, nav_context, failed_nav, strategy_context, risk_context, anomaly_context
+    return defect_context, nav_context, failed_nav, strategy_context, risk_context, anomaly_context, risk_areas
 
 
 def build_figma_overview_context(figma_overview: list[dict]) -> str:

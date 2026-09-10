@@ -184,7 +184,6 @@ class AnomaliesDetectRequest(BaseModel):
     project: str = Field(..., min_length=1)
 
 
-
 class FindingIn(BaseModel):
     """One atomic finding from a run's trajectory (see rag_api/findings.py).
 

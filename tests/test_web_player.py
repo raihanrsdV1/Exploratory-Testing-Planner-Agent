@@ -13,6 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import settings as st  # noqa: E402
+from web_player import agent as agent_mod  # noqa: E402
 from web_player import failures, llm, snapshot  # noqa: E402
 from web_player.actions import ActionError, Dispatcher  # noqa: E402
 from web_player.oracles import Findings  # noqa: E402
@@ -37,6 +38,46 @@ class _FakeCfg:
     WEB_NAV_TIMEOUT_MS = 5000
 
 
+class _FakeChatClient:
+    """Replies with a DIFFERENT action each turn (varying ``text``, which the
+    exact-repeat signature keys on), so that guard never fires — only the
+    content-only wandering guard should catch this."""
+
+    def __init__(self):
+        self.turn = 0
+
+    def chat(self, messages):
+        self.turn += 1
+        return f'{{"thought":"t","action":"scroll_down","text":"attempt-{self.turn}"}}'
+
+
+async def _check_wandering_guard():
+    """Different actions every turn, but the page content never changes: the
+    stall (content-only) guard must end the run well before WEB_MAX_STEPS,
+    which the exact-repeat guard (keyed on page+action together) would miss."""
+    fixed_snap = {"url": "https://shop.example.com/catalog", "elements": [], "messages": [], "texts": []}
+
+    async def fake_observe(page, max_elements):
+        return dict(fixed_snap)
+
+    async def fake_perform(action, snap):
+        return "scrolled"
+
+    orig_observe = snapshot.observe
+    agent_mod.snapshot.observe = fake_observe
+    try:
+        a = agent_mod.WebAgent(page=None, cfg=st, client=_FakeChatClient())
+        a.dispatcher.perform = fake_perform
+        result = await a.run("goal: reach the bottom of an infinite page", max_steps=30, timeout_s=999)
+    finally:
+        agent_mod.snapshot.observe = orig_observe
+
+    check("stops before the step budget is exhausted", result.steps < 30, True)
+    check("stops at the configured stall limit", result.steps, st.WEB_STALL_STEPS + 1)
+    check("ends unsuccessfully", result.success, False)
+    check("reason classifies as NAVIGATION_LIVELOCK", failures.classify(result.reason), "NAVIGATION_LIVELOCK")
+
+
 def main():
     print("the agent's own failure strings never count as app defects")
     # Every string below is emitted verbatim by WebAgent.run or Dispatcher. If any
@@ -46,6 +87,8 @@ def main():
         "Step limit reached: used all 30 steps without reaching a verdict.": "STEP_LIMIT_EXCEEDED",
         "Livelock: repeated the same action against an unchanged page 5 times. "
         "The page is not responding to it.": "NAVIGATION_LIVELOCK",
+        "Livelock: tried 6 different actions in a row and the page never changed. "
+        "The page is not responding to this line of exploration.": "NAVIGATION_LIVELOCK",
         "Timed out after 420s at step 12/30.": "TIMEOUT",
         "Refused to activate 'Log out' — it matches the blocked control 'log out'.": "BLOCKED_BY_GUARDRAIL",
         "Refused to navigate off-origin to https://accounts.google.com": "BLOCKED_BY_GUARDRAIL",
@@ -227,6 +270,9 @@ def main():
         check(f"{name} produces guidance", len(getattr(st, name)()) > 40, True)
     check("web_login_block hides the password when no user is configured",
           st.web_login_block() if not st.WEB_LOGIN_USER else "", "")
+
+    print("wandering guard ends a stalled run before the step budget")
+    asyncio.run(_check_wandering_guard())
 
     print(f"\n{_passed}/{_passed + _failed} checks passed")
     return 1 if _failed else 0

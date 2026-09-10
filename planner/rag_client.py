@@ -136,3 +136,8 @@ def get_requirement_coverage(project: str) -> dict:
 def get_business_rules(project: str) -> list[dict]:
     """Extracted validation rules with their owning requirement ref_id + confidence."""
     return rag_get("/business-logic/rules", {"project": project}).get("rules", [])
+
+
+def get_agent_difficulty(project: str) -> dict:
+    """Screens/areas where OUR agent tends to fail to finish (not app defect evidence)."""
+    return rag_get("/execution/agent-difficulty", {"project": project})

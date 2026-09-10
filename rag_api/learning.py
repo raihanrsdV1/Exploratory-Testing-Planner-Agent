@@ -18,7 +18,16 @@ import math
 import os
 from datetime import datetime, timezone
 
+from settings import AGENT_FAULT
+
 KNOWLEDGE_HALF_LIFE_DAYS = float(os.getenv("KNOWLEDGE_HALF_LIFE_DAYS", "90"))
+
+# Runs that stalled on OUR side rather than exposing app behaviour. Includes
+# STEP_LIMIT_EXCEEDED (ENV_FAULT in the shared taxonomy — budget exhaustion,
+# not agent misbehaviour) alongside AGENT_FAULT, because both are equally
+# useless as defect evidence but equally useful as "this screen is hard for
+# our agent to finish on" signal (see docs/PLANNER_IMPROVEMENTS_FUTURE.md #1).
+_AGENT_DIFFICULTY_ERRORS = AGENT_FAULT | {"STEP_LIMIT_EXCEEDED"}
 
 # Generic, app-agnostic mitigations per error class.
 _MITIGATION = {
@@ -93,6 +102,61 @@ def mine_error_patterns(session, project, now) -> list[dict]:
             "frequency": r["freq"], "weighted_frequency": weighted, "suggested_mitigation": mitigation,
         })
     return patterns
+
+
+# ── Agent capability difficulty (docs/PLANNER_IMPROVEMENTS_FUTURE.md #1/#2) ──
+# Deliberately separate from ErrorPattern/mine_error_patterns above: that feeds
+# the bug oracle ("the app broke here"), this feeds test DESIGN ("our agent
+# struggles to finish a test here, so write a narrower one"). Mixing the two
+# would make an agent-capability gap look like app evidence. No node is
+# persisted here — this is read fresh each time, same as coverage.py's map.
+def mine_agent_difficulty(session, project: str) -> dict:
+    """Screens where OUR agent (not the app) tends to fail to finish, plus the
+    typical step cost per feature area — so generation can scope a new test to
+    the screen's real difficulty instead of guessing."""
+    screen_rows = session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)
+        WHERE e.verdict = 'failed' AND e.error_type IN $error_types
+              AND size(coalesce(e.path_labels,[])) > 0
+        WITH e.path_labels[-1] AS screen, count(*) AS occurrences,
+             collect(DISTINCT e.error_type) AS error_types
+        WHERE occurrences >= 2
+        RETURN screen, occurrences, error_types
+        ORDER BY occurrences DESC
+        LIMIT 10
+        """,
+        project=project, error_types=list(_AGENT_DIFFICULTY_ERRORS),
+    )
+    difficulty_screens = [
+        {"screen": r["screen"], "occurrences": r["occurrences"], "error_types": r["error_types"]}
+        for r in screen_rows
+    ]
+
+    # Typical execution cost per area, from EXECUTED tests only (a 'planned' test
+    # was never run and has no device_steps). Needs at least 2 samples to be a
+    # trend rather than one run's noise.
+    area_rows = session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)-[:FOR_TEST]->(t:TestCase)
+        WHERE e.device_steps > 0 AND coalesce(t.area,'') <> ''
+        WITH t.area AS area, e.device_steps AS steps
+        ORDER BY steps
+        WITH area, collect(steps) AS all_steps, avg(steps) AS avg_steps, count(*) AS n
+        WHERE n >= 2
+        RETURN area, avg_steps, all_steps[size(all_steps)/2] AS median_steps, n
+        ORDER BY avg_steps DESC
+        LIMIT 10
+        """,
+        project=project,
+    )
+    step_cost_by_area = [
+        {"area": r["area"], "avg_steps": round(r["avg_steps"], 1),
+         "median_steps": r["median_steps"], "sample_count": r["n"]}
+        for r in area_rows
+    ]
+
+    return {"difficulty_screens": difficulty_screens, "step_cost_by_area": step_cost_by_area}
 
 
 # ── Strategy memory (REQ-303.3 / 307.2) ──────────────────────────────────────
