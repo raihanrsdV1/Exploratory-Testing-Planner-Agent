@@ -26,6 +26,19 @@ dashboard-react/dist/
 # ── Live App Model runtime artifacts (state screenshots) ──────────────────────
 data/appmodel/
 
+# ── Captured browser sessions (Playwright storage_state) ──────────────────────
+# These hold live auth cookies/tokens for the site under test — committing one
+# hands over a logged-in session.
+auth.json
+*.auth.json
+*storage_state*.json
+
+# ── Documents uploaded through the dashboard's target form ────────────────────
+# A tester's own SRS/Figma/defects files: another project's requirements, and
+# potentially confidential. The curated specs beside them in data/inputs/ are
+# tracked; these are not.
+data/inputs/uploads/
+
 # ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 *.ipynb_checkpoints

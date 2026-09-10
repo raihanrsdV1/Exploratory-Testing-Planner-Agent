@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
-from fastapi import Body, FastAPI, Header
+from fastapi import Body, FastAPI, File, Header, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
 from observability import degradations, get_logger, setup_logging
@@ -1005,6 +1005,49 @@ def validate_target(body: dict = Body(...), authorization: str | None = Header(d
 )
 def save_target(name: str, body: dict = Body(...), authorization: str | None = Header(default=None)):
     return targets_api.save_target(name, body, authorization)
+
+
+@app.post(
+    "/targets/upload-knowledge",
+    tags=["targets"],
+    summary="Upload an SRS / Figma / defects document",
+    description=(
+        "Stores a document supplied from the tester's own machine and returns the path "
+        "to put in the profile's knowledge section, so a path on the server is not the "
+        "only way to provide one. Files are written to `data/inputs/uploads/` — never "
+        "directly into `data/inputs/`, whose curated specs an upload could otherwise "
+        "overwrite by filename."
+    ),
+    responses={
+        400: {"description": "No file, an empty file, or an unknown knowledge kind."},
+        413: {"description": "File exceeds the upload size limit."},
+        415: {"description": "File extension is not supported for this knowledge kind."},
+    },
+)
+async def upload_knowledge(
+    kind: str = "srs",
+    file: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+):
+    return targets_api.upload_knowledge(kind, file, authorization)
+
+
+@app.post(
+    "/targets/{name}/ingest",
+    tags=["targets"],
+    summary="Ingest this profile's documents into its project slice",
+    description=(
+        "Launches `py -m targets.run <name> --ingest-only` as a separate process. "
+        "**Destructive:** the project slice is reset (its tests, SRS and Figma are "
+        "deleted) before the documents are re-read."
+    ),
+    responses={
+        409: {"description": "An ingest for this profile is already running."},
+        422: {"description": "Profile is invalid, has no documents configured, or a configured file is missing."},
+    },
+)
+def ingest_target(name: str, authorization: str | None = Header(default=None)):
+    return targets_api.ingest_target(name, authorization)
 
 
 @app.post(

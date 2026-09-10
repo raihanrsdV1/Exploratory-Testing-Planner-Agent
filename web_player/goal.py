@@ -29,9 +29,17 @@ def build_goal(test_case: dict) -> str:
     if safety:
         parts.append(safety)
 
-    screen = test_case.get("screen", "")
+    # A LEAD, not an instruction. The planner cannot see the live site, so a
+    # screen name it invented must never become something the agent stalls on
+    # trying to match exactly (mirrors build_droidrun_goal's wording).
+    screen = test_case.get("screen_hint", "") or test_case.get("screen", "")
     if screen:
-        parts.append(f"Navigate to the '{screen}' page if you are not already there.")
+        parts.append(
+            f"I believe the relevant page is '{screen}' — that is a LEAD to check, not a "
+            f"fact; I cannot see the live site. If it does not exist or isn't right, "
+            f"explore and find the real page for this objective yourself. Do not stall "
+            f"trying to match that name exactly."
+        )
 
     kept, dropped = filter_preconditions(test_case.get("preconditions", []))
     if dropped:
@@ -51,6 +59,15 @@ def build_goal(test_case: dict) -> str:
     parts.append(cfg.web_input_block())
     parts.append(cfg.verification_block())
 
+    # Objective — WHAT to verify. Deciding HOW (which pages, which controls) is
+    # the agent's job: it has live access to the site that the planner does not.
+    objective = test_case.get("objective", "")
+    if objective:
+        parts.append(f"\nYour objective: {objective}")
+
+    # Pre-redesign test cases carried an explicit step list. Still honoured when
+    # present so an older/hand-written case keeps working, but it is no longer
+    # required — the planner now emits screen_hint + objective instead.
     steps = test_case.get("steps", [])
     if steps:
         parts.append("")
@@ -62,8 +79,12 @@ def build_goal(test_case: dict) -> str:
         parts.append(f"\nExpected result: {expected}")
 
     parts.append(
-        "\nAfter performing all steps, report whether the expected result was "
-        "achieved. If any step fails or the page misbehaves, report the failure."
+        "\nDecide the concrete actions yourself from what you actually see on the page — "
+        "you have live access to the site that the objective above does not. After acting, "
+        "report whether the expected result was achieved. If the page or feature described "
+        "above genuinely does not seem to exist after a reasonable search, say so explicitly "
+        "rather than searching indefinitely. If any action fails or the page misbehaves, "
+        "report the failure."
     )
     return "\n".join(parts)
 

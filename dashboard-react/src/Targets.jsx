@@ -98,6 +98,56 @@ function SelectField({ profile, path, label, options, onChange }) {
   )
 }
 
+// Accepted file extensions per knowledge kind. Mirrors _ALLOWED_EXTS in
+// gateway/targets_api.py so the picker offers what the server will accept —
+// the server still validates, this only avoids an obviously-doomed upload.
+const KNOWLEDGE_ACCEPT = {
+  srs: '.txt,.md,.markdown,.text,.rst,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.html,.htm,.rtf,.odt,.epub,.csv',
+  figma: '.json',
+  defects: '.json,.csv',
+}
+
+/** A path field with an upload button: a tester can either type a path that
+ *  already exists on the server, or send a file from their own machine. */
+function KnowledgeField({ profile, kind, label, hint, onChange }) {
+  const path = `knowledge.${kind}_path`
+  const [busy, setBusy] = useState('')
+  const inputRef = useRef(null)
+
+  async function upload(file) {
+    if (!file) return
+    setBusy('uploading…')
+    try {
+      const body = new FormData()
+      body.append('file', file)
+      const r = await fetch(`/targets/upload-knowledge?kind=${encodeURIComponent(kind)}`, { method: 'POST', body })
+      const d = await r.json()
+      if (!r.ok) { setBusy(typeof d.detail === 'string' ? d.detail : 'upload failed'); return }
+      onChange(path, d.path)
+      setBusy(`uploaded ${d.filename} (${Math.max(1, Math.round(d.bytes / 1024))} KB)`)
+    } catch (e) {
+      setBusy(`upload failed: ${e.message}`)
+    } finally {
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  return (
+    <Field label={label} hint={hint}>
+      <div className="path-row">
+        <input type="text" value={getPath(profile, path) ?? ''} placeholder="path on the server, or upload →"
+               onChange={(e) => onChange(path, e.target.value)} />
+        <button type="button" className="btn btn-small" onClick={() => inputRef.current && inputRef.current.click()}>
+          Upload
+        </button>
+        <input ref={inputRef} type="file" accept={KNOWLEDGE_ACCEPT[kind]} style={{ display: 'none' }}
+               onChange={(e) => upload(e.target.files && e.target.files[0])} />
+      </div>
+      {busy ? <em className="hint-inline">{busy}</em> : null}
+    </Field>
+  )
+}
+
 function LoginFields({ profile, section, onChange }) {
   return (
     <>
@@ -193,6 +243,27 @@ export default function Targets() {
     setSelected(name)
     refreshList()
     pollRunStatus(name)
+  }
+
+  async function ingest() {
+    // Ingest RESETS the project slice before re-reading the documents, so it is
+    // confirmed rather than fired on a single click — the tests and history it
+    // deletes belong to whatever ran against this project before.
+    const proj = (profile && profile.project) || selected
+    const ok = window.confirm(
+      `Ingest will DELETE the existing tests, SRS and Figma data in the "${proj}" project ` +
+      `slice, then load this profile's documents from scratch.\n\nContinue?`
+    )
+    if (!ok) return
+    setSaveMsg('')
+    const r = await fetch(`/targets/${encodeURIComponent(selected)}/ingest`, { method: 'POST' })
+    const d = await r.json()
+    if (!r.ok) {
+      setSaveMsg(`could not ingest: ${typeof d.detail === 'string' ? d.detail : r.status}`)
+      return
+    }
+    setRunInfo(d)
+    pollRunStatus(selected)
   }
 
   async function run() {
@@ -293,9 +364,16 @@ export default function Targets() {
 
               <h3>Knowledge <em className="hint-inline">(optional — empty is zero-doc exploration)</em></h3>
               <div className="field-grid">
-                <TextField profile={profile} path="knowledge.srs_path" label="SRS path" onChange={update} />
-                <TextField profile={profile} path="knowledge.figma_path" label="Figma path" onChange={update} />
-                <TextField profile={profile} path="knowledge.defects_path" label="Defects path" onChange={update} />
+                <KnowledgeField profile={profile} kind="srs" label="SRS"
+                                hint="requirements document — any of .md/.txt/.pdf/.docx/…" onChange={update} />
+                <KnowledgeField profile={profile} kind="figma" label="Figma export"
+                                hint="design JSON" onChange={update} />
+                <KnowledgeField profile={profile} kind="defects" label="Defects"
+                                hint="known-defect export (.json/.csv)" onChange={update} />
+              </div>
+              <div className="hint">
+                Uploads are stored in <span className="mono">data/inputs/uploads/</span>. Save the profile,
+                then Ingest to load these documents into the <span className="mono">{profile.project || 'project'}</span> knowledge graph.
               </div>
 
               <h3>Run budget</h3>
@@ -317,6 +395,13 @@ export default function Targets() {
                 <button className="btn" onClick={validate}>Validate</button>
                 <button className="btn btn-primary" onClick={save}>Save</button>
                 {!isNew ? (
+                  <button className="btn" onClick={ingest}
+                          disabled={status && status.ingest && status.ingest.running}
+                          title="Load this profile's SRS/Figma/defects into its project slice (resets that slice first)">
+                    {status && status.ingest && status.ingest.running ? 'Ingesting…' : '⬇ Ingest knowledge'}
+                  </button>
+                ) : null}
+                {!isNew ? (
                   <button className="btn btn-run" onClick={run} disabled={status && status.running}>
                     {status && status.running ? `Running (pid ${status.pid})…` : '▶ Run'}
                   </button>
@@ -326,6 +411,12 @@ export default function Targets() {
               {runInfo ? <div className="hint">Started pid {runInfo.pid} — log: <span className="mono">{runInfo.log_path}</span></div> : null}
               {status && !status.running && status.exit_code != null ? (
                 <div className="hint">Last run exited with code {status.exit_code}{status.exit_code === 0 ? ' ✓' : ' — check the log or the Live Logs panel above'}.</div>
+              ) : null}
+              {status && status.ingest && !status.ingest.running && status.ingest.exit_code != null ? (
+                <div className="hint">Last ingest exited with code {status.ingest.exit_code}
+                  {status.ingest.exit_code === 0
+                    ? ' ✓ — the documents are in the knowledge graph.'
+                    : ' — check logs/targets_ingest_*.log (is the RAG API running?).'}</div>
               ) : null}
             </div>
           </div>

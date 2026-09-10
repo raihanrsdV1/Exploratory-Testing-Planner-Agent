@@ -1,0 +1,116 @@
+{
+  "name": "dataghurhi",
+  "kind": "web",
+  "project": "dataghurhi",
+  "display_name": "DataGhurhi",
+  "description": "BUET research survey/analysis platform — anonymous public surface only. LIVE DATA: submission, registration, payment and deletion are blocked in the dispatcher.",
+  "web": {
+    "base_url": "https://dataghurhi.cse.buet.ac.bd",
+    "browser": "chromium",
+    "headless": false,
+    "slow_mo_ms": 300,
+    "viewport": "1280x800",
+    "same_origin_only": true,
+    "blocked_texts": [
+      "submit",
+      "submitting",
+      "sign up",
+      "signup",
+      "সাইন আপ",
+      "register",
+      "create account",
+      "send otp",
+      "verify otp",
+      "resend otp",
+      "save",
+      "save changes",
+      "save result",
+      "update",
+      "delete",
+      "মুছে ফেলুন",
+      "remove",
+      "buy now",
+      "এখনই কিনুন",
+      "subscribe",
+      "pay",
+      "payment",
+      "checkout",
+      "upgrade",
+      "log out",
+      "logout",
+      "sign out",
+      "লগ আউট",
+      "invite",
+      "send invitation",
+      "publish",
+      "upload",
+      "import",
+      "export",
+      "download"
+    ],
+    "blocked_url_patterns": [
+      "/api/submit-survey",
+      "/api/register",
+      "/api/send-otp",
+      "/api/verify-otp",
+      "/api/payment",
+      "/api/subscription",
+      "/subscription",
+      "/logout",
+      "/signout"
+    ],
+    "storage_state": "",
+    "fail_on_page_error": false,
+    "fail_on_http_5xx": true,
+    "console_ignore": [
+      "favicon",
+      "third-party cookie",
+      "devtools",
+      "recaptcha",
+      "google",
+      "gstatic",
+      "translate",
+      "deprecated",
+      "preload",
+      "sourcemap",
+      "chunk"
+    ],
+    "login": {
+      "url": "",
+      "user": "",
+      "password": "",
+      "hint": "",
+      "role": "anonymous visitor"
+    }
+  },
+  "android": {
+    "package": "",
+    "activity": "",
+    "labels": [],
+    "target_app_only": false,
+    "device_reset": "pm_clear",
+    "login": {
+      "url": "",
+      "user": "",
+      "password": "",
+      "hint": "",
+      "role": ""
+    }
+  },
+  "knowledge": {
+    "srs_path": "./data/inputs/dataghurhi-spec.md",
+    "figma_path": "",
+    "defects_path": ""
+  },
+  "run": {
+    "rounds": 5,
+    "max_steps": 30,
+    "timeout": 420,
+    "clean_slate": true,
+    "self_heal": true
+  },
+  "model": {
+    "provider": "",
+    "model": ""
+  }
+}
