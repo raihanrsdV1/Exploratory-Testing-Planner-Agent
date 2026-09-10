@@ -46,17 +46,18 @@ def main():
     check("no project configured -> empty, not a crash",
           context_builders.build_agent_difficulty_context(""), "")
 
-    print("failure context degrades to the recency view when semantic retrieval is unavailable")
+    print("failure context degrades to legacy per-test notes when no findings exist yet")
     recent = [
         {"verdict": "failed", "title": "Checkout with empty cart", "notes": "Reason: total showed $NaN"},
         {"verdict": "pass", "title": "Checkout with one item"},
+        {"verdict": "failed", "title": "Checkout with slow network", "notes": "Reason: gave up",
+         "error_type": "STEP_LIMIT_EXCEEDED"},
     ]
-    ctx_no_objective = context_builders.build_failure_context("demo-project", recent)
-    check("no objective -> recency path used directly",
-          "Checkout with empty cart" in ctx_no_objective, True)
-    ctx_with_objective = context_builders.build_failure_context("demo-project", recent, objective="checkout flow")
-    check("semantic call unavailable/unconfigured -> falls back to the same recency findings",
-          "Checkout with empty cart" in ctx_with_objective, True)
+    ctx = context_builders.build_failure_context("demo-project", recent)
+    check("no findings graph reachable -> falls back to legacy per-test lines",
+          "Checkout with empty cart" in ctx, True)
+    check("a non-informative failure (agent ran out of budget, not app evidence) is excluded",
+          "Checkout with slow network" not in ctx, True)
 
     print(f"\n{_passed}/{_passed + _failed} checks passed")
     return 1 if _failed else 0

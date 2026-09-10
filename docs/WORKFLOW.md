@@ -1,297 +1,181 @@
-# QA Agent System — Full Workflow Guide
+# How the system works, end to end
 
-## Quick Start
+The one document to read first. What the three agents are, how a test case goes from an idea to
+a finding in the graph, and what to run.
 
-```bash
-# 1. Make sure Neo4j Desktop is running (start it from the app)
-# 2. Start everything — services, ingest, and executor
-./start.sh
-
-# 3. Watch the executor live
-tail -f logs/simulation_result.txt
-
-# 4. When done
-./start.sh --stop
-```
+Deeper references: [System_Architecture.md](System_Architecture.md) (technical reference for all
+three agents) · [PLANNER_REDESIGN.md](PLANNER_REDESIGN.md) (why the tool planner exists) ·
+[INVESTIGATOR.md](INVESTIGATOR.md) (trajectory → findings) ·
+[GETTING_STARTED.md](GETTING_STARTED.md) (first-time setup) · [ROADMAP.md](ROADMAP.md) (what's next).
 
 ---
 
-## System Architecture
+## 1. The idea in one paragraph
+
+Give the agent an app and (optionally) its requirements. It writes one exploratory test at a
+time, runs it on a real Android device, works out what the run actually established, and writes
+that into a knowledge graph. The next test is planned from the grown graph. No knowledge source
+is required — with no requirements and no design file, the agent explores the live app and
+builds its own map.
+
+## 2. Three agents, three questions
+
+| agent | question | model | where |
+|---|---|---|---|
+| **Planner** | what should we test next? | `qwen3.7-flash` | gateway `:9100` |
+| **Executor** | how do I actually do it on this device? | `qwen3.7-flash` + mobilerun | `clients/executor_runner.py` |
+| **Investigator** | what did that run establish? | `glm-5.3-flash` | gateway `/execution/evaluate` |
+
+Plus two services: **RAG API** `:9010` (Neo4j knowledge graph) and **Neo4j** `:7687`.
+
+## 3. The loop
+
+```mermaid
+flowchart TD
+    P["PLANNER<br/>investigates the graph with tools,<br/>proposes a test case"] -->|"objective + screen_hint"| V{"propose_test_case<br/>VALIDATED"}
+    V -->|"rejected: wrong screen /<br/>fake requirement id / duplicate"| P
+    V -->|accepted| X["EXECUTOR<br/>decides the taps from live vision,<br/>runs on the device"]
+    X --> O["every UI state observed →<br/>Live App Model"]
+    X --> I["INVESTIGATOR<br/>reads the trajectory against<br/>what the test intended"]
+    I --> F[("FINDINGS<br/>atomic claims, deduped,<br/>times_seen++")]
+    O --> G[("KNOWLEDGE GRAPH<br/>Neo4j")]
+    F --> G
+    G -->|"next round reads it"| P
+```
+
+**One round = one test case.** The planner does not remember the previous round; it re-reads the
+graph, which has grown. That is what "learning" means here — see §6.
+
+> The validation step shown above exists in `PLANNER_MODE=tools`. The **default** is still
+> `pipeline`, which generates first and checks for duplicates afterwards, with no screen or
+> requirement-id grounding. Everything else in the loop is identical. See §4.
+
+## 4. What each step actually does
+
+### Planner
+Two implementations, chosen by `PLANNER_MODE`:
+
+- **`pipeline`** (default) — a LangGraph state machine: bootstrap context → decide what to
+  retrieve → retrieve → generate → duplicate-check. See [System_Architecture.md](System_Architecture.md).
+- **`tools`** — a tool-calling agent with 7 tools over the graph
+  (`search_requirements`, `list_untested_requirements`, `get_screen`, `list_screens`,
+  `list_findings`, `get_coverage`, `get_nav_path`), terminating in a **validated**
+  `propose_test_case`. See [PLANNER_REDESIGN.md](PLANNER_REDESIGN.md).
+
+The validation gate is the important part: a `screen_hint` naming a screen the app has never
+been observed to have, an invented requirement id, a semantic duplicate, or an out-of-scope area
+is **rejected with a fixable reason** instead of becoming a wasted device run.
+
+Only tools whose knowledge source is enabled *and* has data are registered. A project with no
+Figma never sees Figma tools; a project before its first run sees no screen tools at all and must
+plan from requirements alone.
+
+### Executor
+Receives a **goal, not a tap script**. The planner cannot see the live app, so `screen_hint` is
+passed as "a LEAD, not a fact" and the executor works out the route from the accessibility tree
+and screenshots. Each observed UI state is deduped into the Live App Model by structural
+signature (text dropped, so scrolling and theme changes are the *same* screen). One self-heal
+retry on classified failures.
+
+### Investigator
+After each run, reads the trajectory (≤50 steps) plus findings already known for the screens it
+touched, and emits **atomic findings** in 8 kinds:
+
+`SPEC_VIOLATION` · `SUSPECTED_DEFECT` · `CONFIRMED_BEHAVIOUR` · `SPEC_GAP` ·
+`UNEXPECTED_BEHAVIOUR` · `UNVERIFIED` · `CONTROL_DISCOVERED` · `AGENT_DIFFICULTY`
+
+Kinds are defined by which consumer routes on them. `AGENT_DIFFICULTY` (our agent got stuck) is
+deliberately kept **out** of the bug oracle — it steers test design, it is not evidence the app
+is broken. A finding restating a known one reinforces it (`times_seen++`) instead of duplicating.
+
+## 5. Where knowledge lives
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        YOUR MACHINE                                  │
-│                                                                      │
-│  ┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐   │
-│  │  RAG API     │    │  Agent Gateway   │    │  Executor Runner │   │
-│  │ :9010        │◄───│  :9100           │◄───│ executor_runner  │   │
-│  │ (Neo4j +     │    │  (Planner Logic) │    │ .py              │   │
-│  │  Embeddings) │    └────────┬─────────┘    └────────┬─────────┘   │
-│  └──────┬───────┘             │                       │             │
-│         │                     │ LLM calls             │ ADB         │
-│         ▼                     ▼                       ▼             │
-│  ┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐   │
-│  │  Neo4j       │    │  OpenRouter API  │    │  Android Device  │   │
-│  │  (Graph DB)  │    │  (Cloud LLM)     │    │  (Real Phone/    │   │
-│  └──────────────┘    └──────────────────┘    │   Emulator)      │   │
-│                                              └──────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
+(:Project)-[:HAS_FINDING]->(:Finding)-[:ABOUT_SCREEN]->(:UIState)
+                                     -[:FOUND_BY]->(:ExecutionLog)
+                                     -[:CONCERNS]->(:Requirement)
+(:Project)-[:HAS_STATE]->(:UIState)-[:TRANSITIONS_TO {action}]->(:UIState)
+(:Project)-[:HAS_REQUIREMENT]->(:Requirement)-[:HAS_RULE]->(:ValidationRule)
+(:Project)-[:HAS_TEST]->(:TestCase)-[:COVERS]->(:Requirement)
+(:NavTreeNode)-[:CHILD]->(:NavTreeNode)        # proven routes, avoid flags
 ```
 
-There are **3 services** and **1 executor**:
+This **is** the agent's memory — semantic (findings, requirements), spatial (the app map),
+procedural (nav routes), episodic (execution logs), and meta (strategy/error patterns). It is a
+knowledge graph rather than a vector store, which is what lets it answer relational questions
+("which route reaches this screen", "which requirement does this finding violate").
 
-| Component | Port | What it does |
+**Lifetime across campaigns** — the split that matters:
+
+| slice | flag | default | why |
+|---|---|---|---|
+| test results, execution logs, nav memory | `CLEAN_SLATE` | wiped | outcomes; wipe for a clean measurement |
+| **app map + findings** | `CLEAN_SLATE_APPMODEL` | **kept** | knowledge about the app; wiping it makes every campaign start blind |
+
+## 6. What "the agent gets smarter" does and does not mean
+
+**Supported by measurement:** knowledge accumulates without bloating — findings dedupe and
+reinforce, and the investigator's prompt *shrank* across a campaign (20,466 → 10,959 chars) where
+the old prose design grew (28,344 → 97,796). The planner reads that knowledge every round
+(`list_findings` called 18 times across recent rounds). Over one 3-round campaign the graph went
+from 23 → 28 findings (37 observations, so 9 were reinforcements rather than duplicates) and
+32 → 40 observed screens.
+
+**Not yet established:** that this produces better tests or finds more defects. There is no
+ground truth, no seeded-defect build, and no ablation. See [ROADMAP.md](ROADMAP.md) §"Proving it
+works" — this is the single most valuable thing left to do.
+
+## 7. Running it
+
+```bash
+./start.sh                                          # Neo4j + emulator + RAG API + gateway
+EXECUTOR_ROUNDS=3 ./venv/bin/python clients/executor_runner.py
+```
+
+Opt into the tool planner by starting the **gateway** with it (the planner runs there, not in the
+executor):
+
+```bash
+PLANNER_MODE=tools ./venv/bin/python -m uvicorn gateway.main:app --port 9100
+```
+
+Watch it:
+
+```bash
+tail -f logs/mobilerun.log                          # what the agent is doing on the device
+open http://127.0.0.1:9100/dashboard?project=$PROJECT
+less logs/planner/TC-001.txt                        # every LLM call that produced a test case
+less logs/investigator/TC-001.txt                   # the investigator's exact input and output
+```
+
+Inspect what it learned:
+
+```bash
+curl "http://127.0.0.1:9010/findings/stats?project=$PROJECT" | python3 -m json.tool
+curl "http://127.0.0.1:9010/findings?project=$PROJECT&group=oracle&limit=10" | python3 -m json.tool
+curl "http://127.0.0.1:9010/findings?project=$PROJECT&group=agent&limit=10"  | python3 -m json.tool
+curl "http://127.0.0.1:9010/appmodel/graph?project=$PROJECT" | python3 -m json.tool
+```
+
+Tests — 6 modules, 104 checks, non-zero exit on failure. Graph-backed modules skip cleanly with
+no Neo4j:
+
+```bash
+./venv/bin/python tests/run_all.py
+```
+
+⚠️ `scripts/ingest_all.py` **always** resets tests, SRS *and* Figma. Don't run it to refresh one
+of them.
+
+## 8. Configuration that changes behaviour most
+
+| setting | default | effect |
 |---|---|---|
-| **RAG API** | 9010 | Stores and retrieves SRS/Figma knowledge from Neo4j. Runs local embeddings (fastembed). |
-| **Agent Gateway** | 9100 | Orchestrates the planner. Calls the LLM, manages the retrieval loop, generates test cases. |
-| **Neo4j** | 7687 | Graph database holding requirements, UI screens, and test history. |
-| **Executor** | (no port) | Reads test cases from the Gateway and runs them on a real Android device via Droidrun + ADB. |
-
----
-
-## The Full Loop — Step by Step
-
-### Phase 1: Startup & Ingestion (`./start.sh`)
-
-When you run `./start.sh`, it does four things in order:
-
-**1. Start RAG API** — boots a FastAPI server (`rag_api/main.py`) that connects to Neo4j.
-
-**2. Start Agent Gateway** — boots a second FastAPI server (`gateway/main.py`) with the planner logic.
-
-**3. Ingest Knowledge** (`ingest_all.py`) — this is the critical data loading step:
-
-```
-ingest_all.py
-    │
-    ├── [1] Reset project  →  DELETE all old tests/SRS/Figma nodes from Neo4j
-    │
-    ├── [2] Ingest SRS     →  POST /srs/ingest (via Gateway)
-    │       │
-    │       ├── Load SRS1.txt from ./data/inputs/
-    │       ├── Split into chunks (~700 chars each)
-    │       ├── Embed all chunks with fastembed (local, no rate limits)
-    │       ├── Extract 100 requirements (FR/NFR) via regex
-    │       └── Write to Neo4j: SRS nodes, Chunk nodes, Requirement nodes
-    │
-    ├── [3] Ingest Figma   →  POST /figma/ingest (via Gateway)
-    │       │
-    │       ├── Load GENERATED_JSON.json from ./data/inputs/
-    │       ├── Parse 7 screens, 107 UI elements
-    │       ├── Derive screen purposes from name slugs
-    │       └── Write to Neo4j: FigmaScreen nodes, UIElement nodes
-    │
-    └── [4] Stats check    →  Confirm everything is in the graph
-```
-
-**4. Start Executor** — launches `executor_runner.py` as a background process.
-
----
-
-### Phase 2: The Planner Loop (Agent Gateway)
-
-Every time the executor asks "what should I test next?", the Gateway runs this multi-stage pipeline:
-
-```
-POST /next (Gateway)
-    │
-    ├── Stage 1: Global Context
-    │       Read brief context from Neo4j:
-    │       - SRS summary (what the app does)
-    │       - Figma screen index (what screens exist)
-    │       - Recent tests + verdicts (what's been done)
-    │       - Coverage map (which areas are under-tested)
-    │
-    ├── Stage 2: Iterative Retrieval Loop (up to 3 rounds)
-    │       For each round:
-    │       ├── Ask LLM: "given what you know, what do you need to retrieve?"
-    │       │     → LLM returns: {action: "retrieve", queries: [...], screens: [...]}
-    │       ├── Execute retrieval against Neo4j:
-    │       │     - Semantic (vector) search over SRS chunks
-    │       │     - Keyword hybrid search
-    │       │     - Figma UI element lookup by screen name
-    │       │     - Figma navigation transitions
-    │       └── If LLM says "produce_testcase" → exit loop early
-    │
-    ├── Stage 3: Test Case Generation
-    │       Build a rich prompt with:
-    │       - Retrieved SRS context (~8000 chars)
-    │       - Figma UI context (interactive elements per screen)
-    │       - Coverage directive ("avoid these areas, focus on these")
-    │       - List of already-executed tests (to avoid duplicates)
-    │       → LLM generates a JSON test case
-    │
-    ├── Stage 4: Duplicate Check
-    │       Compare new test title against all existing tests (similarity threshold 60%)
-    │       If too similar → retry with alternate Figma screens
-    │
-    └── Stage 5: Auto-log
-            Write new test case to Neo4j immediately with verdict="pass" (pending)
-            → Coverage map updates automatically for next iteration
-```
-
-The test case JSON looks like this:
-
-```json
-{
-  "title": "Add contact with duplicate phone number",
-  "area": "contacts_creation",
-  "objective": "Verify duplicate phone number detection",
-  "steps": [
-    "Open the Contacts app",
-    "Tap the '+' button to add a new contact",
-    "Enter a name that already exists",
-    "Enter a phone number already in the address book",
-    "Tap Save"
-  ],
-  "expected_result": "App warns user about duplicate and offers merge/cancel",
-  "requirement_ids": ["FR-12", "FR-15"]
-}
-```
-
----
-
-### Phase 3: The Executor Loop (`executor_runner.py`)
-
-The executor is a continuous loop that runs on your machine while an Android device is connected via ADB:
-
-```
-executor_runner.py (infinite loop)
-    │
-    ├── 1. GET /next from Gateway
-    │       → Receives a test case JSON (see above)
-    │
-    ├── 2. Translate to Droidrun goal
-    │       Combine: title + steps + expected_result
-    │       → "Navigate to contacts app. Tap '+'. Enter name 'John'. ..."
-    │
-    ├── 3. Execute on Android device (Droidrun)
-    │       Droidrun uses its own LLM (Gemini 2.5 Pro) to:
-    │       ├── Observe screen state via ADB screencap
-    │       ├── Decide next action (tap, type, scroll, swipe)
-    │       ├── Execute action via ADB
-    │       └── Repeat until goal achieved or timeout (120s)
-    │
-    ├── 4. Interpret result
-    │       Droidrun returns: {success: true/false, reason: "..."}
-    │       → Map to verdict: "pass" or "failed"
-    │
-    ├── 5. POST /verdict+next to Gateway
-    │       ├── Log verdict to Neo4j (updates test history)
-    │       └── Request next test case in one call
-    │
-    └── 6. Sleep 5s → repeat from step 1
-```
-
----
-
-## Monitoring
-
-### Watch the executor live
-```bash
-tail -f logs/simulation_result.txt
-```
-
-### Check graph stats
-```bash
-curl http://127.0.0.1:9010/graph/stats?project=contacts-app | python3 -m json.tool
-```
-
-### Interactive QA shell (manual test requests)
-```bash
-venv/bin/python test_loop_client.py
-```
-
-### View all logs
-```bash
-tail -f logs/rag_api.log      # RAG API / Neo4j operations
-tail -f logs/gateway.log      # Gateway / planner operations
-tail -f logs/simulation_result.txt  # Executor / Droidrun output
-```
-
----
-
-## Data Flow Diagram
-
-```
-SRS1.txt ──────────► Gateway ──► RAG API ──► Neo4j
-GENERATED_JSON.json ──┘   (ingest)           │
-                                             │
-                    ┌────────────────────────┘
-                    │  (retrieve context)
-                    ▼
-             Agent Gateway
-             (planner logic)
-                    │
-                    │  (prompt)
-                    ▼
-             OpenRouter LLM ──► test case JSON
-                    │
-                    │  (HTTP)
-                    ▼
-           executor_runner.py
-                    │
-                    │  (ADB)
-                    ▼
-           Android Device ──► pass/fail verdict
-                    │
-                    │  (HTTP)
-                    ▼
-             Agent Gateway ──► Neo4j (test log)
-                    │
-                    └──► next test case (loop continues)
-```
-
----
-
-## Key Files
-
-| File | Role |
-|---|---|
-| `start.sh` | Master startup script |
-| `rag_api/main.py` | RAG API server (Neo4j CRUD + embeddings) |
-| `gateway/main.py` | Gateway HTTP routes |
-| `planner/pipeline.py` | Core planner orchestration logic |
-| `planner/model_client.py` | LLM backend (OpenRouter/Gemini/ngrok) |
-| `planner/rag_client.py` | HTTP client for RAG API |
-| `planner/prompts.py` | Prompt builders |
-| `embeddings.py` | Embedding backend (fastembed/gemini/sentence-transformers) |
-| `executor_runner.py` | Droidrun-based Android test executor |
-| `ingest_all.py` | One-shot data ingestion script |
-| `data/inputs/SRS1.txt` | Software Requirements Specification |
-| `data/inputs/GENERATED_JSON.json` | Figma UI screen/element data |
-| `.env` | All configuration (keys, URLs, project name) |
-
----
-
-## Configuration (`.env` key settings)
-
-```env
-PROJECT=contacts-app          # Name of the app under test
-APP_NAME=Samsung Contacts     # Display name used in prompts
-
-MODEL_BACKEND=openrouter      # LLM for planning: openrouter | gemini | ngrok
-EMBEDDING_BACKEND=fastembed   # Embeddings: fastembed (local) | gemini | auto
-
-OPENROUTER_API_KEY=sk-or-... # Your OpenRouter API key
-OPENROUTER_MODEL=minimax/minimax-m3  # Model to use for planning
-
-GEMINI_API_KEY=AIza...        # Used by the Executor (Droidrun) for device control
-EXECUTOR_LLM_PROVIDER=GoogleGenAI
-EXECUTOR_LLM_MODEL=gemini-2.5-pro
-
-TARGET_APP_PACKAGE=com.android.contacts  # Android package to test
-EXECUTOR_TIMEOUT=120          # Max seconds per test case
-```
-
----
-
-## Troubleshooting
-
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| RAG API won't start | Wrong Neo4j password | Update `NEO4J_PASSWORD` in `.env` |
-| `embedding failed: 429` | Gemini free tier rate limit | Set `EMBEDDING_BACKEND=fastembed` in `.env` |
-| Figma ingest timeout | LLM screen classification too slow | Already fixed — now fails fast and falls back |
-| Executor not running | No ADB device found | Connect Android phone, enable USB debugging, run `adb devices` |
-| `No module named 'fastembed'` | Wrong Python venv | Run `venv/bin/python3 -m pip install fastembed` |
+| `PLANNER_MODE` | `pipeline` | `tools` switches to the tool-calling planner |
+| `ENABLED_SOURCES` | srs, live_ui, defects, navtree | a disabled source's tools are never registered |
+| `OUT_OF_SCOPE` | — | areas the planner may never test; enforced at proposal time |
+| `APP_LOGIN_*` | — | credentials; the secret reaches only the executor, never the planner prompt |
+| `EXECUTOR_MAX_STEPS` / `EXECUTOR_TIMEOUT` | 50 / 900s | the executor's budget per test |
+| `EXPLORATION_MODE` | `balanced` | `explore` = breadth first, `exploit` = dig into failures |
+| `EVALUATOR_REASONING_EFFORT` | `low` | the investigator's latency lever (113.8s → 22.7s) |
+| `CLEAN_SLATE_APPMODEL` | `false` | `true` wipes the app map **and findings** — start blind |
