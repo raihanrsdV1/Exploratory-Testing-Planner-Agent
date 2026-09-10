@@ -215,8 +215,12 @@ def dashboard_logs(lines: int = 250, source: str = "mobilerun"):
         content = []
     if source == "planner":
         content = _filter_planner(content)
-    else:
+    elif source == "mobilerun":
         content = _clean_device_log(content)
+    # source=web needs no cleaning: web_player/trace.py writes a transcript meant
+    # to be read line by line. Running the mobilerun cleaner over it dropped every
+    # line, because that cleaner keys on mobilerun's "HH:MM:SS LEVEL name | body"
+    # shape and the web trace has no " | " — so a 2,854-line run reported total=0.
     n = max(1, min(lines, 1000))
     return {"exists": True, "source": source, "total": len(content), "lines": content[-n:]}
 
