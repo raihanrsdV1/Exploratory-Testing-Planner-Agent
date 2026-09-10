@@ -153,7 +153,10 @@ class Collector:
     @staticmethod
     def _add(bucket: list[str], entry: str, cap: int = 25) -> None:
         """De-duplicate and cap: one broken poll can emit the same error 400 times."""
-        entry = entry[:300]
+        # Collapse whitespace FIRST. A JS error arrives with its whole stack
+        # attached, and storing the newlines spilled a column of "at Ike (...)"
+        # frames and blank lines straight into the verdict notes.
+        entry = " ".join(entry.split())[:300]
         if entry not in bucket and len(bucket) < cap:
             bucket.append(entry)
 

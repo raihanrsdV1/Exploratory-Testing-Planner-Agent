@@ -133,6 +133,35 @@ _COLLECT_JS = r"""
     out.push(entry);
   }
 
+  // Second pass: elements that are clickable but say so only in CSS.
+  // React attaches handlers with addEventListener, so there is no `onclick`
+  // attribute and often no role or tabindex either — a plain
+  // <div class="sec-card-header"> that opens an accordion is invisible to every
+  // selector above. `cursor: pointer` is the one signal such controls reliably
+  // carry, because the page has to look clickable to a human.
+  // Only the OUTERMOST element of each pointer cluster is taken, and never one
+  // that wraps a control already reported, so a button inside a clickable card
+  // does not appear twice.
+  for (const el of document.querySelectorAll('*')) {
+    if (out.length >= maxElements) break;
+    if (el.hasAttribute('data-etp-ref')) continue;
+    if (el.closest('[data-etp-ref]')) continue;          // inside something reported
+    if (el.querySelector('[data-etp-ref]')) continue;     // wraps something reported
+    if (getComputedStyle(el).cursor !== 'pointer') continue;
+    if (!isVisible(el)) continue;
+    const name = accessibleName(el);
+    if (!name) continue;
+    // A parent already taken in this pass covers its children.
+    if (out.some((o) => o.inferred && document.querySelector(
+        '[data-etp-ref="' + o.ref + '"]')?.contains(el))) continue;
+    const ref = 'e' + (++i);
+    el.setAttribute('data-etp-ref', ref);
+    const entry = { ref, role: 'clickable', name, inferred: true };
+    const expanded = el.getAttribute('aria-expanded');
+    if (expanded !== null) entry.expanded = expanded === 'true';
+    out.push(entry);
+  }
+
   const headings = Array.from(document.querySelectorAll('h1,h2,h3,[role=heading]'))
     .filter(isVisible).slice(0, 12).map((el) => clean(el.innerText || el.textContent))
     .filter(Boolean);
@@ -247,6 +276,10 @@ def _render_element(el: dict) -> str:
         parts.append("required")
     if el.get("disabled"):
         parts.append("DISABLED")
+    if el.get("expanded") is not None:
+        parts.append("expanded" if el["expanded"] else "collapsed")
+    if el.get("inferred"):
+        parts.append("(clickable by style — not a standard control)")
     if el.get("options"):
         parts.append("options=[" + ", ".join(el["options"]) + "]")
     if el.get("href"):

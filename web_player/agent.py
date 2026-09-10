@@ -34,6 +34,10 @@ from . import llm as llm_mod
 from . import snapshot
 from . import trace
 
+# Occurrences of one (page, action) pair before warning, then before giving up.
+_LIVELOCK_WARN = 2
+_LIVELOCK_ABORT = 4
+
 _SYSTEM_PROMPT = """\
 You are an exploratory QA engineer driving a real web browser to execute one test case.
 
@@ -80,7 +84,12 @@ class WebAgent:
         started = time.time()
         history: list[str] = []
         urls: list[str] = []
-        repeat_signature, repeat_count = None, 0
+        # How many times each (page state, intended action) pair has come up.
+        # Counting occurrences rather than consecutive repeats is deliberate: the
+        # commonest real stall is an A-B-A-B oscillation — open a dialog, cancel
+        # it, open it again — which a consecutive-only check never sees. One run
+        # cycled Edit Survey / Cancel thirteen times and used its whole budget.
+        seen: dict[str, int] = {}
         stall_signature, stall_count = None, 0
         stall_limit = getattr(self.cfg, "WEB_STALL_STEPS", 6)
 
@@ -117,25 +126,30 @@ class WebAgent:
                 trace.outcome("model reply was not a JSON action — reprompting", ok=False)
                 continue
 
-            # Livelock guard: identical action against an identical page.
+            # Livelock guard: this exact action, against this exact page state,
+            # has already been tried — whether or not it was the previous turn.
             signature = _signature(snap, action)
-            repeat_count = repeat_count + 1 if signature == repeat_signature else 0
-            repeat_signature = signature
-            if repeat_count >= 4:
-                trace.outcome("LIVELOCK — the page is not responding to this action", ok=False)
+            times = seen[signature] = seen.get(signature, 0) + 1
+            if times >= _LIVELOCK_ABORT:
+                trace.outcome("LIVELOCK — this action has already been tried and "
+                              "changed nothing", ok=False)
                 return AgentResult(
                     False,
-                    "Livelock: repeated the same action against an unchanged page "
-                    f"{repeat_count + 1} times. The page is not responding to it.",
+                    f"Livelock: this exact action on this exact page state has been "
+                    f"tried {times} times and changed nothing. The loop is not making "
+                    f"progress.",
                     step, history, urls,
                 )
-            if repeat_count == 2:
+            if times == _LIVELOCK_WARN:
                 history.append(
-                    "WARNING: you have now repeated the same action on an unchanged "
-                    "page. It is not working. Do something different, or finish and "
-                    "report what the unchanged page means."
+                    f"WARNING: you have already taken this exact action on this exact "
+                    f"page {times} times and it has changed nothing — you are going in "
+                    f"a circle. Do NOT repeat it, and do not undo-and-retry the same "
+                    f"pair of steps. Either try a genuinely different route, or finish "
+                    f"and report that this route does not lead to the objective."
                 )
-                trace.outcome("warning: same action on an unchanged page", ok=False)
+                trace.outcome(f"warning: this action has already been tried {times}x "
+                              f"with no effect", ok=False)
 
             # Wandering guard: the page itself (not the action) hasn't changed for
             # several steps in a row, even though each action tried was different —

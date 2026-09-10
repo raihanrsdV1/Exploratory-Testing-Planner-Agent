@@ -244,6 +244,66 @@ def main():
           llm.parse_action("I cannot do that.")["action"], "_error")
     check("empty reply becomes an _error action", llm.parse_action("")["action"], "_error")
 
+    print("an oscillating agent is stopped, not just a repeating one")
+    # A real run cycled "Edit Survey" -> "Cancel" thirteen times and burned its
+    # whole 30-step budget: the old guard only looked at the PREVIOUS turn, so an
+    # A-B-A-B loop was invisible to it.
+    import asyncio as _asyncio
+
+    from web_player import agent as agent_mod
+
+    class _StubClient:
+        """Alternates between two actions forever, exactly like the real stall."""
+        def __init__(self):
+            self.calls = 0
+
+        def chat(self, _messages):
+            self.calls += 1
+            return ('{"action":"click","ref":"e1"}' if self.calls % 2
+                    else '{"action":"click","ref":"e2"}')
+
+    pages = [
+        {"url": "u", "elements": [{"ref": "e1", "role": "button", "name": "Edit"}],
+         "messages": [], "texts": []},
+        {"url": "u", "elements": [{"ref": "e2", "role": "button", "name": "Cancel"}],
+         "messages": [], "texts": []},
+    ]
+    state = {"i": 0}
+
+    async def _fake_observe(_page, _max):
+        snap = pages[state["i"] % 2]
+        state["i"] += 1
+        return snap
+
+    class _FakeDispatcher:
+        async def perform(self, action, _snap):
+            return f"clicked {action.get('ref')}"
+
+    real_observe = agent_mod.snapshot.observe
+    agent_mod.snapshot.observe = _fake_observe
+    try:
+        a = agent_mod.WebAgent(page=None, cfg=st, client=_StubClient())
+        a.dispatcher = _FakeDispatcher()
+        res = _asyncio.run(a.run("goal", max_steps=30, timeout_s=30))
+    finally:
+        agent_mod.snapshot.observe = real_observe
+
+    check("an A-B-A-B oscillation is caught", "livelock" in res.reason.lower(), True)
+    check("and is stopped well before the step budget", res.steps < 12, True)
+    check("it is classified as an agent fault, not a defect",
+          failures.classify(res.reason), "NAVIGATION_LIVELOCK")
+    check("NAVIGATION_LIVELOCK is an agent fault", "NAVIGATION_LIVELOCK" in st.AGENT_FAULT, True)
+
+    print("an oracle entry never spills a stack trace into the notes")
+    from web_player.oracles import Collector as _Coll
+    bucket = []
+    nl = chr(10)
+    noisy = ("Translation error: AxiosError 403" + nl +
+             "    at Ike (x.js:62)" + nl + nl + "    at Ike (x.js:62)")
+    _Coll._add(bucket, noisy)
+    check("newlines are collapsed", nl in bucket[0], False)
+    check("the message survives", bucket[0].startswith("Translation error"), True)
+
     print("browser findings summarise honestly")
     empty = Findings()
     check("a clean run says so", "no console errors" in empty.summary(), True)
