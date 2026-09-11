@@ -25,7 +25,12 @@ _RETRY_TOKENS = ("429", "500", "502", "503", "504", "too many requests",
                  # so a blip that one retry would have survived killed the test.
                  "connection aborted", "connection reset", "connection refused",
                  "remote end closed", "max retries", "read timed out",
-                 "bad handshake", "ssl", "temporarily unavailable")
+                 "bad handshake", "ssl", "temporarily unavailable",
+                 # A reasoning model that overran its budget on one turn may well
+                 # fit on the next; how long it thinks varies per prompt. Worth a
+                 # retry rather than declaring the provider dead and ending the
+                 # batch on a single occurrence.
+                 "returned an empty answer")
 _PERMANENT_TOKENS = ("400", "401", "403", "404", "not a valid model", "invalid api key")
 _MAX_ATTEMPTS = 4
 

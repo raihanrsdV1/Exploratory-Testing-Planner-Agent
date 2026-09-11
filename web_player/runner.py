@@ -133,7 +133,9 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
                  f"run to a verdict and NOTHING was learned about the site. {exc}")
         trace.emit("")
         trace.emit(f"🛑 Executor model unavailable: {str(exc)[:200]}")
-        gateway.log_execution(tc, "failed", duration * 1000, 0, result_urls(),
+        gateway.log_execution(tc, "failed", duration * 1000,
+                              getattr(agent, "last_step", 0),
+                              getattr(agent, "last_urls", []),
                               error_type="LLM_UNAVAILABLE", error_message=str(exc)[:500])
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration,
                 "aborted": True}
