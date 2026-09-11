@@ -134,6 +134,10 @@ class WebAgent:
         # inventing one. A planner-written objective once cited GET /api/projects,
         # which does not exist; the executor chased it until the test died.
         self.api_registry = None
+        # Native dialog text, handed over by the oracle each turn. Without it the
+        # only feedback an alert() gives is invisible, and the agent reads a
+        # successful action as one that changed nothing.
+        self.collector = None
         # Set by the runner from the live BrowserSession. None means "ask config".
         self.headless: bool | None = None
 
@@ -186,6 +190,13 @@ class WebAgent:
             _track_url(urls, snap.get("url", ""))
             self.last_urls = urls
             observation = snapshot.render(snap)
+            if self.collector is not None:
+                dialogs = self.collector.take_dialogs()
+                if dialogs:
+                    nl = chr(10)
+                    observation += (nl + nl + "BROWSER DIALOGS since your last "
+                                    "action (already answered for you):" + nl
+                                    + "  " + (nl + "  ").join(dialogs))
             content_signature = _content_signature(snap)
 
             if pending is not None:

@@ -924,6 +924,49 @@ def main():
     check("the invented plural is NOT offered as usable",
           "GET /api/projects" in shipped.prompt_block(), False)
 
+    print("native dialogs are answered and reported, not silently swallowed")
+    # Playwright DISMISSES every dialog when no handler is registered. This app
+    # calls alert() 309 times and confirm() 16 times, so alert text never reached
+    # the agent and every confirm was answered "Cancel" - the action did not
+    # happen, and the agent read it as a control that does nothing.
+    from web_player.oracles import Collector as _C
+
+    class _Cfg2:
+        WEB_COLLECT_CONSOLE = True
+        WEB_COLLECT_NETWORK = True
+        WEB_CONSOLE_IGNORE = ()
+        WEB_BASE_URL = "https://x.tld"
+        WEB_ACCEPT_CONFIRM = True
+
+    class _Dialog:
+        def __init__(self, kind, message):
+            self.type, self.message = kind, message
+            self.answered = None
+        async def accept(self): self.answered = "accept"
+        async def dismiss(self): self.answered = "dismiss"
+
+    col = _C(page=None, cfg=_Cfg2)
+    for kind, msg in (("alert", "Saved successfully!"),
+                      ("confirm", "Delete this item?"),
+                      ("prompt", "Name?")):
+        col._on_dialog(_Dialog(kind, msg))
+    seen = col.take_dialogs()
+    check("the alert text is captured",
+          any("Saved successfully!" in d for d in seen), True)
+    check("a confirm is accepted by default, not cancelled",
+          any("confirm" in d and "accepted" in d for d in seen), True)
+    check("a prompt is dismissed (we cannot know what to type)",
+          any("prompt" in d and "dismissed" in d for d in seen), True)
+    check("taking them clears them", col.take_dialogs(), [])
+
+    class _CfgNo(_Cfg2):
+        WEB_ACCEPT_CONFIRM = False
+    col2 = _C(page=None, cfg=_CfgNo)
+    col2._on_dialog(_Dialog("confirm", "Delete?"))
+    check("confirm handling is configurable",
+          any("dismissed" in d for d in col2.take_dialogs()), True)
+    check("a broken dialog object never raises", col._on_dialog(None) or True, True)
+
     print("browser findings summarise honestly")
     empty = Findings()
     check("a clean run says so", "no console errors" in empty.summary(), True)

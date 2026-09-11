@@ -140,6 +140,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
     agent = WebAgent(session.page, cfg, client)
     agent.headless = session.headless   # the truth about this browser, not config
     agent.api_registry = getattr(collector, "registry", None)
+    agent.collector = collector
 
     try:
         result = await agent.run(goal, cfg.WEB_MAX_STEPS, cfg.WEB_TIMEOUT)
