@@ -18,13 +18,28 @@ import time
 import requests
 
 _RETRY_TOKENS = ("429", "500", "502", "503", "504", "too many requests",
-                 "overloaded", "timed out", "timeout")
+                 "overloaded", "timed out", "timeout",
+                 # Transport-level failures. A dropped socket used to be judged
+                 # NOT transient (none of the tokens above appear in
+                 # "('Connection aborted.', ConnectionResetError(10054, ...))"),
+                 # so a blip that one retry would have survived killed the test.
+                 "connection aborted", "connection reset", "connection refused",
+                 "remote end closed", "max retries", "read timed out",
+                 "bad handshake", "ssl", "temporarily unavailable")
 _PERMANENT_TOKENS = ("400", "401", "403", "404", "not a valid model", "invalid api key")
 _MAX_ATTEMPTS = 4
 
 
 class LLMError(RuntimeError):
-    pass
+    """Any failure to obtain a usable reply from the executor model.
+
+    Everything that goes wrong talking to the provider must surface as this type.
+    The runner catches it and records LLM_UNAVAILABLE (an ENVIRONMENT fault); a
+    bare ``requests`` exception instead reaches the generic handler and is
+    recorded as CRASH — an APP fault — which files a false defect against the
+    site under test. That happened: a ConnectionResetError to openrouter.ai was
+    logged as a crash discovered in the application.
+    """
 
 
 class ChatClient:
@@ -55,9 +70,9 @@ class ChatClient:
             except Exception as exc:
                 last = exc
                 if attempt >= _MAX_ATTEMPTS or not _is_transient(exc):
-                    raise
+                    raise _as_llm_error(exc) from exc
                 time.sleep(2 ** attempt)
-        raise LLMError(str(last))
+        raise _as_llm_error(last)
 
     def _openrouter(self, messages: list[dict]) -> str:
         resp = requests.post(
@@ -78,7 +93,27 @@ class ChatClient:
         choices = data.get("choices") or []
         if not choices:
             raise LLMError(f"OpenRouter returned no choices: {str(data)[:300]}")
-        return choices[0].get("message", {}).get("content", "") or ""
+        choice = choices[0]
+        message = choice.get("message") or {}
+        content = (message.get("content") or "").strip()
+        if content:
+            return content
+
+        # A reasoning model that spends its whole allowance on the hidden
+        # scratchpad answers HTTP 200 with content=null. Returning "" here made
+        # that indistinguishable from a badly formatted reply, so the run logged
+        # "model reply was not a JSON action" and nothing recorded the real cause.
+        reasoning = (message.get("reasoning") or "").strip()
+        if reasoning and choice.get("finish_reason") != "length":
+            # The model put its answer in the scratchpad. Usable; the caller's
+            # parser will find the JSON object inside it.
+            return reasoning
+        raise LLMError(
+            f"OpenRouter returned an empty answer (finish_reason="
+            f"{choice.get('finish_reason')!r}, {len(reasoning)} chars of reasoning). "
+            f"The model spent its whole {self.max_tokens}-token budget on its "
+            f"scratchpad — raise WEB_LLM_MAX_TOKENS."
+        )
 
     def _gemini(self, messages: list[dict]) -> str:
         # Gemini has no "system" role; the system text is prepended to the first
@@ -109,7 +144,20 @@ class ChatClient:
         return "".join(p.get("text", "") for p in parts)
 
 
+def _as_llm_error(exc: Exception | None) -> LLMError:
+    """Normalise any provider/transport failure to LLMError, preserving the text."""
+    if isinstance(exc, LLMError):
+        return exc
+    return LLMError(f"{type(exc).__name__}: {exc}")
+
+
 def _is_transient(exc: Exception) -> bool:
+    # Typed check first: a dropped connection is retryable whatever it says.
+    # String matching alone missed ConnectionResetError entirely.
+    if isinstance(exc, (requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout,
+                        requests.exceptions.ChunkedEncodingError)):
+        return True
     msg = str(exc).lower()
     if any(tok in msg for tok in _PERMANENT_TOKENS):
         return False
@@ -133,9 +181,53 @@ def parse_action(text: str) -> dict:
             obj = json.loads(candidate)
         except (json.JSONDecodeError, TypeError):
             continue
-        if isinstance(obj, dict) and obj.get("action"):
-            return obj
-    return {"action": "_error", "reason": "no JSON action object found in the reply"}
+        # Models plan several steps ahead and answer with a list. Take the first
+        # entry rather than throwing the turn away: it is the action they wanted
+        # next, and the loop re-observes before the one after it anyway.
+        if isinstance(obj, list) and obj:
+            obj = obj[0]
+        if isinstance(obj, dict):
+            normalised = _normalise_keys(obj)
+            if normalised.get("action"):
+                return normalised
+    # Keep the reply. A 23% parse-failure rate was undiagnosable because the text
+    # that failed was discarded, leaving only a generic message in the trace.
+    snippet = " ".join((text or "").split())[:200] or "(empty reply)"
+    return {"action": "_error",
+            "reason": f"no JSON action object found in the reply | reply was: {snippet}"}
+
+
+# What the models actually emit when they drift off contract, mapped to what the
+# dispatcher expects. Observed from real runs: element_id/_element for "ref",
+# _action for "action", _text/value for "text".
+_KEY_ALIASES = {
+    "_action": "action", "action_type": "action", "type": "action", "name": "action",
+    "element_id": "ref", "element": "ref", "_element": "ref", "target": "ref",
+    "element_ref": "ref", "id": "ref",
+    "_text": "text", "value": "text", "input": "text", "content": "text",
+    "_reason": "reason", "explanation": "thought", "reasoning": "thought",
+}
+
+
+def _normalise_keys(obj: dict) -> dict:
+    """Accept the common near-miss key spellings instead of failing the turn."""
+    out = dict(obj)
+    for alias, canonical in _KEY_ALIASES.items():
+        if alias in out and canonical not in out:
+            out[canonical] = out[alias]
+    # "[e12]" and "e12" both mean the same element.
+    ref = out.get("ref")
+    if isinstance(ref, str):
+        out["ref"] = ref.strip().strip("[]")
+    # A bare "scroll_down"/"scroll up" is the scroll action with a direction.
+    act = str(out.get("action", "")).lower().strip()
+    if act.startswith("scroll") and act != "scroll":
+        direction = act.replace("scroll", "").strip(" _-")
+        out["action"] = "scroll"
+        out.setdefault("direction", direction or "down")
+    else:
+        out["action"] = act
+    return out
 
 
 def _candidates(text: str):
