@@ -4,65 +4,83 @@
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 24
     },
     "/api/collaborator/all-projects": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 15
     },
     "/api/fetch-survey-user/:slug": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 4
     },
     "/api/get-saved-survey": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 3
     },
     "/api/get-user-packages": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 6
     },
     "/api/profile": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 27
     },
     "/api/project": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 25
     },
     "/api/project/:id": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 6
     },
     "/api/project/:id/collaborators": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 6
     },
     "/api/project/:id/fetchaccess": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 6
     },
     "/api/project/:id/surveys": {
       "methods": {
         "GET": 200
+      },
+      "seen": 176
+    },
+    "/api/project/create-project": {
+      "methods": {
+        "POST": 201
+      },
+      "seen": 1
+    },
+    "/api/sa/files": {
+      "methods": {
+        "GET": 404
+      },
+      "seen": 9
+    },
+    "/api/submit-survey/:slug": {
+      "methods": {
+        "POST": 400
       },
       "seen": 2
     },
@@ -70,19 +88,19 @@
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 3
     },
     "/api/surveytemplate/stream/:id": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 3
     },
     "/api/template-share/shared-with-me": {
       "methods": {
         "GET": 200
       },
-      "seen": 1
+      "seen": 3
     }
   },
   "project": "dataghurhi-auth"
