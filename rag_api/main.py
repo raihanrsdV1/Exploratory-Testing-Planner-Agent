@@ -1577,7 +1577,8 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
                 WHERE r.id = $req_uid
                    OR r.ref_id = $ref
                    OR toLower(replace(replace(coalesce(r.ref_id,''), 'FR-', ''), 'NFR-', ''))
-                      = toLower(replace(replace($ref, 'FR-', ''), 'NFR-', ''))
+                      = toLower(replace(replace(
+                          replace(replace($ref, '[', ''), ']', ''), 'FR-', ''), 'NFR-', ''))
                 MERGE (t)-[:COVERS]->(r)
                 RETURN count(r) AS c
                 """,

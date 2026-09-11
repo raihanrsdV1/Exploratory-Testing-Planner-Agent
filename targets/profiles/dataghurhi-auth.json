@@ -102,7 +102,7 @@
     "rounds": 5,
     "max_steps": 80,
     "timeout": 600,
-    "clean_slate": true,
+    "clean_slate": false,
     "self_heal": true
   },
   "model": {

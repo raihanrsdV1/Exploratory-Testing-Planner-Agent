@@ -212,6 +212,24 @@ def main():
     check("a profile with no SRS clears it rather than inheriting",
           nodoc.stdout.strip(), "''")
 
+    # -- coverage has to survive the batch that measured it -------------------
+    # clean_slate wipes the project's test history before a batch. With it on,
+    # requirement coverage reset every run: five tests would execute, COVERS
+    # edges would be written, and the next batch erased them. Coverage read
+    # "1 of 54 (2%)" with test_case_count 0 no matter how much had been run.
+    # The long-lived target under active exploration must accumulate instead.
+    prof = loader.load("dataghurhi-auth")
+    check("the target under exploration keeps its test history",
+          prof.run.clean_slate, False)
+    check("its env var follows the profile",
+          env_mod.build(prof)["CLEAN_SLATE"], "false")
+
+    # A throwaway profile still starts clean - this is a per-target decision,
+    # not a global default flip.
+    check("the default is still to start clean",
+          TargetProfile.from_dict({"name": "x", "kind": "web", "project": "x",
+                                   "web": {"base_url": "https://a.b"}}).run.clean_slate, True)
+
     print(f"\n{_passed}/{_passed + _failed} checks passed")
     return 1 if _failed else 0
 

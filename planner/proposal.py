@@ -50,6 +50,9 @@ def _citable_ids(project: str) -> set[str]:
         return set()
 
 
+_clean_req_id = textutil.clean_req_id
+
+
 def validate(project: str, proposal: dict, done_titles: list[str] | None = None) -> tuple[bool, list[str]]:
     """Check a proposed test case. Returns (ok, errors).
 
@@ -79,7 +82,9 @@ def validate(project: str, proposal: dict, done_titles: list[str] | None = None)
 
     # ── requirement ids must exist, or COVERS edges silently fail ────────────
     cited = proposal.get("requirement_ids")
-    cited = [str(c).strip() for c in cited if str(c).strip()] if isinstance(cited, list) else []
+    cited = [_clean_req_id(c) for c in cited if _clean_req_id(c)] if isinstance(cited, list) else []
+    if isinstance(proposal.get("requirement_ids"), list):
+        proposal["requirement_ids"] = cited
     if cited:
         citable = _citable_ids(project)
         unknown = [c for c in cited if c not in citable]
@@ -150,8 +155,8 @@ def normalize(proposal: dict) -> dict:
         "test_type": str(proposal.get("test_type") or "").strip(),
         "rationale": str(proposal.get("rationale") or "").strip(),
         "preconditions": [str(p) for p in (proposal.get("preconditions") or [])][:6],
-        "requirement_ids": [str(r).strip() for r in (proposal.get("requirement_ids") or [])
-                            if str(r).strip()][:6],
+        "requirement_ids": [_clean_req_id(r) for r in (proposal.get("requirement_ids") or [])
+                            if _clean_req_id(r)][:6],
     }
     if out["screen_hint"].lower() in _UNKNOWN_SCREEN:
         out["screen_hint"] = ""
