@@ -516,7 +516,50 @@ the last, and the final blocker is not code.
 2. **A budget overrun was retried with the same budget.** Deterministic, so all
    attempts failed identically. The retry now doubles the allowance.
 
-### The remaining blocker is billing, not code
+### Final run — 4 rounds, all completed
+
+With credits restored, the whole batch ran to completion for the first time.
+
+| # | Test case | Steps | Outcome |
+|---|---|---|---|
+| TC-001 | FR-RESP-02 — invalid survey slug shows an explicit error | 2 | **PASS** |
+| TC-002 | draft preservation on navigating away | 21 | livelock |
+| TC-003 | (survey navigation flow) | 13 | wandering |
+| TC-004 | navigation away leaves the app in a sane state | 14 | **PASS** |
+
+**2 passed / 4 — and, more importantly, no failure was the harness's fault:**
+
+- 4 of 4 rounds completed; no batch abort, no `LLM_UNAVAILABLE`, no `CRASH`
+- **0** `BLOCKED_BY_GUARDRAIL`, **0** auth tests drawn
+- **0** failures attributed to `APP_FAULT` — nothing false filed against the site
+- unparseable replies down to **2 of 50 steps (4%)** from 22.9%
+- mean 12.5 steps per test against an 80 budget — the budget is no longer the constraint
+
+Before/after on the same target:
+
+| | Original run | Final run |
+|---|---|---|
+| Rounds completed | 5 | 4 of 4 |
+| Passed | 1 (trivial, 3 steps) | **2** (2 and 14 steps) |
+| Impossible auth tests | 4 of 5 | **0** |
+| Blocked by guardrails | 2 | **0** |
+| Misattributed to the site | 1 (`CRASH`) | **0** |
+| Wasted on unparseable replies | 22.9% | **4%** |
+
+### What is still imperfect
+
+Both remaining failures are `NAVIGATION_LIVELOCK` — the agent looping while trying
+to reach a survey through the project → survey → preview chain. Notably the *same*
+draft-preservation test passed in 12 steps on an earlier run and looped for 21 on
+this one, so this is variance in the agent's exploration, not a broken fix. The
+guards caught it correctly in both cases and attributed it to the agent.
+
+This is the honest remaining gap: multi-step navigation into nested resources is
+where the agent still gets stuck. The pre-seeded-fixture recommendation (item 4
+below) is the direct answer to it — if the survey already exists and the test
+references it, the chain the agent keeps losing its way in disappears.
+
+### The earlier blocker was billing, not code
 
 Run 4 ended on:
 

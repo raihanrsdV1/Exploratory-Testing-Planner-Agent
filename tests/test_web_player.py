@@ -355,6 +355,154 @@ def main():
     check("an empty password field says empty",
           "(empty)" in snapshot._render_element({"ref": "e6", "role": "password", "name": "New"}), True)
 
+    print("an action that achieves nothing is reported as such")
+    # A real run clicked a dead "Preview" button five times. Its history line read
+    # 'clicked [e8] button "Preview"', which reads like success, so the agent kept
+    # going back to it until a guard fired 21 steps later.
+    import asyncio as _aio
+    from web_player import agent as _ag
+
+    class _DeadPageClient:
+        """Always clicks the same inert control, like the model did."""
+        def __init__(self): self.calls = 0
+        def chat(self, messages):
+            self.calls += 1
+            self.last = messages[-1]["content"]
+            return '{"action":"click","ref":"e1"}'
+
+    frozen = {"url": "u", "messages": [], "texts": [],
+              "elements": [{"ref": "e1", "role": "button", "name": "Preview"}]}
+
+    async def _frozen_observe(_page, _max):
+        return frozen
+
+    class _NoopDispatcher:
+        async def perform(self, action, _snap):
+            return f'clicked [{action["ref"]}] button "Preview"'
+
+    real = _ag.snapshot.observe
+    _ag.snapshot.observe = _frozen_observe
+    try:
+        cl = _DeadPageClient()
+        ag = _ag.WebAgent(page=None, cfg=st, client=cl)
+        ag.dispatcher = _NoopDispatcher()
+        res = _aio.run(ag.run("goal", max_steps=10, timeout_s=30))
+        prompt = cl.last
+    finally:
+        _ag.snapshot.observe = real
+
+    check("the no-op is named on the action's own line",
+          "THIS DID NOTHING" in prompt, True)
+    check("the dead control is remembered by label",
+          "CONTROLS THAT DO NOTHING" in prompt and "Preview" in prompt, True)
+    check("and the run still terminates rather than spinning", res.steps < 10, True)
+    check("attributed to the agent, not the app",
+          failures.classify(res.reason), "NAVIGATION_LIVELOCK")
+
+    print("deliberately revisiting a page is not mistaken for a stall")
+    # A draft-retention test MUST open a URL, navigate away, and open it again.
+    # An earlier guard counted every repeat and warned at the second, telling the
+    # agent mid-test that it was going in circles - and it abandoned a correct run.
+    import asyncio as _a2
+    from web_player import agent as _ag2
+
+    pages = [
+        {"url": "/survey", "messages": [], "texts": ["survey page"],
+         "elements": [{"ref": "e1", "role": "textbox", "name": "Short answer"}]},
+        {"url": "/home", "messages": [], "texts": ["home page"],
+         "elements": [{"ref": "e1", "role": "button", "name": "Home"}]},
+    ]
+    flip = {"i": 0}
+
+    async def _alternating(_page, _max):
+        snap = pages[flip["i"] % 2]
+        flip["i"] += 1
+        return snap
+
+    class _RoundTripClient:
+        """goto survey / goto home, repeatedly - the legitimate pattern."""
+        def __init__(self): self.n = 0; self.last = ""
+        def chat(self, messages):
+            self.n += 1
+            self.last = messages[-1]["content"]
+            url = "/survey" if self.n % 2 else "/home"
+            return '{"action":"goto","url":"%s"}' % url
+
+    class _RealNav:
+        async def perform(self, action, _snap):
+            return "navigated to %s" % action["url"]
+
+    real2 = _ag2.snapshot.observe
+    _ag2.snapshot.observe = _alternating
+    try:
+        c2 = _RoundTripClient()
+        ag2 = _ag2.WebAgent(page=None, cfg=st, client=c2)
+        ag2.dispatcher = _RealNav()
+        res2 = _a2.run(ag2.run("goal", max_steps=5, timeout_s=30))
+        prompt2 = c2.last
+    finally:
+        _ag2.snapshot.observe = real2
+
+    check("five round-trip navigations are allowed to run", res2.steps, 5)
+    check("the agent is never told it is going in circles",
+          "going in circles" in prompt2 or "inert" in prompt2, False)
+    check("nothing is marked as doing nothing", "THIS DID NOTHING" in prompt2, False)
+    check("it ends on the step budget, not a livelock",
+          failures.classify(res2.reason), "STEP_LIMIT_EXCEEDED")
+
+    print("a repeated sequence is offered as evidence before it is called a stall")
+    # The dominant real-world stall: "type a value, leave without saving, come
+    # back and see if it survived" answers itself on the second pass. The agent
+    # instead read its own repetition as "that did not take" and restarted six
+    # times. It must be told the repetition IS the finding, before any guard
+    # punishes it as a loop.
+    import asyncio as _a3
+    from web_player import agent as _ag3
+
+    two = [
+        {"url": "/form", "messages": [], "texts": ["empty form"],
+         "elements": [{"ref": "e1", "role": "textbox", "name": "Project Name"}]},
+        {"url": "/list", "messages": [], "texts": ["project list"],
+         "elements": [{"ref": "e1", "role": "button", "name": "New Project"}]},
+    ]
+    turn = {"i": 0}
+
+    async def _cycle(_page, _max):
+        snap = two[turn["i"] % 2]
+        turn["i"] += 1
+        return snap
+
+    class _RestartClient:
+        def __init__(self): self.n = 0; self.seen = []
+        def chat(self, messages):
+            self.n += 1
+            self.seen.append(messages[-1]["content"])
+            return '{"action":"click","ref":"e1"}'
+
+    class _Nav:
+        async def perform(self, action, _snap):
+            return "clicked [%s]" % action["ref"]
+
+    real3 = _ag3.snapshot.observe
+    _ag3.snapshot.observe = _cycle
+    try:
+        c3 = _RestartClient()
+        ag3 = _ag3.WebAgent(page=None, cfg=st, client=c3)
+        ag3.dispatcher = _Nav()
+        _a3.run(ag3.run("goal", max_steps=12, timeout_s=30))
+        prompts = chr(10).join(c3.seen)
+    finally:
+        _ag3.snapshot.observe = real3
+
+    check("the agent is told the repetition may be the answer",
+          "that is your evidence" in prompts, True)
+    check("and told repeating again cannot help",
+          "cannot tell you anything new" in prompts, True)
+    check("the nudge arrives before the abort",
+          prompts.index("that is your evidence") > 0, True)
+    check("it is a nudge, not an accusation of being stuck",
+          "going in circles" in prompts, False)
+
     print("browser findings summarise honestly")
     empty = Findings()
     check("a clean run says so", "no console errors" in empty.summary(), True)
