@@ -12,6 +12,13 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Stub agents in these tests emit real trace lines. Send them to a temp file
+# so fixture runs never land in logs/web_player.log, which is the operator
+# transcript and the dashboard's live feed.
+import tempfile  # noqa: E402
+os.environ.setdefault("WEB_TRACE_FILE",
+                      os.path.join(tempfile.gettempdir(), "web_player_tests.log"))
 import settings as st  # noqa: E402
 from web_player import agent as agent_mod  # noqa: E402
 from web_player import failures, llm, snapshot  # noqa: E402
@@ -303,6 +310,50 @@ def main():
     _Coll._add(bucket, noisy)
     check("newlines are collapsed", nl in bucket[0], False)
     check("the message survives", bucket[0].startswith("Translation error"), True)
+
+    print("a provider/transport failure is ours, never the site's")
+    # A ConnectionResetError to openrouter.ai was recorded as CRASH — an APP
+    # fault — filing a false defect against the site under test.
+    import requests as _rq
+    from web_player.llm import LLMError, _as_llm_error, _is_transient
+    dropped = _rq.exceptions.ConnectionError(
+        ("Connection aborted.", ConnectionResetError(10054, "forcibly closed", None, 10054, None)))
+    check("a dropped connection is retried", _is_transient(dropped), True)
+    check("a read timeout is retried", _is_transient(_rq.exceptions.Timeout("read timed out")), True)
+    check("a bad API key is NOT retried", _is_transient(LLMError("OpenRouter 401: invalid api key")), False)
+    check("transport failures normalise to LLMError",
+          isinstance(_as_llm_error(dropped), LLMError), True)
+    check("an LLMError passes through unchanged",
+          _as_llm_error(LLMError("boom")).args[0], "boom")
+    check("LLM_UNAVAILABLE is an environment fault, never an app fault",
+          ("LLM_UNAVAILABLE" in st.ENV_FAULT, "LLM_UNAVAILABLE" in st.APP_FAULT), (True, False))
+
+    print("replies that drift off contract are recovered, not thrown away")
+    # Every shape below was emitted by a real executor model and cost a turn.
+    for label, raw, want in (
+        ("array of actions", '[{"action":"fill","element_id":"e1","text":"x"},{"action":"click"}]', ("fill", "e1")),
+        ("underscore keys", '{"_action":"click","_element":"[e3]"}', ("click", "e3")),
+        ("bracketed ref", '{"action":"click","ref":"[e7]"}', ("click", "e7")),
+        ("value instead of text", '{"action":"fill","ref":"e2","value":"hello"}', ("fill", "e2")),
+    ):
+        got = llm.parse_action(raw)
+        check(f"{label} parses", (got.get("action"), got.get("ref")), want)
+    check("scroll_down becomes scroll+direction",
+          (llm.parse_action('{"action":"scroll_down"}').get("action"),
+           llm.parse_action('{"action":"scroll_down"}').get("direction")), ("scroll", "down"))
+    check("a genuinely unparseable reply keeps the text for diagnosis",
+          "I will click the button" in llm.parse_action("I will click the button")["reason"], True)
+    check("an empty reply says so", "(empty reply)" in llm.parse_action("")["reason"], True)
+
+    print("a password is never rendered as something the model can retype")
+    # A model read '********' out of its own observation and typed it as a new
+    # password on a live account. Only the site's policy stopped the change.
+    pw = snapshot._render_element(
+        {"ref": "e5", "role": "password", "name": "Current password", "filled_chars": 12})
+    check("no asterisk run appears", "***" in pw, False)
+    check("the length is described, not the value", "12 hidden characters" in pw, True)
+    check("an empty password field says empty",
+          "(empty)" in snapshot._render_element({"ref": "e6", "role": "password", "name": "New"}), True)
 
     print("browser findings summarise honestly")
     empty = Findings()

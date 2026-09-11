@@ -79,6 +79,11 @@ class WebAgent:
         self.cfg = cfg
         self.client = client
         self.dispatcher = actions_mod.Dispatcher(page, cfg)
+        # Progress so far, readable after an exception unwinds the loop. Without
+        # these the crash path logged 0 steps and an empty route for a test that
+        # had really taken ten.
+        self.last_step = 0
+        self.last_urls: list[str] = []
 
     async def run(self, goal: str, max_steps: int, timeout_s: float) -> AgentResult:
         started = time.time()
@@ -101,8 +106,10 @@ class WebAgent:
                     step - 1, history, urls,
                 )
 
+            self.last_step = step
             snap = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
             _track_url(urls, snap.get("url", ""))
+            self.last_urls = urls
             observation = snapshot.render(snap)
 
             reply = self.client.chat(self._messages(goal, history, observation, step, max_steps))
@@ -123,7 +130,8 @@ class WebAgent:
                     f"discarded ({action.get('reason', '')}). Reply with ONE JSON "
                     f"object and nothing else."
                 )
-                trace.outcome("model reply was not a JSON action — reprompting", ok=False)
+                trace.outcome(f"model reply was not a JSON action — reprompting "
+                              f"| {action.get('reason', '')}"[:300], ok=False)
                 continue
 
             # Livelock guard: this exact action, against this exact page state,

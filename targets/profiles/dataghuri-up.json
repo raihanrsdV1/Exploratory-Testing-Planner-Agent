@@ -40,7 +40,7 @@
     }
   },
   "knowledge": {
-    "srs_path": "./data/inputs/uploads/dataghurhi-spec.md",
+    "srs_path": "./data/inputs/dataghurhi-spec.md",
     "figma_path": "",
     "defects_path": ""
   },

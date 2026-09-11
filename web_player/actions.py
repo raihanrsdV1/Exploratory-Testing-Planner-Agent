@@ -185,7 +185,10 @@ class Dispatcher:
 
     async def _do_goto(self, action: dict, _snap: dict) -> str:
         url = self._check_url(str(action.get("url") or ""))
-        await self.page.goto(url, timeout=self.cfg.WEB_NAV_TIMEOUT_MS, wait_until="domcontentloaded")
+        # "domcontentloaded" fires before React mounts, so the next observation
+        # sees an empty page. Wait for the network to go quiet instead, and fall
+        # back if the page never reaches idle (polling apps never do).
+        await _goto_settled(self.page, url, self.cfg)
         return f"navigated to {url}"
 
     async def _do_back(self, _action: dict, _snap: dict) -> str:
@@ -227,6 +230,16 @@ class Dispatcher:
 
     def _locator(self, ref: str):
         return self.page.locator(f'[data-etp-ref="{ref}"]')
+
+
+async def _goto_settled(page, url: str, cfg) -> None:
+    """Navigate and give the app a chance to render before anyone observes it."""
+    try:
+        await page.goto(url, timeout=cfg.WEB_NAV_TIMEOUT_MS, wait_until="networkidle")
+    except Exception:
+        # networkidle never arrives on a page that polls. Land the navigation the
+        # cheap way instead of failing the action outright.
+        await page.goto(url, timeout=cfg.WEB_NAV_TIMEOUT_MS, wait_until="domcontentloaded")
 
 
 def _is_timeout(exc: Exception) -> bool:

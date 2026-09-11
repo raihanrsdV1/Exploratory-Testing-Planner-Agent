@@ -17,6 +17,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Stub agents in these tests emit real trace lines. Send them to a temp file
+# so fixture runs never land in logs/web_player.log, which is the operator
+# transcript and the dashboard's live feed.
+import tempfile  # noqa: E402
+os.environ.setdefault("WEB_TRACE_FILE",
+                      os.path.join(tempfile.gettempdir(), "web_player_tests.log"))
+
 from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))

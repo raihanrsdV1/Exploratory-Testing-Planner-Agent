@@ -3,7 +3,7 @@
   "kind": "web",
   "project": "dataghurhi",
   "display_name": "DataGhurhi",
-  "description": "BUET research survey/analysis platform — anonymous public surface only. LIVE DATA: submission, registration, payment and deletion are blocked in the dispatcher.",
+  "description": "DataGhurhi signed out — public surface only (survey response, registration/sign-in validation, i18n).",
   "web": {
     "base_url": "https://dataghurhi.cse.buet.ac.bd",
     "browser": "chromium",
@@ -26,9 +26,6 @@
       "save changes",
       "save result",
       "update",
-      "delete",
-      "মুছে ফেলুন",
-      "remove",
       "buy now",
       "এখনই কিনুন",
       "subscribe",
@@ -42,7 +39,6 @@
       "লগ আউট",
       "invite",
       "send invitation",
-      "publish",
       "upload",
       "import",
       "export",
@@ -98,7 +94,7 @@
     }
   },
   "knowledge": {
-    "srs_path": "./data/inputs/dataghurhi-spec.md",
+    "srs_path": "./data/inputs/dataghurhi-public-spec.md",
     "figma_path": "",
     "defects_path": ""
   },

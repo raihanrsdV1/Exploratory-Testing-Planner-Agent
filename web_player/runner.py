@@ -143,8 +143,13 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
                  f"{type(exc).__name__}: {exc}\n{traceback.format_exc()[-500:]}")
         print(f"\n❌ CRASH: {exc}")
         await session.screenshot(f"{tc_id}-crash")
-        gateway.log_execution(tc, "failed", duration * 1000, 0, [],
-                              error_type="CRASH", error_message=str(exc))
+        # Report what the agent actually did. A hardcoded 0 erased ~10 real
+        # steps from the record and made the run impossible to account for.
+        gateway.log_execution(tc, "failed", duration * 1000,
+                              getattr(agent, "last_step", 0),
+                              getattr(agent, "last_urls", []),
+                              error_type="CRASH",
+                              error_message=f"{type(exc).__name__}: {exc}"[:500])
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
 
     success, reason, steps = result.success, result.reason, result.steps

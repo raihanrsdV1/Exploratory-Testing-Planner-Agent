@@ -440,7 +440,44 @@ by the passive oracles rather than by LLM judgement:
 
 ---
 
-## 11. Recommended order of work
+## 11. Fixes applied
+
+All eight findings were fixed on 11 Sep 2026. Verified by `tests/run_all.py`
+(**10/10 modules, 338 checks**) plus a live check against the site.
+
+| Finding | Change | Where |
+|---|---|---|
+| 1 — step budget | `max_steps` 30 → **80**, `timeout` 420 → **600** | `dataghurhi-auth.json` |
+| 2 — blank observations | `goto` waits for `networkidle` (falling back to `domcontentloaded`); `observe()` re-reads up to 3× when it finds nothing | `actions.py`, `browser.py`, `snapshot.py` |
+| 3 — profile/spec conflict | spec split into a signed-in and a signed-out edition; 10 unreachable requirements removed from the authenticated one | `dataghurhi-auth-spec.md`, `dataghurhi-public-spec.md` |
+| 4 — empty answer | `content: null` now falls back to `reasoning`, else raises a named `LLMError`; `WEB_LLM_MAX_TOKENS` 1500 → **4000** | `llm.py`, `.env` |
+| 5 — transport error as app defect | transport failures are transient **by type** and normalise to `LLMError`; the crash path logs the real step count and route | `llm.py`, `agent.py`, `runner.py` |
+| 6 — password near-miss | credential controls blocked; a filled password renders as *"contains 12 hidden characters"* instead of `********` | `dataghurhi-auth.json`, `snapshot.py` |
+| 7 — off-contract replies | `parse_action` accepts action arrays, key aliases and `[e7]` refs; unparseable replies are now logged | `llm.py`, `agent.py` |
+| 8 — log pollution | `WEB_TRACE_FILE` redirects the transcript; both test modules point at a temp file | `trace.py`, `tests/` |
+
+### Guardrails rebalanced
+
+Five controls were **unblocked** because they prevented legitimate testing of the
+agent's own fixtures:
+
+| Unblocked | Why it was hampering |
+|---|---|
+| `delete`, `remove`, `মুছে ফেলুন` | blocked "Delete question" and "Remove option" — no survey-design requirement could be exercised at all |
+| `publish` | a survey must be published before any `FR-RESP-*` response requirement can be reached |
+| `invite` | opening the collaborator dialog is harmless; only *sending* reaches a real person |
+
+Ten were **added**, all irreversible or costly: `update password`,
+`change password`, `reset password`, `delete account`, `deactivate account`,
+`close account`, `delete project`, `delete survey`, `delete response`,
+`delete all`.
+
+The principle applied: block what cannot be undone or what reaches the outside
+world; allow what the agent can create and clean up itself.
+
+---
+
+## 12. Recommended order of work
 
 | # | Change | Effort | Expected effect |
 |---|---|---|---|
@@ -460,7 +497,7 @@ harness needs.
 
 ---
 
-## 12. A note on the headline claim
+## 13. A note on the headline claim
 
 "None of the testing is passing and it fails due to our agent error" is accurate,
 but the framing understates how well one part is working: **the failure

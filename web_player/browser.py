@@ -77,7 +77,7 @@ class BrowserSession:
         """Return to the site's entry point before a test case."""
         await self.page.goto(
             self.cfg.WEB_BASE_URL,
-            wait_until="domcontentloaded",
+            wait_until="networkidle",
             timeout=self.cfg.WEB_NAV_TIMEOUT_MS,
         )
 

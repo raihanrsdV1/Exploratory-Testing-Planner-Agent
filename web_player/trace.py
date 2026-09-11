@@ -23,7 +23,11 @@ import os
 from datetime import datetime
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOG_PATH = os.path.join(_ROOT, "logs", "web_player.log")
+# WEB_TRACE_FILE redirects the transcript. The test suite sets it to a temp file:
+# its stub agents were writing fixture runs into the operator log, which corrupted
+# every later analysis of a real run and interleaved fake traffic into the
+# dashboard's live view.
+LOG_PATH = os.environ.get("WEB_TRACE_FILE") or os.path.join(_ROOT, "logs", "web_player.log")
 
 _fh = None
 

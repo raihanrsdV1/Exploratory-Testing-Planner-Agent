@@ -116,13 +116,21 @@ _COLLECT_JS = r"""
     const valueIsNoise = ['checkbox', 'radio'].includes(entry.role);
     if (!valueIsNoise && 'value' in el && el.value !== undefined && el.value !== null) {
       const raw = String(el.value);
-      // Never echo a secret back into the prompt or the logs.
-      entry.value = entry.role === 'password' ? ('*'.repeat(raw.length)) : clean(raw);
+      // Never echo a secret into the prompt or the logs — but do not render it as
+      // a string of asterisks either. A model read '********' back out of its own
+      // observation and typed it as the new password on a real account; only the
+      // site's password policy stopped the change. Describe the field instead of
+      // showing something that looks like its contents.
+      if (entry.role === 'password') {
+        if (raw.length) entry.filled_chars = raw.length;
+      } else {
+        entry.value = clean(raw);
+      }
       // Report the TRUE length whenever we shorten the value for display.
       // Without this the agent reads a 300-character entry back as ~100 and
       // concludes the field truncated its input — a defect report about our own
       // rendering. It happened on the first real run.
-      if (raw.length > entry.value.length) entry.value_length = raw.length;
+      if (entry.value && raw.length > entry.value.length) entry.value_length = raw.length;
     }
     if (el.tagName.toLowerCase() === 'a' && el.getAttribute('href')) {
       entry.href = clean(el.getAttribute('href'));
@@ -207,8 +215,34 @@ _COLLECT_JS = r"""
 """
 
 
+# A single-page app renders after `domcontentloaded`, so the first look at a new
+# route frequently finds nothing at all. 16% of observations in a real DataGhurhi
+# run reported zero controls, and the agent had to spend a whole turn on `wait`
+# to recover — roughly a sixth of its step budget. Re-reading here costs a second
+# of wall clock and saves a step, and it also covers in-page route changes that
+# fire no navigation event for the driver to wait on.
+_SETTLE_RETRIES = 3
+_SETTLE_DELAY_MS = 700
+
+
 async def observe(page, max_elements: int) -> dict:
-    """Snapshot the page. Never raises — a failed observation is still a turn."""
+    """Snapshot the page, re-reading briefly if it looks unrendered.
+
+    Never raises — a failed observation is still a turn.
+    """
+    data = await _observe_once(page, max_elements)
+    for _ in range(_SETTLE_RETRIES):
+        if data.get("elements") or data.get("error"):
+            break
+        try:
+            await page.wait_for_timeout(_SETTLE_DELAY_MS)
+        except Exception:
+            break
+        data = await _observe_once(page, max_elements)
+    return data
+
+
+async def _observe_once(page, max_elements: int) -> dict:
     try:
         data = await page.evaluate(_COLLECT_JS, max_elements)
     except Exception as exc:  # navigation mid-evaluate, closed page, CSP oddity
@@ -265,6 +299,12 @@ def _render_element(el: dict) -> str:
     parts = [f"[{el['ref']}] {el.get('role', 'control')}"]
     name = el.get("name") or ""
     parts.append(f'"{name}"' if name else '""')
+    if el.get("filled_chars"):
+        # Deliberately not the characters: the agent must never be able to copy a
+        # secret out of the observation and type it somewhere else.
+        parts.append(f"(contains {el['filled_chars']} hidden characters)")
+    elif el.get("role") == "password":
+        parts.append("(empty)")
     if el.get("value"):
         parts.append(f'value="{el["value"]}"')
         if el.get("value_length"):
