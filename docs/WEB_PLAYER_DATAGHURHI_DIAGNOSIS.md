@@ -477,6 +477,68 @@ world; allow what the agent can create and clean up itself.
 
 ---
 
+## 11b. Verification runs — what the fixes actually changed
+
+Three batches were run after the fixes. Each failed for a shallower reason than
+the last, and the final blocker is not code.
+
+| | Run 2 (before model fix) | Run 3 | Run 4 |
+|---|---|---|---|
+| Test cases reached | 1 | 3 | 2 |
+| **Passed** | 0 | 0 | **1** |
+| Auth tests drawn (impossible) | 0 | 0 | 0 |
+| `BLOCKED_BY_GUARDRAIL` | 0 | 0 | 0 |
+| Misattributed to the site | 0 | 0 | 0 |
+| Step counts recorded | — | correct | correct |
+
+**Confirmed fixed by live evidence:**
+
+- **The coverage trap is broken.** Before: 4 of 5 test cases were `FR-AUTH`
+  requirements needing a signed-out session. After: **zero**, across all three
+  runs. Every test case drawn was reachable.
+- **No false defects.** Not one failure was recorded as `APP_FAULT`.
+- **Accounting is honest.** `steps=29`, `steps=24` — no more hardcoded `0`.
+- **A real test passed.** Run 4 TC-001 executed 18 steps and reached a genuine
+  verdict on an i18n requirement: Bangla text typed into a free-text question was
+  preserved verbatim across an interface language switch.
+
+**Two further bugs found by these runs, both fixed:**
+
+1. **Native HTML5 validation was invisible.** Run 3's TC-002 was *"submit an
+   empty project title"*. DataGhurhi uses native `required` validation, whose
+   message is a browser tooltip present in no DOM node. The agent deduced it —
+   *"the clicks aren't producing visible changes because the HTML5 required
+   validation is preventing submission"* — but could not observe it, probed six
+   ways and tripped the wandering guard. **While testing validation.**
+   `snapshot.py` now reads `checkValidity()` / `validationMessage`; the same form
+   now reports
+   `REJECTED BY THE BROWSER: "Please fill out this field."`
+2. **A budget overrun was retried with the same budget.** Deterministic, so all
+   attempts failed identically. The retry now doubles the allowance.
+
+### The remaining blocker is billing, not code
+
+Run 4 ended on:
+
+```
+OpenRouter 402: This request would exceed your available credits
+```
+
+```
+total_credits: 5    total_usage: 5.16     <- account overspent
+key limit: $2       limit_remaining: $1.21
+```
+
+Note the interaction: OpenRouter pre-authorises the **maximum** cost a request
+could incur, so the escalating retry introduced above could itself provoke a 402
+on a nearly-spent key. Its ceiling was therefore capped at 8000 tokens — a terse
+model answers a browser step in roughly 200.
+
+**A five-round batch cannot be demonstrated end to end until the account is
+topped up.** Everything upstream of that is fixed and evidenced.
+
+---
+
 ## 12. Recommended order of work
 
 | # | Change | Effort | Expected effect |

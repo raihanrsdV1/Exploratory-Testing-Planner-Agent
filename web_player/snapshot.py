@@ -108,6 +108,19 @@ _COLLECT_JS = r"""
     const entry = { ref, role: roleOf(el), name: accessibleName(el) };
     if (el.disabled) entry.disabled = true;
     if (el.required || el.getAttribute('aria-required') === 'true') entry.required = true;
+    // Native HTML5 validation renders as a browser tooltip that is in no node,
+    // so a form refusing to submit looked to the agent like a page that simply
+    // ignored the click. It probed six different ways and tripped the wandering
+    // guard — while testing validation, which is the thing it could not see.
+    if (typeof el.checkValidity === 'function' && !el.disabled) {
+      try {
+        if (!el.checkValidity()) {
+          entry.invalid = true;
+          const vm = (el.validationMessage || '').trim();
+          if (vm) entry.validation = clean(vm);
+        }
+      } catch (e) { /* not a form control */ }
+    }
     if (typeof el.checked === 'boolean' && ['checkbox', 'radio'].includes(entry.role)) {
       entry.checked = el.checked;
     }
@@ -314,6 +327,10 @@ def _render_element(el: dict) -> str:
         parts.append("checked" if el["checked"] else "unchecked")
     if el.get("required"):
         parts.append("required")
+    if el.get("validation"):
+        parts.append(f'REJECTED BY THE BROWSER: "{el["validation"]}"')
+    elif el.get("invalid"):
+        parts.append("INVALID (the browser will refuse to submit this)")
     if el.get("disabled"):
         parts.append("DISABLED")
     if el.get("expanded") is not None:

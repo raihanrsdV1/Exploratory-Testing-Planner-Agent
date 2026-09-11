@@ -33,6 +33,12 @@ _RETRY_TOKENS = ("429", "500", "502", "503", "504", "too many requests",
                  "returned an empty answer")
 _PERMANENT_TOKENS = ("400", "401", "403", "404", "not a valid model", "invalid api key")
 _MAX_ATTEMPTS = 4
+# Ceiling for the escalating retry above; beyond this the model is the problem.
+# Kept modest on purpose: OpenRouter pre-authorises the MAXIMUM cost a request
+# could incur, so a large max_tokens can be refused with 402 'would exceed your
+# available credits' on a nearly-spent key even when the reply would be tiny.
+# A terse model answers a browser step in ~200 tokens; 8000 is already generous.
+_MAX_BUDGET = 8000
 
 
 class LLMError(RuntimeError):
@@ -68,18 +74,25 @@ class ChatClient:
 
     def chat(self, messages: list[dict]) -> str:
         last: Exception | None = None
+        budget = self.max_tokens
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             try:
-                return (self._openrouter(messages) if self.provider == "openrouter"
-                        else self._gemini(messages))
+                return (self._openrouter(messages, budget) if self.provider == "openrouter"
+                        else self._gemini(messages, budget))
             except Exception as exc:
                 last = exc
                 if attempt >= _MAX_ATTEMPTS or not _is_transient(exc):
                     raise _as_llm_error(exc) from exc
+                if "empty answer" in str(exc):
+                    # Retrying with the same ceiling reproduces the same overrun:
+                    # how much a model thinks depends on the prompt, and the
+                    # prompt does not change between attempts. Give it more room.
+                    budget = min(budget * 2, _MAX_BUDGET)
+                    continue
                 time.sleep(2 ** attempt)
         raise _as_llm_error(last)
 
-    def _openrouter(self, messages: list[dict]) -> str:
+    def _openrouter(self, messages: list[dict], budget: int | None = None) -> str:
         resp = requests.post(
             f"{self.base_url.rstrip('/')}/chat/completions",
             # OpenRouter asks callers to identify themselves; unidentified
@@ -89,7 +102,7 @@ class ChatClient:
                      "HTTP-Referer": "https://github.com/exploratory-testing-planner-agent",
                      "X-Title": "Exploratory Testing Planner Agent"},
             json={"model": self.model, "messages": messages,
-                  "max_tokens": self.max_tokens, "temperature": 0.2},
+                  "max_tokens": budget or self.max_tokens, "temperature": 0.2},
             timeout=180,
         )
         if resp.status_code != 200:
@@ -120,7 +133,7 @@ class ChatClient:
             f"scratchpad — raise WEB_LLM_MAX_TOKENS."
         )
 
-    def _gemini(self, messages: list[dict]) -> str:
+    def _gemini(self, messages: list[dict], budget: int | None = None) -> str:
         # Gemini has no "system" role; the system text is prepended to the first
         # user turn, which is how the REST API expects it to be carried.
         system = "\n".join(m["content"] for m in messages if m["role"] == "system")
@@ -137,7 +150,7 @@ class ChatClient:
             f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent",
             headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
             json={"contents": contents,
-                  "generationConfig": {"maxOutputTokens": self.max_tokens, "temperature": 0.2}},
+                  "generationConfig": {"maxOutputTokens": budget or self.max_tokens, "temperature": 0.2}},
             timeout=180,
         )
         if resp.status_code != 200:
