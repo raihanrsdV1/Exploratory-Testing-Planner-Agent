@@ -41,6 +41,7 @@ from web_player.agent import WebAgent  # noqa: E402
 from web_player.browser import BrowserSession  # noqa: E402
 from web_player.llm import ChatClient, LLMError  # noqa: E402
 from web_player.oracles import Collector  # noqa: E402
+from web_player.runlock import RunInProgress, RunLock  # noqa: E402
 
 
 def _header(text: str) -> None:
@@ -272,6 +273,23 @@ def _show_testcase(tc: dict) -> None:
 
 async def main(rounds: int) -> None:
     preflight()
+
+    # One batch at a time. Concurrent runs share the knowledge graph, the site and
+    # the trace log, so their results contaminate each other and their transcripts
+    # interleave into something that cannot be read. See web_player/runlock.py.
+    try:
+        lock = RunLock(profile=cfg.PROJECT, rounds=rounds).__enter__()
+    except RunInProgress as exc:
+        print("")
+        print(f"🔒 {exc}")
+        return
+    try:
+        await _run_batch(rounds)
+    finally:
+        lock.release()
+
+
+async def _run_batch(rounds: int) -> None:
 
     if cfg.CLEAN_SLATE:
         _header("CLEAN SLATE — resetting execution history")

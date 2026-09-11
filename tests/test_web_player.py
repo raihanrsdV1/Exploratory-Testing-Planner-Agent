@@ -670,6 +670,50 @@ def main():
     check("reset_to_base tries networkidle", "networkidle" in reset, True)
     check("and falls back to domcontentloaded", "domcontentloaded" in reset, True)
 
+    print("two batches cannot run at once")
+    # Two concurrent batches shared the knowledge graph, the site and the trace
+    # log. Their transcripts interleaved into rounds 1,2,2,3,3,4,5,4 and eight
+    # executions for a five-round run, and an hour went into diagnosing a bug
+    # that did not exist because the evidence belonged to two processes.
+    import os as _os
+    import tempfile as _tf
+    from web_player import runlock as _rl
+
+    original = _rl.LOCK_PATH
+    _rl.LOCK_PATH = _os.path.join(_tf.mkdtemp(), "batch.lock")
+    try:
+        first = _rl.RunLock(profile="p", rounds=5).__enter__()
+        check("the first batch takes the lock", _os.path.exists(_rl.LOCK_PATH), True)
+
+        try:
+            _rl.RunLock(profile="p", rounds=5).__enter__()
+            check("a second batch is refused", "not refused", "refused")
+        except _rl.RunInProgress as exc:
+            check("a second batch is refused", True, True)
+            check("it names the holding process", str(_os.getpid()) in str(exc), True)
+            check("and says why it matters", "corrupt" in str(exc), True)
+
+        first.release()
+        check("releasing removes the lock", _os.path.exists(_rl.LOCK_PATH), False)
+
+        second = _rl.RunLock(profile="p", rounds=5).__enter__()
+        check("a later batch may then start", second.held, True)
+        second.release()
+
+        # A lock left behind by a killed run must not block every future batch --
+        # the classic failure that teaches people to delete lock files by hand.
+        import json as _json
+        with open(_rl.LOCK_PATH, "w", encoding="utf-8") as fh:
+            _json.dump({"pid": 999999, "profile": "dead", "started_at": "?"}, fh)
+        taken = _rl.RunLock(profile="p", rounds=1).__enter__()
+        check("a stale lock from a dead run is taken over", taken.held, True)
+        taken.release()
+
+        check("a dead pid reads as dead", _rl._pid_alive(999999), False)
+        check("our own pid reads as alive", _rl._pid_alive(_os.getpid()), True)
+    finally:
+        _rl.LOCK_PATH = original
+
     print("browser findings summarise honestly")
     empty = Findings()
     check("a clean run says so", "no console errors" in empty.summary(), True)
