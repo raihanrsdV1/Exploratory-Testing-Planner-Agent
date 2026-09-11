@@ -1,0 +1,89 @@
+{
+  "endpoints": {
+    "/api/collaborator/all-invitations": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/collaborator/all-projects": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/fetch-survey-user/:slug": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/get-saved-survey": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/get-user-packages": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/profile": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/project": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/project/:id": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/project/:id/collaborators": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/project/:id/fetchaccess": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/project/:id/surveys": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 2
+    },
+    "/api/surveytemplate/:id": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/surveytemplate/stream/:id": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/template-share/shared-with-me": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    }
+  },
+  "project": "dataghurhi-auth"
+}

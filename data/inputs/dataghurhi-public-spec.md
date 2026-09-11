@@ -16,6 +16,20 @@ stored session and is therefore signed out throughout.
   behaviour** can be exercised — fill the form and observe what it rejects —
   never so that an account is actually created.
 
+
+## API routes — verified list
+
+`data/inputs/dataghurhi-api.md` records every route confirmed by driving the
+running application, and `data/api/<project>.json` holds the machine-readable
+version the executor is given each turn.
+
+**Never cite an endpoint that is not on that list.** A test objective once
+referenced `GET /api/projects`; the real route is `/api/project`, singular, and
+the executor spent six steps chasing the invention before the test died. If a
+test needs to inspect an endpoint, name one from the verified list or describe
+the check in terms of what the UI shows instead.
+
+
 ---
 ## 1. Public survey response — `/v/:slug`
 

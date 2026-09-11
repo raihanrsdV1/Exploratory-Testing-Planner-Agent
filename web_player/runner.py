@@ -38,6 +38,7 @@ import requests  # noqa: E402
 import settings as cfg  # noqa: E402
 from web_player import failures, gateway, goal as goal_mod, trace  # noqa: E402
 from web_player.agent import WebAgent  # noqa: E402
+from web_player.api_registry import for_project  # noqa: E402
 from web_player.browser import BrowserSession  # noqa: E402
 from web_player.llm import ChatClient, LLMError  # noqa: E402
 from web_player.oracles import Collector  # noqa: E402
@@ -138,6 +139,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
 
     agent = WebAgent(session.page, cfg, client)
     agent.headless = session.headless   # the truth about this browser, not config
+    agent.api_registry = getattr(collector, "registry", None)
 
     try:
         result = await agent.run(goal, cfg.WEB_MAX_STEPS, cfg.WEB_TIMEOUT)
@@ -324,7 +326,8 @@ async def _run_batch(rounds: int) -> None:
     results: list[dict] = []
 
     async with BrowserSession(cfg) as session:
-        collector = Collector(session.page, cfg)
+        registry = for_project(cfg.PROJECT)
+        collector = Collector(session.page, cfg, registry)
         collector.attach()
 
         for i in range(1, rounds + 1):
@@ -370,6 +373,9 @@ async def _run_batch(rounds: int) -> None:
             print("Next test case:")
             _show_testcase(tc)
 
+    if registry.save():
+        print(f"  API routes known for {cfg.PROJECT}: {len(registry.routes)} "
+              f"(updated from this run)")
     _summarize(results)
 
 

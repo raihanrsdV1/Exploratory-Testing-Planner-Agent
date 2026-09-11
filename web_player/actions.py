@@ -14,7 +14,7 @@ must still be stopped.
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from . import snapshot
 
@@ -291,4 +291,11 @@ def _origin_of(url: str) -> str:
 
 
 def _join(base: str, path: str) -> str:
-    return base.rstrip("/") + "/" + path.lstrip("/")
+    """Resolve a relative URL the way a browser does.
+
+    Plain concatenation was wrong the moment the base URL carried a path: with a
+    base of ".../dashboard", a goto("/v/abc") became ".../dashboard/v/abc". A
+    leading slash means "from the origin", which is exactly what urljoin does,
+    while "?tab=x" stays relative to the current path.
+    """
+    return urljoin(base if base.endswith("/") or urlparse(base).path else base + "/", path)

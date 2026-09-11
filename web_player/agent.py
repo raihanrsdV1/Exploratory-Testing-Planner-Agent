@@ -130,6 +130,10 @@ class WebAgent:
         # had really taken ten.
         self.last_step = 0
         self.last_urls: list[str] = []
+        # Known API routes, so the agent works from the real list instead of
+        # inventing one. A planner-written objective once cited GET /api/projects,
+        # which does not exist; the executor chased it until the test died.
+        self.api_registry = None
         # Set by the runner from the live BrowserSession. None means "ask config".
         self.headless: bool | None = None
 
@@ -153,7 +157,14 @@ class WebAgent:
         pending = None
         dead_controls: list[str] = []
         cycles: dict[str, int] = {}
-        nudged = False
+        # One nudge per DISTINCT loop, not one per test case. Capping it at one
+        # per run was too blunt: an agent that circles briefly early on spends the
+        # only nudge there, and a genuine stall later gets none. A real run burned
+        # its first nudge on a search box at step 3, then looped
+        # goto-/api/projects-then-back eleven times from step 30 with no prompt at
+        # all. Bloat stays bounded because each loop is nudged once and history
+        # lines are capped.
+        nudged: set[str] = set()
         captcha_handled = False
 
         for step in range(1, max_steps + 1):
@@ -242,8 +253,8 @@ class WebAgent:
             #    motivated this cycled thirteen times.
             signature = _signature(snap, action)
             cycles[signature] = cycles.get(signature, 0) + 1
-            if cycles[signature] == _CYCLE_CONCLUDE and not nudged:
-                nudged = True
+            if cycles[signature] == _CYCLE_CONCLUDE and signature not in nudged:
+                nudged.add(signature)
                 # The decisive fix for the commonest stall. A test like "type a
                 # value, leave without saving, come back and see whether it is
                 # still there" ANSWERS ITSELF on the second pass: the field is
@@ -396,6 +407,10 @@ class WebAgent:
             listed = ", ".join('"%s"' % d for d in dead[-8:])
             log += (nl + nl + "CONTROLS THAT DO NOTHING on this site - "
                     "never activate these again, find another route: " + listed)
+        if self.api_registry is not None:
+            block = self.api_registry.prompt_block()
+            if block:
+                log += chr(10) + chr(10) + block
         return [
             {"role": "system",
              "content": _SYSTEM_PROMPT.format(actions=actions_mod.ACTION_SPEC)},

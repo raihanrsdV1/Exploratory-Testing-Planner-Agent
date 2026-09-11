@@ -77,11 +77,14 @@ class Findings:
 class Collector:
     """Attaches to a Playwright page and accumulates findings for one test case."""
 
-    def __init__(self, page, cfg):
+    def __init__(self, page, cfg, registry=None):
         self.page = page
         self.cfg = cfg
         self.findings = Findings()
         self._attached = False
+        # Every API call the app makes passes through here already. Feeding it to
+        # the registry is how the known-route list grows without a separate crawl.
+        self.registry = registry
 
     def attach(self) -> None:
         if self._attached:
@@ -123,6 +126,8 @@ class Collector:
     def _on_response(self, response) -> None:
         try:
             status = response.status
+            if self.registry is not None:
+                self.registry.record(response.request.method, response.url, status)
             if status < 400:
                 return
             entry = f"{status} {response.request.method} {_short_url(response.url)}"

@@ -30,6 +30,20 @@ requireEachRowResponse set, then open preview."*
 Where a fixture is genuinely needed, create the smallest possible one and assert
 on it immediately.
 
+
+## API routes — verified list
+
+`data/inputs/dataghurhi-api.md` records every route confirmed by driving the
+running application, and `data/api/<project>.json` holds the machine-readable
+version the executor is given each turn.
+
+**Never cite an endpoint that is not on that list.** A test objective once
+referenced `GET /api/projects`; the real route is `/api/project`, singular, and
+the executor spent six steps chasing the invention before the test died. If a
+test needs to inspect an endpoint, name one from the verified list or describe
+the check in terms of what the UI shows instead.
+
+
 ---
 ## 1. Public survey response — `/v/:slug`
 
@@ -256,7 +270,7 @@ present the score to the respondent only according to that policy.
 ### FR-COLL-01 Invitations [AUTH]
 DETAILED DESCRIPTION: A survey owner shall invite a collaborator by email
 (`/api/survey-collaborator/send-survey-collaboration-request`). The invitee shall
-see the invitation (`/api/survey-collaborator/all-invitations`) and be able to
+see the invitation (`/api/collaborator/all-invitations`) and be able to
 accept or decline it.
 
 ### FR-COLL-02 Collaborator permissions [AUTH]
