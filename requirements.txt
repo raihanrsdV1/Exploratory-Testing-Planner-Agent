@@ -28,6 +28,11 @@ numpy
 #   unstructured            # robust fallback for messy scans
 #   sentence-transformers   # alternative (torch-based) embedding backend
 
+# ── Reporting ───────────────────────────────────────────────────────────────
+# PDF generation for the downloadable run report (GET /report/run.pdf) and for
+# scripts/make_user_guide.py. Pure Python — no system libraries to install.
+fpdf2
+
 # ── Agent Framework ─────────────────────────────────────────────────────────
 langchain
 langchain-core

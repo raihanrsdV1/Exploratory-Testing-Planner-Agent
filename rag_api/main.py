@@ -2294,6 +2294,33 @@ def findings_stats(project: str, authorization: str | None = Header(default=None
         return {"project": project, **findings_mod.stats(session, project)}
 
 
+@app.get("/projects")
+def projects_list(authorization: str | None = Header(default=None)):
+    """Every project in the graph, with how much each one holds.
+
+    Exists because a project name is free text everywhere it is used — the
+    dashboard's project box, ?project= in a URL, the report endpoint — and
+    without a way to enumerate them a misspelling is indistinguishable from a
+    project that simply has no data yet. Callers use this to say "did you mean"
+    instead of "nothing found".
+    """
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (p:Project)
+            OPTIONAL MATCH (p)-[:HAS_TEST]->(t:TestCase)
+            OPTIONAL MATCH (p)-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)
+            RETURN p.name AS name,
+                   count(DISTINCT t) AS test_count,
+                   count(DISTINCT e) AS run_count
+            ORDER BY run_count DESC, name
+            """
+        )
+        projects = [dict(r) for r in rows]
+    return {"projects": projects}
+
+
 @app.get("/execution/logs")
 def execution_logs(project: str, limit: int = 20, authorization: str | None = Header(default=None)):
     """Recent execution logs with their walked paths (for the dashboard timeline)."""

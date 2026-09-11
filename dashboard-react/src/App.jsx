@@ -37,6 +37,9 @@ export default function App() {
   const [tab, setTab] = useState('dashboard')
   const [selectedExec, setSelectedExec] = useState(null)
   const [openSteps, setOpenSteps] = useState(null)
+  const [reportBusy, setReportBusy] = useState(false)
+  const [reportErr, setReportErr] = useState('')
+  const [projects, setProjects] = useState([])
   const lastOk = useRef(0)
 
   const poll = useCallback(async (proj) => {
@@ -45,6 +48,13 @@ export default function App() {
       if (!r.ok) throw new Error('HTTP ' + r.status)
       setData(await r.json()); setErr(null); lastOk.current = Date.now()
     } catch (e) { setErr(e.message) }
+  }, [])
+
+  useEffect(() => {
+    fetch('/dashboard/projects')
+      .then(r => r.json())
+      .then(d => setProjects(d.projects || []))
+      .catch(() => { /* the box still works as free text */ })
   }, [])
 
   useEffect(() => {
@@ -105,6 +115,32 @@ export default function App() {
     const u = new URL(location); u.searchParams.set('project', p); history.replaceState({}, '', u)
   }
 
+  // The report is generated on demand (it writes prose with the model), so this
+  // waits on the response rather than being a plain link — a bare <a> would look
+  // dead for the tens of seconds the model takes.
+  async function downloadReport() {
+    setReportBusy(true); setReportErr('')
+    try {
+      const r = await fetch(`/report/run.pdf?project=${encodeURIComponent(project)}`)
+      if (!r.ok) {
+        let msg = 'HTTP ' + r.status
+        try { const j = await r.json(); if (typeof j.detail === 'string') msg = j.detail } catch { /* not JSON */ }
+        setReportErr(msg); return
+      }
+      const blob = await r.blob()
+      const match = (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = (match && match[1]) || 'test-report.pdf'
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setReportErr(e.message)
+    } finally {
+      setReportBusy(false)
+    }
+  }
+
   return (
     <>
       <header>
@@ -116,9 +152,18 @@ export default function App() {
           <button className={'tab' + (tab === 'targets' ? ' active' : '')} onClick={() => setTab('targets')}>Targets</button>
         </nav>
         <span className="spacer" />
+        <button className="tab" onClick={downloadReport} disabled={reportBusy}
+                title="Download a PDF report on the most recent batch of runs">
+          {reportBusy ? 'Generating…' : '⬇ Report'}
+        </button>
         <span className="live"><span className={dotCls} /><span className="pill">{ago}</span></span>
-        <input defaultValue={project} onBlur={(e) => changeProject(e.target.value)}
+        <input defaultValue={project} list="known-projects" onBlur={(e) => changeProject(e.target.value)}
                onKeyDown={(e) => { if (e.key === 'Enter') changeProject(e.target.value) }} style={{ width: 150 }} />
+        <datalist id="known-projects">
+          {projects.map(p => (
+            <option key={p.name} value={p.name}>{`${p.run_count} runs · ${p.test_count} tests`}</option>
+          ))}
+        </datalist>
         <label className="pill" style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
           <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} style={{ width: 'auto', padding: 0 }} /> auto
         </label>
@@ -126,6 +171,7 @@ export default function App() {
 
       <main>
         {err ? <div className="banner">Could not reach the gateway (/dashboard/data): {err}. Is it running on :9100?</div> : null}
+        {reportErr ? <div className="banner">Could not generate the report: {reportErr}</div> : null}
 
         {tab === 'targets' ? <Targets /> : <>
         <section className="kpis">

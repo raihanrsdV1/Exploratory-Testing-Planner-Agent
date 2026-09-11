@@ -540,6 +540,31 @@ ENV_FAULT = frozenset({"PRECONDITION_NOT_MET", "PERMISSION_DENIED",
                        # defect discovered in the site under test.
                        "LLM_UNAVAILABLE"})
 
+
+def classify_run(verdict: str, error_type: str) -> str:
+    """Attribute one finished run: 'pass' | 'app' | 'agent' | 'environment' | 'unclassified'.
+
+    Lives here, with the sets it reads, because every caller that re-implements
+    this comparison is a copy that can drift — the exact failure the taxonomy
+    above was centralised to stop. A reader-facing report must never call an
+    agent timeout a defect, so the decision is made from the recorded
+    error_type and never by a model.
+
+    A bare 'failed' with no error_type counts as an APP fault: the executor
+    records a type for every outcome it attributes to itself, so an untyped
+    failure is an assertion the app did not satisfy.
+    """
+    v, et = (verdict or "").strip().lower(), (error_type or "").strip().upper()
+    if v in ("pass", "passed"):
+        return "pass"
+    if et in APP_FAULT or (v == "failed" and not et):
+        return "app"
+    if et in AGENT_FAULT:
+        return "agent"
+    if et in ENV_FAULT:
+        return "environment"
+    return "unclassified"
+
 # ══════════════════════════════════════════════════════════════════════════════
 # WEB PLAYER (Playwright)  —  see web_player/
 # ══════════════════════════════════════════════════════════════════════════════

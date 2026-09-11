@@ -31,7 +31,7 @@ from observability import degradations, get_logger, setup_logging
 from observability.middleware import RequestLoggingMiddleware
 from observability.metrics import get_metrics
 
-from gateway import targets_api
+from gateway import report_api, targets_api
 from planner import config, model_client, pipeline, rag_client, textutil
 from planner.schemas import (
     ChatRequest,
@@ -101,6 +101,26 @@ def dashboard_page():
 )
 def dashboard_data(project: str):
     return pipeline.dashboard_data(project)
+
+
+@app.get(
+    "/report/run.pdf",
+    tags=["system"],
+    summary="Download the run report as a PDF",
+    description="A formal, human-readable report on the most recent batch of test runs: "
+                "what was planned, how much was executed, what was found and where, and "
+                "which failures are defects in the application rather than limits of the "
+                "automated tester. Narrative prose is written by the configured model "
+                "backend; every figure and attribution is computed from recorded data.",
+    response_class=Response,
+)
+def run_report(project: str):
+    pdf_bytes, filename = report_api.build_report(project)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # Dashboard-polling / plumbing noise to drop from the planner log stream so only
@@ -710,6 +730,18 @@ def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None 
     except Exception as exc:
         log.warning("trajectory_evaluation_failed", test_case_id=req.test_case_id, error=str(exc)[:200])
         return {"status": "skipped", "reason": str(exc)[:200]}
+
+
+@app.get("/dashboard/projects", include_in_schema=False)
+def dashboard_projects():
+    """Known project names, so the dashboard's project box can suggest instead of
+    relying on the operator to spell one from memory."""
+    try:
+        r = requests.get(f"{config.RAG_API_URL}/projects", timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except requests.RequestException:
+        return {"projects": []}
 
 
 @app.get("/dashboard/screenshot", include_in_schema=False)
