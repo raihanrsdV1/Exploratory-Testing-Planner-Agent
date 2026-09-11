@@ -213,6 +213,19 @@ _COLLECT_JS = r"""
     texts.push(t);
   }
 
+  // Human-verification widgets render inside a cross-origin iframe, so nothing
+  // above can see them. The agent was therefore submitting a form that silently
+  // refused, with no clue why, and wandering off to look for a different survey.
+  // It cannot solve one and must never try; it only needs to KNOW one is there.
+  const captchaFrame = Array.from(document.querySelectorAll('iframe')).find((f) => {
+    const src = (f.getAttribute('src') || '').toLowerCase();
+    return src.includes('recaptcha') || src.includes('hcaptcha')
+        || src.includes('turnstile') || src.includes('captcha');
+  });
+  const captchaHost = document.querySelector(
+    '.g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]');
+  const captcha = !!(captchaFrame || captchaHost);
+
   const modal = document.querySelector('[role=dialog],[role=alertdialog],dialog[open],[aria-modal=true]');
 
   return {
@@ -223,6 +236,7 @@ _COLLECT_JS = r"""
     messages: [...new Set(messages)],
     texts,
     dialog_open: !!(modal && isVisible(modal)),
+    captcha,
   };
 }
 """
@@ -284,6 +298,14 @@ def render(snap: dict) -> str:
     lines = [f"URL: {snap.get('url', '')}"]
     if snap.get("title"):
         lines.append(f"TITLE: {snap['title']}")
+    if snap.get("captcha"):
+        lines.append(
+            "A HUMAN-VERIFICATION CHALLENGE (CAPTCHA) IS ON THIS PAGE. You cannot "
+            "solve it and must not try. Anything behind it - submitting this form, "
+            "for example - is unreachable. If your test needs that, call finish "
+            "with success=false and say the test is BLOCKED BY CAPTCHA. Anything "
+            "in front of it (field validation, layout, navigation) is still testable."
+        )
     if snap.get("dialog_open"):
         lines.append("A MODAL DIALOG IS OPEN — deal with it before anything else.")
     if snap.get("error"):

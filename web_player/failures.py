@@ -62,6 +62,10 @@ _RECOVERY = {
         "action": "the executor model was unreachable; nothing was learned about the app — rerun when it is back",
         "retry": False,
     },
+    "BLOCKED_BY_CAPTCHA": {
+        "action": "a CAPTCHA gates this flow; use reCAPTCHA test keys or a bypass in the test environment",
+        "retry": False,
+    },
     "BLOCKED_BY_GUARDRAIL": {
         "action": "the test requires a control the guardrails forbid; report as blocked",
         "retry": False,
@@ -89,6 +93,9 @@ def classify(reason: str, success: bool = False) -> str:
 
     # 1. Not the app's fault, and not ours either — the run was refused or the
     #    test was impossible as written.
+    if any(k in r for k in ("captcha", "not a robot", "human verification",
+                            "recaptcha", "hcaptcha", "turnstile")):
+        return "BLOCKED_BY_CAPTCHA"
     if any(k in r for k in ("refused to", "blocked control", "blocked url",
                             "off-origin", "guardrail")):
         return "BLOCKED_BY_GUARDRAIL"

@@ -129,8 +129,8 @@ class ChatClient:
         raise LLMError(
             f"OpenRouter returned an empty answer (finish_reason="
             f"{choice.get('finish_reason')!r}, {len(reasoning)} chars of reasoning). "
-            f"The model spent its whole {self.max_tokens}-token budget on its "
-            f"scratchpad — raise WEB_LLM_MAX_TOKENS."
+            f"The model spent its whole {budget or self.max_tokens}-token budget "
+            f"on its scratchpad — raise WEB_LLM_MAX_TOKENS."
         )
 
     def _gemini(self, messages: list[dict], budget: int | None = None) -> str:
@@ -169,6 +169,23 @@ def _as_llm_error(exc: Exception | None) -> LLMError:
     return LLMError(f"{type(exc).__name__}: {exc}")
 
 
+def _matches(msg: str, tokens) -> bool:
+    """Match tokens in a message, with digits compared as whole numbers.
+
+    Bare substring matching on status codes is a trap: our own budget-overrun
+    message contains "4000", which contains "400", so every such error was read
+    as a permanent HTTP 400 and never retried. The escalating retry therefore
+    never ran even though it was implemented and tested.
+    """
+    for tok in tokens:
+        if tok.strip().isdigit():
+            if re.search(rf"(?<!\d){re.escape(tok)}(?!\d)", msg):
+                return True
+        elif tok in msg:
+            return True
+    return False
+
+
 def _is_transient(exc: Exception) -> bool:
     # Typed check first: a dropped connection is retryable whatever it says.
     # String matching alone missed ConnectionResetError entirely.
@@ -177,9 +194,9 @@ def _is_transient(exc: Exception) -> bool:
                         requests.exceptions.ChunkedEncodingError)):
         return True
     msg = str(exc).lower()
-    if any(tok in msg for tok in _PERMANENT_TOKENS):
+    if _matches(msg, _PERMANENT_TOKENS):
         return False
-    return any(tok in msg for tok in _RETRY_TOKENS)
+    return _matches(msg, _RETRY_TOKENS)
 
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)

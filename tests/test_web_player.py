@@ -503,6 +503,49 @@ def main():
     check("it is a nudge, not an accusation of being stuck",
           "going in circles" in prompts, False)
 
+    print("status codes are matched as numbers, not substrings")
+    # Our own budget-overrun message contains "4000", which contains "400", so
+    # every overrun was classified as a permanent HTTP 400 and never retried --
+    # the escalating retry was implemented, tested, and silently never ran.
+    from web_player.llm import _is_transient as _tr
+    overrun = ("OpenRouter returned an empty answer (finish_reason='length', 18720 "
+               "chars of reasoning). The model spent its whole 4000-token budget on "
+               "its scratchpad - raise WEB_LLM_MAX_TOKENS.")
+    check("a 4000-token overrun is retried, not read as HTTP 400",
+          _tr(llm.LLMError(overrun)), True)
+    check("an 8000-token overrun is retried too",
+          _tr(llm.LLMError(overrun.replace("4000", "8000"))), True)
+    check("a genuine HTTP 400 is still permanent",
+          _tr(llm.LLMError("OpenRouter 400: bad request")), False)
+    check("a genuine HTTP 404 is still permanent",
+          _tr(llm.LLMError("OpenRouter 404: no such model")), False)
+    check("HTTP 429 is still retried", _tr(llm.LLMError("OpenRouter 429: slow down")), True)
+
+    print("a CAPTCHA is seen, named, and blamed on the environment")
+    # reCAPTCHA renders in a cross-origin iframe, so the element walk never saw
+    # it. The agent submitted a form that silently refused, had no idea why, and
+    # wandered off looking for a different survey.
+    cap = snapshot.render({"url": "u", "captcha": True,
+                           "elements": [{"ref": "e1", "role": "button", "name": "Submit"}]})
+    check("the observation announces it", "CAPTCHA" in cap, True)
+    check("and forbids attempting it", "must not try" in cap, True)
+    check("and says what is still testable", "still testable" in cap, True)
+    check("a clean page says nothing about captchas",
+          "CAPTCHA" in snapshot.render({"url": "u", "elements": []}), False)
+
+    for reason in ("Blocked by CAPTCHA: cannot submit",
+                   "the page shows an 'I am not a robot' challenge",
+                   "reCAPTCHA prevents submission"):
+        check(f"classified from {reason[:32]!r}", failures.classify(reason), "BLOCKED_BY_CAPTCHA")
+    check("it is an environment fault, not the app's",
+          ("BLOCKED_BY_CAPTCHA" in st.ENV_FAULT, "BLOCKED_BY_CAPTCHA" in st.APP_FAULT), (True, False))
+    check("never retried - a retry cannot solve it",
+          failures.recovery_strategy("BLOCKED_BY_CAPTCHA")["retry"], False)
+    check("the fix is named in the recovery hint",
+          "test keys" in failures.recovery_strategy("BLOCKED_BY_CAPTCHA")["action"], True)
+    check("human hand-off is off by default (never stall a batch)",
+          st.WEB_CAPTCHA_PAUSE_SECONDS, 0)
+
     print("browser findings summarise honestly")
     empty = Findings()
     check("a clean run says so", "no console errors" in empty.summary(), True)

@@ -534,6 +534,10 @@ ENV_FAULT = frozenset({"PRECONDITION_NOT_MET", "PERMISSION_DENIED",
                        # Web-only: the agent was stopped by a configured
                        # guardrail (a destructive control, or a foreign origin).
                        "BLOCKED_BY_GUARDRAIL",
+                       # A human-verification challenge stands between the agent
+                       # and the behaviour under test. Not a defect, not an agent
+                       # failing - the environment is simply not automatable here.
+                       "BLOCKED_BY_CAPTCHA",
                        # OUR model provider was unreachable mid-test. Nothing was
                        # learned about the app. Previously this landed in CRASH —
                        # an APP fault — so an OpenRouter outage was recorded as a
@@ -663,6 +667,12 @@ WEB_CONSOLE_IGNORE = tuple(x.strip().lower() for x in _str(
     "WEB_CONSOLE_IGNORE",
     "favicon,third-party cookie,devtools,react devtools,download the react",
 ).split(",") if x.strip())
+
+# Seconds to pause when a CAPTCHA appears, so a person can solve it by hand.
+# 0 disables it, which is the right setting for any unattended batch: pausing
+# there would stall the whole run waiting for someone who is not watching.
+# Only meaningful with WEB_HEADLESS=false - there is nothing to click otherwise.
+WEB_CAPTCHA_PAUSE_SECONDS = _int("WEB_CAPTCHA_PAUSE_SECONDS", 0)
 
 WEB_SCREENSHOT_DIR = _str("WEB_SCREENSHOT_DIR", os.path.join(_ROOT, "logs", "web_shots"))
 

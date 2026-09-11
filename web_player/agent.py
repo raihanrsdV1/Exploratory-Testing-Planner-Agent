@@ -114,6 +114,8 @@ class WebAgent:
         pending = None
         dead_controls: list[str] = []
         cycles: dict[str, int] = {}
+        nudged = False
+        captcha_handled = False
 
         for step in range(1, max_steps + 1):
             if time.time() - started > timeout_s:
@@ -125,6 +127,9 @@ class WebAgent:
 
             self.last_step = step
             snap = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
+            if snap.get("captcha") and not captcha_handled:
+                captcha_handled = True
+                snap = await self._offer_human_solve(snap)
             _track_url(urls, snap.get("url", ""))
             self.last_urls = urls
             observation = snapshot.render(snap)
@@ -195,7 +200,8 @@ class WebAgent:
             #    motivated this cycled thirteen times.
             signature = _signature(snap, action)
             cycles[signature] = cycles.get(signature, 0) + 1
-            if cycles[signature] == _CYCLE_CONCLUDE:
+            if cycles[signature] == _CYCLE_CONCLUDE and not nudged:
+                nudged = True
                 # The decisive fix for the commonest stall. A test like "type a
                 # value, leave without saving, come back and see whether it is
                 # still there" ANSWERS ITSELF on the second pass: the field is
@@ -204,14 +210,11 @@ class WebAgent:
                 # six times. Repetition here is evidence, not failure - so say so
                 # before any guard treats it as a stall.
                 history.append(
-                    "NOTE: you have now performed this same action from this same "
-                    "page state twice, and the page has come back to a state you "
-                    "have already seen. If what you are looking at IS the outcome "
-                    "your test was checking - a field empty again, a list unchanged, "
-                    "a value that did or did not survive - then that is your "
-                    "evidence: call finish and report it. Repeating the sequence a "
-                    "third time cannot tell you anything new. Only continue if you "
-                    "genuinely have not yet observed the outcome."
+                    "NOTE: you have now done this twice and the page is back to a "
+                    "state you already saw. If that repeated result IS what your "
+                    "test was checking (a field empty again, a value that did or "
+                    "did not survive), that is your evidence - call finish and "
+                    "report it. Doing it again cannot tell you anything new."
                 )
                 trace.outcome("nudge: this repetition may already be the answer", ok=True)
             if cycles[signature] >= _CYCLE_ABORT:
@@ -273,9 +276,35 @@ class WebAgent:
             max_steps, history, urls,
         )
 
+    async def _offer_human_solve(self, snap: dict) -> dict:
+        """Pause for a person to solve a CAPTCHA, when someone is actually watching.
+
+        Off by default. An unattended batch must never block on a human: it would
+        hang until the per-test timeout and teach us nothing. With a headed browser
+        and a person present, though, solving it by hand is far better than
+        abandoning the test.
+        """
+        seconds = getattr(self.cfg, "WEB_CAPTCHA_PAUSE_SECONDS", 0)
+        if seconds <= 0 or getattr(self.cfg, "WEB_HEADLESS", True):
+            trace.emit("")
+            trace.emit("      CAPTCHA on the page - the agent cannot solve it. "
+                       "Set WEB_CAPTCHA_PAUSE_SECONDS (with WEB_HEADLESS=false) "
+                       "to solve it by hand, or use reCAPTCHA test keys.")
+            return snap
+        trace.emit("")
+        trace.emit(f"      CAPTCHA on the page - PAUSING {seconds}s for you to solve "
+                   f"it in the browser window.")
+        try:
+            await self.page.wait_for_timeout(seconds * 1000)
+        except Exception:
+            return snap
+        fresh = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
+        trace.emit("      resumed - CAPTCHA still present: %s" % bool(fresh.get("captcha")))
+        return fresh
+
     def _messages(self, goal: str, history: list[str], observation: str,
                   step: int, max_steps: int, dead: list[str] | None = None) -> list[dict]:
-        recent = history[-12:]
+        recent = [h if len(h) <= 320 else h[:317] + "..." for h in history[-12:]]
         log = "\n".join(recent) if recent else "(nothing yet — this is your first action)"
         if dead:
             # Refs change every turn, so these are remembered by label. Without it
