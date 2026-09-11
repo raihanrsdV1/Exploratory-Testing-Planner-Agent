@@ -26,6 +26,8 @@ Two things this loop does that a naive version does not:
 from __future__ import annotations
 
 import hashlib
+import os
+import sys
 import time
 from dataclasses import dataclass, field
 
@@ -47,6 +49,37 @@ _CYCLE_CONCLUDE = 2
 # and how often it re-checks whether the challenge has cleared.
 _CAPTCHA_WAIT_DEFAULT = 180
 _CAPTCHA_POLL_MS = 3000
+# How often to beep again while still waiting for a person.
+_CAPTCHA_REMIND_SECONDS = 20
+
+
+def _alert(times: int = 3) -> None:
+    """Make an audible noise, because nobody is watching the terminal.
+
+    The terminal bell (``\\a``) alone is not enough: Windows Terminal ignores it
+    by default, and on many systems the bell sound is switched off entirely. A
+    run sat at a CAPTCHA in silence for five minutes and failed, with someone at
+    the machine the whole time.
+
+    So on Windows this plays an actual two-tone chime through ``winsound``, which
+    does not depend on any terminal setting, and falls back to the bell elsewhere.
+    Never raises: no alert is worth interrupting a run for.
+    """
+    try:
+        if os.name == "nt":
+            import winsound
+
+            for _ in range(max(1, times)):
+                winsound.Beep(880, 180)   # A5
+                winsound.Beep(1320, 180)  # E6 - a rising pair carries across a room
+            return
+    except Exception:
+        pass
+    try:
+        sys.stdout.write("\a" * max(1, times))
+        sys.stdout.flush()
+    except Exception:
+        pass
 
 _SYSTEM_PROMPT = """\
 You are an exploratory QA engineer driving a real web browser to execute one test case.
@@ -321,9 +354,10 @@ class WebAgent:
         trace.emit(f"      The run resumes by itself the moment it clears "
                    f"(waiting up to {limit}s).")
         trace.emit("      " + "=" * 62)
-        print("", end="", flush=True)  # audible bell: the window may be behind others
+        _alert(3)
 
         waited = 0
+        next_reminder = _CAPTCHA_REMIND_SECONDS
         while waited < limit:
             try:
                 await self.page.wait_for_timeout(_CAPTCHA_POLL_MS)
@@ -333,7 +367,16 @@ class WebAgent:
             fresh = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
             if not fresh.get("captcha"):
                 trace.emit(f"      solved after {waited:.0f}s - continuing")
+                _alert(1)  # one short chirp: you are free to walk away again
                 return fresh, ""
+            if waited >= next_reminder:
+                # Keep nagging. A single beep at the start is easy to miss if
+                # you were out of the room, and five minutes of silence looks
+                # exactly like a run that is merely slow.
+                remaining = int(limit - waited)
+                trace.emit(f"      still waiting for the CAPTCHA - {remaining}s left")
+                _alert(2)
+                next_reminder = waited + _CAPTCHA_REMIND_SECONDS
 
         return snap, (
             f"Blocked by CAPTCHA: the challenge was still unsolved after {limit}s. "

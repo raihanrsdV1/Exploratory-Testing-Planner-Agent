@@ -796,6 +796,23 @@ def main():
     check("a solved one is not",
           "CAPTCHA" in snapshot.render({"url": "u", "captcha": False, "elements": []}), False)
 
+    print("the CAPTCHA pause is audible and keeps reminding")
+    # A run sat silently at a CAPTCHA for five minutes and failed with someone at
+    # the machine throughout: the terminal bell alone is ignored by Windows
+    # Terminal and is switched off on many systems.
+    check("an alert helper exists", callable(getattr(agent_mod, "_alert", None)), True)
+    check("it never raises, whatever happens", agent_mod._alert(0), None)
+    check("reminders are frequent enough to catch someone returning",
+          0 < agent_mod._CAPTCHA_REMIND_SECONDS <= 30, True)
+    check("and far shorter than the wait itself",
+          agent_mod._CAPTCHA_REMIND_SECONDS < agent_mod._CAPTCHA_WAIT_DEFAULT, True)
+    src_agent = _io.open("web_player/agent.py", encoding="utf-8").read() if False else None
+    import io as _io2
+    src2 = _io2.open("web_player/agent.py", encoding="utf-8").read()
+    check("it does not rely on the terminal bell alone", "winsound" in src2, True)
+    check("the wait loop re-alerts", "next_reminder = waited" in src2, True)
+    check("and chirps once when released", "free to walk away again" in src2, True)
+
     print("browser findings summarise honestly")
     empty = Findings()
     check("a clean run says so", "no console errors" in empty.summary(), True)
