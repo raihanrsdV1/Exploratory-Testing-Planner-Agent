@@ -29,6 +29,11 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # dashboard's live view.
 LOG_PATH = os.environ.get("WEB_TRACE_FILE") or os.path.join(_ROOT, "logs", "web_player.log")
 
+# Identifies the writing process. A batch once emitted rounds 1,2,2,3,3,4,5,4 into
+# this file - impossible for a single loop - and nothing recorded which process
+# wrote which line, so it could not be traced. Every line now carries its origin.
+_RUN_ID = str(os.getpid())
+
 _fh = None
 
 
@@ -53,7 +58,7 @@ def emit(text: str = "") -> None:
     try:
         stamp = datetime.now().strftime("%H:%M:%S")
         for line in str(text).splitlines() or [""]:
-            fh.write(f"{stamp} {line}\n")
+            fh.write(f"{stamp} [{_RUN_ID}] {line}\n")
         fh.flush()
     except Exception:
         pass

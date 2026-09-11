@@ -601,6 +601,75 @@ def main():
     check("and says what to do instead",
           "WEB_TIMEOUT" in failures.recovery_strategy("TIMEOUT")["action"], True)
 
+    print("a blocked click reports what is blocking it")
+    # Playwright names the element sitting on top; we were discarding it and
+    # telling the agent only "covered, off-screen, or disabled" - three guesses
+    # and no way to choose. Three such clicks cost 10s each in one run.
+    from web_player.actions import _why_not_actionable as _why
+    pw = ("Locator.click: Timeout 10000ms exceeded." + chr(10) +
+          "  -   element is visible, enabled and stable" + chr(10) +
+          '  -   <div class="modal-backdrop"></div> intercepts pointer events')
+    msg = _why(Exception(pw))
+    check("the blocking element is named", "modal-backdrop" in msg, True)
+    check("and why it blocks", "intercepts pointer events" in msg, True)
+    check("a bare timeout still gets an honest fallback",
+          "no reason" in _why(Exception("Timeout 10000ms exceeded.")), True)
+    check("the explanation is bounded", len(_why(Exception(pw * 20))) < 400, True)
+
+    print("the CAPTCHA hand-off follows the real browser, not the config")
+    # One run reported "the run is headless" on one test and correctly asked for
+    # help on the next - same process, same settings. Deciding from config at the
+    # moment of use was unreliable; the launched browser is the authority.
+    import asyncio as _a5
+    from web_player import agent as _ag5
+
+    capt5 = {"url": "u", "captcha": True, "messages": [], "texts": [], "elements": []}
+
+    async def _obs5(_p, _m):
+        return capt5
+
+    real5 = _ag5.snapshot.observe
+    _ag5.snapshot.observe = _obs5
+    try:
+        # cfg claims headed, but the browser really is headless: trust the browser.
+        class _CfgHeaded:
+            def __getattr__(self, k):
+                return False if k == "WEB_HEADLESS" else getattr(st, k)
+        ag5 = _ag5.WebAgent(page=None, cfg=_CfgHeaded(), client=None)
+        ag5.headless = True
+        res5 = _a5.run(ag5._handle_captcha(capt5))
+    finally:
+        _ag5.snapshot.observe = real5
+
+    check("a truly headless browser fails fast even if cfg says headed",
+          "headless" in res5[1], True)
+    check("the agent defaults to asking config when unset",
+          _ag5.WebAgent(page=None, cfg=st, client=None).headless, None)
+
+    print("one test case writes exactly one execution record")
+    # A 5-round batch produced 8 execution rows, one round logging twice. Every
+    # metric built on those rows - steps, durations, verdict counts - was wrong.
+    import re as _re
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "web_player", "runner.py"), encoding="utf-8").read()
+    nl2 = chr(10)
+    body = src.split("async def execute_test_case")[1].split(nl2 + "def ")[0]
+    check("every exit path goes through the guarded logger",
+          "gateway.log_execution(tc," in body, False)
+    check("the guard exists", "def log_once(" in body, True)
+    check("and it refuses a second write", "already recorded" in body, True)
+    check("all four exit paths use it", body.count("log_once(tc,"), 4)
+
+    print("navigation falls back when a page never goes idle")
+    # reset_to_base waited for networkidle with no fallback; an app that polls
+    # never reaches it, so a whole test case died at the navigation timeout
+    # before taking a single step.
+    bsrc = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "web_player", "browser.py"), encoding="utf-8").read()
+    reset = bsrc.split("async def reset_to_base")[1].split("async def")[0]
+    check("reset_to_base tries networkidle", "networkidle" in reset, True)
+    check("and falls back to domcontentloaded", "domcontentloaded" in reset, True)
+
     print("browser findings summarise honestly")
     empty = Findings()
     check("a clean run says so", "no console errors" in empty.summary(), True)

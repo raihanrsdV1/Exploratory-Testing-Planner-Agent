@@ -97,6 +97,8 @@ class WebAgent:
         # had really taken ten.
         self.last_step = 0
         self.last_urls: list[str] = []
+        # Set by the runner from the live BrowserSession. None means "ask config".
+        self.headless: bool | None = None
 
     async def run(self, goal: str, max_steps: int, timeout_s: float) -> AgentResult:
         started = time.time()
@@ -299,7 +301,11 @@ class WebAgent:
 
         Returns ``(snapshot, blocked_reason)``; a non-empty reason ends the test.
         """
-        if getattr(self.cfg, "WEB_HEADLESS", True):
+        headless = self.headless
+        if headless is None:
+            headless = bool(getattr(self.cfg, "WEB_HEADLESS", True))
+        trace.emit(f"      CAPTCHA detected (browser headless={headless})")
+        if headless:
             return snap, (
                 "Blocked by CAPTCHA: a human-verification challenge stands between "
                 "the agent and this behaviour, and the run is headless so nobody can "

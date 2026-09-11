@@ -139,9 +139,8 @@ class Dispatcher:
                 pass
             return ActionError(
                 f"[{ref}] is still on the page but did not accept the action within "
-                f"the timeout — it may be covered by an overlay, off-screen, or "
-                f"disabled. Try scrolling to it, dismissing any overlay, or a "
-                f"different control.",
+                f"the timeout. {_why_not_actionable(exc)} Dismiss whatever is "
+                f"covering it, scroll it into view, or use a different control.",
                 category="TIMEOUT",
             )
         return ActionError(f"Timed out performing {action.get('action')}.", category="TIMEOUT")
@@ -240,6 +239,29 @@ async def _goto_settled(page, url: str, cfg) -> None:
         # networkidle never arrives on a page that polls. Land the navigation the
         # cheap way instead of failing the action outright.
         await page.goto(url, timeout=cfg.WEB_NAV_TIMEOUT_MS, wait_until="domcontentloaded")
+
+
+# Playwright retries an action and logs why each attempt failed. Those lines name
+# the actual obstacle - usually the element sitting on top - and we were throwing
+# them away, leaving the agent to guess between "covered, off-screen, or disabled".
+_ACTIONABILITY_HINTS = (
+    "intercepts pointer events", "not visible", "not stable", "not enabled",
+    "not editable", "outside of the viewport", "hidden", "disabled",
+)
+
+
+def _why_not_actionable(exc: Exception) -> str:
+    """Pull Playwright's own explanation out of a timeout, if it gave one."""
+    text = str(exc)
+    found = []
+    for line in text.splitlines():
+        line = line.strip().lstrip("- ").strip()
+        low = line.lower()
+        if any(h in low for h in _ACTIONABILITY_HINTS) and line not in found:
+            found.append(line)
+    if not found:
+        return "The page gave no reason; it may be covered, off-screen or disabled."
+    return "The browser reported: " + "; ".join(found[:2])[:220] + "."
 
 
 def _is_timeout(exc: Exception) -> bool:

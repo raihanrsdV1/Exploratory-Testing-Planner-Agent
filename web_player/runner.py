@@ -99,6 +99,16 @@ def preflight() -> None:
 async def execute_test_case(session: BrowserSession, collector: Collector,
                             client: ChatClient, tc: dict) -> dict:
     """Run one test case end to end. Returns {verdict, notes, duration_seconds}."""
+    logged: list[bool] = []
+
+    def log_once(*args, **kwargs):
+        """Record this execution exactly once, whichever exit path we leave by."""
+        if logged:
+            print("   (execution already recorded for this test case; not logging twice)")
+            return
+        logged.append(True)
+        gateway.log_execution(*args, **kwargs)
+
     tc_id = tc.get("test_case_id", "?")
     title = tc.get("title", "?")
     goal = goal_mod.build_goal(tc)
@@ -117,7 +127,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
         notes = f"Could not open {cfg.WEB_BASE_URL}: {type(exc).__name__}: {exc}"
         print(f"\n❌ {notes}")
         kind = failures.classify(notes)
-        gateway.log_execution(tc, "failed", duration * 1000, 0, [],
+        log_once(tc, "failed", duration * 1000, 0, [],
                               error_type=kind or "NAVIGATION_FAILURE", error_message=notes)
         # A closed browser cannot be navigated by the next test either. Ending the
         # batch beats four more rounds of zero-step failures, each one recorded as
@@ -126,6 +136,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
                 "aborted": kind == "BROWSER_CLOSED"}
 
     agent = WebAgent(session.page, cfg, client)
+    agent.headless = session.headless   # the truth about this browser, not config
 
     try:
         result = await agent.run(goal, cfg.WEB_MAX_STEPS, cfg.WEB_TIMEOUT)
@@ -138,7 +149,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
                  f"run to a verdict and NOTHING was learned about the site. {exc}")
         trace.emit("")
         trace.emit(f"🛑 Executor model unavailable: {str(exc)[:200]}")
-        gateway.log_execution(tc, "failed", duration * 1000,
+        log_once(tc, "failed", duration * 1000,
                               getattr(agent, "last_step", 0),
                               getattr(agent, "last_urls", []),
                               error_type="LLM_UNAVAILABLE", error_message=str(exc)[:500])
@@ -152,7 +163,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
         await session.screenshot(f"{tc_id}-crash")
         # Report what the agent actually did. A hardcoded 0 erased ~10 real
         # steps from the record and made the run impossible to account for.
-        gateway.log_execution(tc, "failed", duration * 1000,
+        log_once(tc, "failed", duration * 1000,
                               getattr(agent, "last_step", 0),
                               getattr(agent, "last_urls", []),
                               error_type="CRASH",
@@ -218,7 +229,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
     if shot:
         trace.emit(f"   Screenshot: {shot}")
 
-    gateway.log_execution(tc, verdict, duration * 1000, steps, result.urls,
+    log_once(tc, verdict, duration * 1000, steps, result.urls,
                           error_type=logged_error_type,
                           error_message=("" if success else reason[:500]),
                           recovery_action=recovery_action)
