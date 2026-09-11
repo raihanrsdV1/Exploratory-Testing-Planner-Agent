@@ -116,9 +116,14 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
         duration = time.time() - started
         notes = f"Could not open {cfg.WEB_BASE_URL}: {type(exc).__name__}: {exc}"
         print(f"\n❌ {notes}")
+        kind = failures.classify(notes)
         gateway.log_execution(tc, "failed", duration * 1000, 0, [],
-                              error_type="NAVIGATION_FAILURE", error_message=notes)
-        return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
+                              error_type=kind or "NAVIGATION_FAILURE", error_message=notes)
+        # A closed browser cannot be navigated by the next test either. Ending the
+        # batch beats four more rounds of zero-step failures, each one recorded as
+        # though our navigation were at fault.
+        return {"verdict": "failed", "notes": notes, "duration_seconds": duration,
+                "aborted": kind == "BROWSER_CLOSED"}
 
     agent = WebAgent(session.page, cfg, client)
 

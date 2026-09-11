@@ -543,8 +543,63 @@ def main():
           failures.recovery_strategy("BLOCKED_BY_CAPTCHA")["retry"], False)
     check("the fix is named in the recovery hint",
           "test keys" in failures.recovery_strategy("BLOCKED_BY_CAPTCHA")["action"], True)
-    check("human hand-off is off by default (never stall a batch)",
-          st.WEB_CAPTCHA_PAUSE_SECONDS, 0)
+    print("the browser mode decides who deals with a CAPTCHA")
+    import asyncio as _a4
+    from web_player import agent as _ag4
+
+    class _Cfg(dict):
+        def __getattr__(self, k):
+            try: return self[k]
+            except KeyError: return getattr(st, k)
+
+    capt = {"url": "u", "captcha": True, "messages": [], "texts": [],
+            "elements": [{"ref": "e1", "role": "button", "name": "Submit"}]}
+
+    async def _capt_observe(_p, _m):
+        return capt
+
+    class _Never:
+        def chat(self, _m): return '{"action":"click","ref":"e1"}'
+
+    real4 = _ag4.snapshot.observe
+    _ag4.snapshot.observe = _capt_observe
+    try:
+        # Headless: nobody is watching, so fail at once rather than burn the budget.
+        ag4 = _ag4.WebAgent(page=None, cfg=_Cfg(WEB_HEADLESS=True), client=_Never())
+        res4 = _a4.run(ag4.run("goal", max_steps=20, timeout_s=20))
+    finally:
+        _ag4.snapshot.observe = real4
+
+    check("headless fails immediately", res4.steps, 1)
+    check("headless names the CAPTCHA", "CAPTCHA" in res4.reason, True)
+    check("headless says why nobody can help", "headless" in res4.reason, True)
+    check("headless suggests the real fix", "test keys" in res4.reason, True)
+    check("it classifies as a CAPTCHA block",
+          failures.classify(res4.reason), "BLOCKED_BY_CAPTCHA")
+    check("which is an environment fault, never the app's",
+          "BLOCKED_BY_CAPTCHA" in st.ENV_FAULT, True)
+    check("headed waiting has a sane built-in default",
+          _ag4._CAPTCHA_WAIT_DEFAULT >= 60, True)
+
+    print("a browser that has gone away is not our navigation failing")
+    # One batch left the browser open 28 minutes at a CAPTCHA; it closed, and the
+    # four remaining tests each failed in 0s as NAVIGATION_FAILURE - an AGENT
+    # fault, blaming our navigation for a browser that no longer existed.
+    gone = ("Could not open https://x: TargetClosedError: Page.goto: Target page, "
+            "context or browser has been closed")
+    check("classified as the browser being gone", failures.classify(gone), "BROWSER_CLOSED")
+    check("an environment fault", "BROWSER_CLOSED" in st.ENV_FAULT, True)
+    check("never an agent fault", "BROWSER_CLOSED" in st.AGENT_FAULT, False)
+    check("never an app fault", "BROWSER_CLOSED" in st.APP_FAULT, False)
+    check("not retried - there is nothing to retry into",
+          failures.recovery_strategy("BROWSER_CLOSED")["retry"], False)
+
+    print("a wall-clock timeout is not retried with a bigger clock")
+    # Self-heal used to retry a TIMEOUT with double the budget: one case ran
+    # 1728s - nearly half an hour - and still failed.
+    check("TIMEOUT is not retried", failures.recovery_strategy("TIMEOUT")["retry"], False)
+    check("and says what to do instead",
+          "WEB_TIMEOUT" in failures.recovery_strategy("TIMEOUT")["action"], True)
 
     print("browser findings summarise honestly")
     empty = Findings()

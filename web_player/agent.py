@@ -43,6 +43,10 @@ _CYCLE_ABORT = 6
 # When a sequence comes round a second time, the repetition is usually the
 # test's own answer rather than a stall. Nudge before any guard punishes it.
 _CYCLE_CONCLUDE = 2
+# How long a headed run waits for a person, when no explicit limit is set,
+# and how often it re-checks whether the challenge has cleared.
+_CAPTCHA_WAIT_DEFAULT = 180
+_CAPTCHA_POLL_MS = 3000
 
 _SYSTEM_PROMPT = """\
 You are an exploratory QA engineer driving a real web browser to execute one test case.
@@ -129,7 +133,10 @@ class WebAgent:
             snap = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
             if snap.get("captcha") and not captcha_handled:
                 captcha_handled = True
-                snap = await self._offer_human_solve(snap)
+                snap, blocked = await self._handle_captcha(snap)
+                if blocked:
+                    trace.outcome(blocked, ok=False)
+                    return AgentResult(False, blocked, step, history, urls)
             _track_url(urls, snap.get("url", ""))
             self.last_urls = urls
             observation = snapshot.render(snap)
@@ -276,31 +283,57 @@ class WebAgent:
             max_steps, history, urls,
         )
 
-    async def _offer_human_solve(self, snap: dict) -> dict:
-        """Pause for a person to solve a CAPTCHA, when someone is actually watching.
+    async def _handle_captcha(self, snap: dict) -> tuple[dict, str]:
+        """A CAPTCHA is the one obstacle the agent must hand back to a person.
 
-        Off by default. An unattended batch must never block on a human: it would
-        hang until the per-test timeout and teach us nothing. With a headed browser
-        and a person present, though, solving it by hand is far better than
-        abandoning the test.
+        The browser mode decides what that means, because it decides whether
+        anyone is there to help:
+
+        * **Headed** - a window is open, so ask. The run waits, watching for the
+          challenge to disappear, and carries straight on once it is solved. This
+          is the only way to reach anything behind the challenge until the
+          application itself is configured with reCAPTCHA test keys.
+        * **Headless** - nobody is watching a window that does not exist, so
+          waiting would burn the per-test timeout and end in the same place.
+          Fail the test immediately, naming the CAPTCHA.
+
+        Returns ``(snapshot, blocked_reason)``; a non-empty reason ends the test.
         """
-        seconds = getattr(self.cfg, "WEB_CAPTCHA_PAUSE_SECONDS", 0)
-        if seconds <= 0 or getattr(self.cfg, "WEB_HEADLESS", True):
-            trace.emit("")
-            trace.emit("      CAPTCHA on the page - the agent cannot solve it. "
-                       "Set WEB_CAPTCHA_PAUSE_SECONDS (with WEB_HEADLESS=false) "
-                       "to solve it by hand, or use reCAPTCHA test keys.")
-            return snap
+        if getattr(self.cfg, "WEB_HEADLESS", True):
+            return snap, (
+                "Blocked by CAPTCHA: a human-verification challenge stands between "
+                "the agent and this behaviour, and the run is headless so nobody can "
+                "solve it. Re-run with WEB_HEADLESS=false to solve it by hand, or "
+                "configure reCAPTCHA test keys in the test environment."
+            )
+
+        limit = getattr(self.cfg, "WEB_CAPTCHA_PAUSE_SECONDS", 0) or _CAPTCHA_WAIT_DEFAULT
         trace.emit("")
-        trace.emit(f"      CAPTCHA on the page - PAUSING {seconds}s for you to solve "
-                   f"it in the browser window.")
-        try:
-            await self.page.wait_for_timeout(seconds * 1000)
-        except Exception:
-            return snap
-        fresh = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
-        trace.emit("      resumed - CAPTCHA still present: %s" % bool(fresh.get("captcha")))
-        return fresh
+        trace.emit("      " + "=" * 62)
+        trace.emit("      CAPTCHA - YOUR INPUT IS NEEDED")
+        trace.emit("      Solve the challenge in the browser window that is open.")
+        trace.emit(f"      The run resumes by itself the moment it clears "
+                   f"(waiting up to {limit}s).")
+        trace.emit("      " + "=" * 62)
+        print("", end="", flush=True)  # audible bell: the window may be behind others
+
+        waited = 0
+        while waited < limit:
+            try:
+                await self.page.wait_for_timeout(_CAPTCHA_POLL_MS)
+            except Exception:
+                break
+            waited += _CAPTCHA_POLL_MS / 1000
+            fresh = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
+            if not fresh.get("captcha"):
+                trace.emit(f"      solved after {waited:.0f}s - continuing")
+                return fresh, ""
+
+        return snap, (
+            f"Blocked by CAPTCHA: the challenge was still unsolved after {limit}s. "
+            f"Configure reCAPTCHA test keys in the test environment, or raise "
+            f"WEB_CAPTCHA_PAUSE_SECONDS."
+        )
 
     def _messages(self, goal: str, history: list[str], observation: str,
                   step: int, max_steps: int, dead: list[str] | None = None) -> list[dict]:
