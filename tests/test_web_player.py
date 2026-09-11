@@ -681,6 +681,11 @@ def main():
 
     original = _rl.LOCK_PATH
     _rl.LOCK_PATH = _os.path.join(_tf.mkdtemp(), "batch.lock")
+    # Neutralise the live-process scan: this block tests the lock FILE. Leaving it
+    # on made the suite fail whenever a real batch happened to be running, which
+    # is a reading of the machine, not a regression in the code.
+    _orig_scan = _rl.find_other_batches
+    _rl.find_other_batches = lambda: []
     try:
         first = _rl.RunLock(profile="p", rounds=5).__enter__()
         check("the first batch takes the lock", _os.path.exists(_rl.LOCK_PATH), True)
@@ -713,6 +718,64 @@ def main():
         check("our own pid reads as alive", _rl._pid_alive(_os.getpid()), True)
     finally:
         _rl.LOCK_PATH = original
+        _rl.find_other_batches = _orig_scan
+
+    print("the batch detector never mistakes a run for its own rival")
+    # The venv launcher runs as a parent/child pair with identical command lines.
+    # If the detector counted its own parent or child, every legitimate run would
+    # refuse itself at startup and nothing could ever start.
+    import sys as _sys
+    import types as _types
+    from web_player import runlock as _rl2
+
+    me = _os.getpid()
+
+    class _P:
+        def __init__(self, pid, cmd, name="python.exe"):
+            self.info = {"pid": pid, "name": name, "cmdline": cmd.split()}
+
+    class _Self:
+        def ppid(self): return 4242          # our launcher parent
+        def children(self, recursive=True):  # a child we spawned
+            return [_types.SimpleNamespace(pid=4343)]
+
+    fake = _types.ModuleType("psutil")
+    fake.Process = lambda pid=None: _Self()
+    fake.process_iter = lambda attrs=None: [
+        _P(me,    "python -m targets.run profile"),      # ourselves
+        _P(4242,  "python -m targets.run profile"),      # our venv parent
+        _P(4343,  "python -m targets.run profile"),      # our child
+        _P(9001,  "python -m targets.run other"),        # a REAL rival
+        _P(9002,  "python -m http.server"),              # unrelated python
+        _P(9003,  "node server.js", name="node.exe"),    # not python
+    ]
+    saved = _sys.modules.get("psutil")
+    _sys.modules["psutil"] = fake
+    try:
+        found = _rl2.find_other_batches()
+    finally:
+        if saved is not None: _sys.modules["psutil"] = saved
+        else: _sys.modules.pop("psutil", None)
+
+    pids = [pid for pid, _ in found]
+    check("the rival batch is found", 9001 in pids, True)
+    check("we never count ourselves", me in pids, False)
+    check("nor our venv launcher parent", 4242 in pids, False)
+    check("nor a child we spawned", 4343 in pids, False)
+    check("unrelated python is ignored", 9002 in pids, False)
+    check("non-python is ignored", 9003 in pids, False)
+    check("exactly one rival", len(found), 1)
+
+    # Without psutil the detector must degrade to silence, not to an exception.
+    _sys.modules["psutil"] = None
+    try:
+        degraded = _rl2.find_other_batches()
+    except Exception as exc:
+        degraded = "raised: %s" % exc
+    finally:
+        if saved is not None: _sys.modules["psutil"] = saved
+        else: _sys.modules.pop("psutil", None)
+    check("no psutil degrades to the lock file alone", degraded, [])
 
     print("browser findings summarise honestly")
     empty = Findings()

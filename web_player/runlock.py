@@ -65,6 +65,52 @@ def _read() -> dict | None:
         return None
 
 
+# Command-line fragments that identify a process as a batch of this player.
+# Matched against the whole command line, so both `-m targets.run` and a script
+# that calls `web_player.runner` directly are caught.
+_PLAYER_MARKERS = ("targets.run", "web_player.runner", "web_player/runner")
+
+
+def find_other_batches() -> list[tuple[int, str]]:
+    """Live player processes other than this one, as (pid, command line).
+
+    The lock file alone governs only processes that took a lock. It cannot see a
+    batch that started before the lock existed, or one launched by a script that
+    bypasses the runner - and both happened. Scanning for the processes
+    themselves closes that hole: whoever started first wins, lock or no lock.
+
+    psutil is optional. Without it this returns nothing and the lock file remains
+    the only guard, which is the previous behaviour rather than a new failure.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return []
+    me = os.getpid()
+    mine = {me}
+    try:  # our own parent/child (a venv launcher re-exec) is not a second batch
+        proc = psutil.Process(me)
+        mine.add(proc.ppid())
+        mine.update(child.pid for child in proc.children(recursive=True))
+    except Exception:
+        pass
+
+    found = []
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            pid = proc.info["pid"]
+            if pid in mine:
+                continue
+            if "python" not in (proc.info["name"] or "").lower():
+                continue
+            cmd = " ".join(proc.info["cmdline"] or [])
+            if any(marker in cmd for marker in _PLAYER_MARKERS):
+                found.append((pid, cmd[:160]))
+        except Exception:
+            continue  # the process may exit while we look at it
+    return found
+
+
 class RunLock:
     """Context manager holding the batch lock for this process."""
 
@@ -74,6 +120,18 @@ class RunLock:
         self.held = False
 
     def __enter__(self) -> "RunLock":
+        # Processes first: a batch that never took a lock is still a batch.
+        others = find_other_batches()
+        if others:
+            nl = chr(10)
+            listed = nl.join(f"    pid {pid}: {cmd}" for pid, cmd in others[:3])
+            raise RunInProgress(
+                "Another batch of this player is already running:" + nl + listed + nl
+                + "  Two batches share the knowledge graph, the site and the trace "
+                  "log, and each would corrupt the other's results. Wait for it, or "
+                  "stop it first."
+            )
+
         existing = _read()
         if existing:
             pid = int(existing.get("pid") or 0)

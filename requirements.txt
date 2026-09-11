@@ -14,6 +14,10 @@ logtail-python
 # Browser driver for the website executor. After installing, fetch the browser
 # binaries once:   playwright install chromium
 playwright
+# Lets the run lock spot a batch that never took a lock - one started
+# before the lock existed, or launched by a script bypassing the runner.
+# Optional: without it the lock file alone guards concurrency.
+psutil
 
 # ── Smart ingestion ─────────────────────────────────────────────────────────
 # Format-agnostic document loading (PDF/DOCX/PPTX/HTML/MD/...).
