@@ -777,6 +777,25 @@ def main():
         else: _sys.modules.pop("psutil", None)
     check("no psutil degrades to the lock file alone", degraded, [])
 
+    print("a solved challenge stops blocking, a present one does not")
+    # A solved reCAPTCHA does NOT disappear - it shows a green tick and the widget
+    # stays. Testing presence alone kept reporting "CAPTCHA on the page" after a
+    # person had solved it: the run waited out its full 300s and failed the test
+    # as unsolved, with the way actually clear the whole time.
+    js = io.open("web_player/snapshot.py", encoding="utf-8").read() if False else None
+    import io as _io
+    src = _io.open("web_player/snapshot.py", encoding="utf-8").read()
+    check("the response token is what is inspected",
+          "g-recaptcha-response" in src, True)
+    check("hCaptcha's token too", "h-captcha-response" in src, True)
+    check("Turnstile's token too", "cf-turnstile-response" in src, True)
+    check("blocking requires present AND unsolved", "&& !solved" in src, True)
+    # The rendered observation must only warn while it genuinely blocks.
+    check("an unsolved challenge is announced",
+          "CAPTCHA" in snapshot.render({"url": "u", "captcha": True, "elements": []}), True)
+    check("a solved one is not",
+          "CAPTCHA" in snapshot.render({"url": "u", "captcha": False, "elements": []}), False)
+
     print("browser findings summarise honestly")
     empty = Findings()
     check("a clean run says so", "no console errors" in empty.summary(), True)

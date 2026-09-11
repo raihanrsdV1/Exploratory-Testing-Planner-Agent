@@ -224,7 +224,17 @@ _COLLECT_JS = r"""
   });
   const captchaHost = document.querySelector(
     '.g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]');
-  const captcha = !!(captchaFrame || captchaHost);
+  // A SOLVED challenge does not go away - reCAPTCHA just shows a green tick, and
+  // the iframe and .g-recaptcha host both remain. Testing for presence alone kept
+  // reporting "CAPTCHA on the page" after a person had already solved it, so the
+  // run waited out its whole 300s and then failed the test as unsolved.
+  // Every provider exposes a response token that is empty until solved; that, not
+  // the widget, is what says whether the way is clear.
+  const token = document.querySelector(
+    'textarea[name="g-recaptcha-response"], textarea#g-recaptcha-response, ' +
+    'textarea[name="h-captcha-response"], input[name="cf-turnstile-response"]');
+  const solved = !!(token && String(token.value || '').trim().length > 0);
+  const captcha = !!(captchaFrame || captchaHost) && !solved;
 
   const modal = document.querySelector('[role=dialog],[role=alertdialog],dialog[open],[aria-modal=true]');
 
