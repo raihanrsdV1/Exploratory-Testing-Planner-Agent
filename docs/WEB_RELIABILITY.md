@@ -12,13 +12,12 @@ must preserve those failures rather than make every test pass.
   attempted titles with each planner request. The first plan also receives the
   actual entry-page observation. Constraints are request-scoped because the
   gateway may serve multiple targets.
-- Both planner modes reject infeasible or duplicate proposals. A rejected retry
-  cannot be forcibly accepted. The browser independently checks admission, so
-  a stale gateway cannot dispatch an obviously unsupported test.
-- File upload, drag-and-drop, and download inspection remain unsupported. Those
-  objectives are rejected before execution; they have not been implemented or
-  silently converted into different tests. Direct API probes are excluded from
-  this UI execution contract.
+- Both planner modes reject malformed or duplicate proposals. A rejected retry
+  cannot be forcibly accepted. Earlier feature-keyword restrictions and the
+  simple-first-test preference have been removed; see [passive exploration](WEB_EXPLORATION.md).
+- File upload, drag-and-drop, and download inspection remain unsupported tools,
+  but mentioning them or an API path no longer rejects a proposal. Existing
+  target safety guards still govern actual actions.
 - The browser requests JSON schema responses and validates finish booleans.
   Model calls run off the browser event loop, so dialogs and network events can
   be handled while the model responds. Per-test deadlines include initial

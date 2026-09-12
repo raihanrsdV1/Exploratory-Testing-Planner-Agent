@@ -4,74 +4,74 @@
       "methods": {
         "GET": 200
       },
-      "seen": 49
+      "seen": 64
     },
     "/api/collaborator/all-projects": {
       "methods": {
         "GET": 200
       },
-      "seen": 36
+      "seen": 51
     },
     "/api/fetch-survey-user/:slug": {
       "methods": {
         "GET": 200
       },
-      "seen": 5
+      "seen": 6
     },
     "/api/get-saved-survey": {
       "methods": {
         "GET": 200
       },
-      "seen": 6
+      "seen": 8
     },
     "/api/get-user-packages": {
       "methods": {
         "GET": 200
       },
-      "seen": 9
+      "seen": 14
     },
     "/api/profile": {
       "methods": {
         "GET": 200
       },
-      "seen": 59
+      "seen": 78
     },
     "/api/project": {
       "methods": {
         "GET": 200
       },
-      "seen": 50
+      "seen": 67
     },
     "/api/project/:id": {
       "methods": {
         "GET": 200
       },
-      "seen": 11
+      "seen": 16
     },
     "/api/project/:id/collaborators": {
       "methods": {
         "GET": 200
       },
-      "seen": 11
+      "seen": 16
     },
     "/api/project/:id/fetchaccess": {
       "methods": {
         "GET": 200
       },
-      "seen": 11
+      "seen": 16
     },
     "/api/project/:id/surveys": {
       "methods": {
         "GET": 200
       },
-      "seen": 373
+      "seen": 536
     },
     "/api/project/create-project": {
       "methods": {
         "GET": 500,
         "POST": 201
       },
-      "seen": 7
+      "seen": 9
     },
     "/api/question-bank": {
       "methods": {
@@ -91,11 +91,17 @@
       },
       "seen": 2
     },
+    "/api/surveytemplate": {
+      "methods": {
+        "PUT": 201
+      },
+      "seen": 1
+    },
     "/api/surveytemplate/:id": {
       "methods": {
         "GET": 200
       },
-      "seen": 6
+      "seen": 9
     },
     "/api/surveytemplate/save": {
       "methods": {
@@ -107,13 +113,13 @@
       "methods": {
         "GET": 200
       },
-      "seen": 6
+      "seen": 8
     },
     "/api/template-share/shared-with-me": {
       "methods": {
         "GET": 200
       },
-      "seen": 6
+      "seen": 8
     }
   },
   "project": "dataghurhi-auth"

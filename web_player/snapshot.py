@@ -106,6 +106,9 @@ _COLLECT_JS = r"""
     const ref = 'e' + (++i);
     el.setAttribute('data-etp-ref', ref);
     const entry = { ref, role: roleOf(el), name: accessibleName(el) };
+    for (const attr of ['selected', 'expanded']) {
+      if (el.hasAttribute('aria-' + attr)) entry[attr] = el.getAttribute('aria-' + attr) === 'true';
+    }
     if (el.disabled) entry.disabled = true;
     if (el.required || el.getAttribute('aria-required') === 'true') entry.required = true;
     // Native HTML5 validation renders as a browser tooltip that is in no node,
@@ -248,6 +251,7 @@ _COLLECT_JS = r"""
     messages: [...new Set(messages)],
     texts,
     dialog_open: !!(modal && isVisible(modal)),
+    dialog_name: modal && isVisible(modal) ? accessibleName(modal) : '',
     loading: Array.from(document.querySelectorAll('[aria-busy="true"],[role="progressbar"]')).some(isVisible)
       || texts.some((t) => /^loading[.\s…]*$/i.test(t)),
     captcha,

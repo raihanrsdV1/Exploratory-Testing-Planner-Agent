@@ -636,6 +636,10 @@ WEB_LLM_PROVIDER = _str("WEB_LLM_PROVIDER", EXECUTOR_LLM_PROVIDER)
 WEB_LLM_MODEL = _str("WEB_LLM_MODEL", EXECUTOR_LLM_MODEL)
 WEB_LLM_MAX_TOKENS = _int("WEB_LLM_MAX_TOKENS", 1500)
 WEB_VERIFY_VERDICTS = _bool("WEB_VERIFY_VERDICTS", True)
+WEB_EXPLORATION_ENABLED = _bool("WEB_EXPLORATION_ENABLED", True)
+WEB_EXPLORATION_DB = _str("WEB_EXPLORATION_DB", os.path.join(os.path.dirname(__file__), "data", "exploration", "web.sqlite3"))
+WEB_EXPLORATION_QUERY_KEYS = tuple(k.strip().lower() for k in _str(
+    "WEB_EXPLORATION_QUERY_KEYS", "tab,view,mode,section,step,lang,page,route").split(",") if k.strip())
 
 # ── Guardrails ───────────────────────────────────────────────────────────────
 # An exploratory agent on a website is one click away from ending its own run or

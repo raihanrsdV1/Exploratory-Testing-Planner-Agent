@@ -38,6 +38,7 @@ from . import llm as llm_mod
 from . import snapshot
 from . import trace
 from . import review
+from .exploration import create_recorder
 
 # Occurrences of one (page, action) pair before warning, then before giving up.
 _LIVELOCK_WARN = 2
@@ -155,11 +156,15 @@ class WebAgent:
     async def run(self, goal: str, max_steps: int, timeout_s: float) -> AgentResult:
         self.last_step = 0
         self.last_urls = []
+        self.exploration = create_recorder(self.cfg)
         try:
             return await asyncio.wait_for(self._run(goal, max_steps, timeout_s), timeout=timeout_s)
         except asyncio.TimeoutError:
             return AgentResult(False, f"Timed out after {timeout_s:.0f}s at step {self.last_step}/{max_steps}.",
                                self.last_step, urls=self.last_urls)
+        finally:
+            if self.exploration is not None:
+                self.exploration.close()
 
     async def _run(self, goal: str, max_steps: int, timeout_s: float) -> AgentResult:
         started = time.time()
@@ -208,6 +213,8 @@ class WebAgent:
                 captcha_handled = True
                 snap, blocked = await self._handle_captcha(snap)
                 if blocked:
+                    if self.exploration is not None:
+                        self.exploration.observe(snap)
                     trace.outcome(blocked, ok=False)
                     return AgentResult(False, blocked, step, history, urls)
             _track_url(urls, snap.get("url", ""))
@@ -228,6 +235,8 @@ class WebAgent:
                     observation += (nl + nl + "BROWSER DIALOGS since your last "
                                     "action (already answered for you):" + nl
                                     + "  " + (nl + "  ").join(dialogs))
+            if self.exploration is not None:
+                self.exploration.observe(snap)
             content_signature = _content_signature(snap)
 
             if pending is not None:
@@ -376,6 +385,8 @@ class WebAgent:
                 )
                 trace.outcome("warning: several different actions, unchanged page", ok=False)
 
+            if self.exploration is not None:
+                self.exploration.attempted(action, snap)
             try:
                 note = await self.dispatcher.perform(action, snap)
                 history.append(f"step {step}: {note}")
@@ -384,6 +395,8 @@ class WebAgent:
                 pending = (len(history) - 1, content_signature,
                            element.get("name", ""), signature)
             except actions_mod.ActionError as exc:
+                if self.exploration is not None:
+                    self.exploration.attempted(action, snap, exc.category)
                 history.append(f"step {step}: FAILED — {exc}")
                 trace.outcome(f"REFUSED/FAILED — {exc}", ok=False)
                 if exc.category == "BLOCKED_BY_GUARDRAIL":
@@ -391,6 +404,8 @@ class WebAgent:
                     # budget discovering that it is still not negotiable.
                     return AgentResult(False, str(exc), step, history, urls)
             except Exception as exc:
+                if self.exploration is not None:
+                    self.exploration.attempted(action, snap, type(exc).__name__)
                 history.append(f"step {step}: FAILED — {type(exc).__name__}: {exc}")
                 trace.outcome(f"FAILED — {type(exc).__name__}: {str(exc)[:160]}", ok=False)
 

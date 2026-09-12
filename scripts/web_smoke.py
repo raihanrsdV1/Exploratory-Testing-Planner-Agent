@@ -19,6 +19,7 @@ from web_player.agent import WebAgent
 from web_player.browser import BrowserSession
 from web_player.llm import ChatClient
 from web_player.oracles import Collector
+from web_player.exploration.store import GraphStore
 
 HTML = """<!doctype html><html lang="en"><title>QA fixture</title><body>
 <h1>Projects</h1>
@@ -45,8 +46,16 @@ class ScriptedClient:
 
 
 async def main(live=False):
+    with tempfile.TemporaryDirectory(prefix="web-smoke-graph-") as graph_dir:
+        return await _main(live, os.path.join(graph_dir, "web.sqlite3"))
+
+
+async def _main(live, graph_path):
     cfg = SimpleNamespace(**{k: getattr(settings, k) for k in dir(settings) if not k.startswith("_")})
     cfg.WEB_BASE_URL = "https://qa-fixture.test"
+    cfg.PROJECT = "web-smoke"
+    cfg.WEB_EXPLORATION_ENABLED = True
+    cfg.WEB_EXPLORATION_DB = graph_path
     cfg.WEB_STORAGE_STATE = ""
     cfg.WEB_HEADLESS = True
     cfg.WEB_SLOW_MO_MS = 0
@@ -77,6 +86,15 @@ async def main(live=False):
             ok = result.success and visible and not collector.findings.verdict_override(cfg)
             passed += ok
             print(f"{'PASS' if ok else 'FAIL'} {name}: {result.steps} steps; {result.reason}")
+    namespace = "web-smoke|https://qa-fixture.test/|" + ",".join(cfg.WEB_EXPLORATION_QUERY_KEYS)
+    store = GraphStore(graph_path, namespace, read_only=True)
+    try:
+        graph = store.export()
+        assert len(graph["nodes"]) >= 2, "Passive recorder missed browser states"
+        assert sum(e["observations"] for e in graph["edges"]) >= 2, "Passive recorder missed browser actions"
+        print(f"Passive graph: {len(graph['nodes'])} states, {len(graph['edges'])} transitions (isolated temporary store)")
+    finally:
+        store.close()
     print(f"{passed}/{len(cases)} browser smoke tests passed ({'configured model' if live else 'scripted client'})")
     return 0 if passed == len(cases) else 1
 

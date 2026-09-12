@@ -25,6 +25,7 @@ dashboard-react/dist/
 
 # ── Live App Model runtime artifacts (state screenshots) ──────────────────────
 data/appmodel/
+data/exploration/
 
 # ── Captured browser sessions (Playwright storage_state) ──────────────────────
 # These hold live auth cookies/tokens for the site under test — committing one

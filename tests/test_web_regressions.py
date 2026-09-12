@@ -32,17 +32,17 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(planning.rejection_errors({"title": "Project navigation", "objective": "Open Projects",
                           "expected_result": "The project list appears"}, planning.contract(cfg())), [])
 
-    def test_unexecutable_tests_rejected(self):
+    def test_feature_keywords_do_not_restrict_planning(self):
         for objective in ("Click Change Password", "Verify drag-and-drop data file import",
                           "Upload a CSV", "GET /api/project/create-project"):
             with self.subTest(objective=objective):
-                self.assertTrue(planning.rejection_errors({"title": objective, "objective": objective,
-                                "expected_result": "works"}, planning.contract(cfg())))
+                self.assertEqual(planning.rejection_errors({"title": objective, "objective": objective,
+                                "expected_result": "works"}, planning.contract(cfg())), [])
 
-    def test_empty_account_assumption_rejected(self):
-        self.assertTrue(planning.rejection_errors({"title": "Empty state", "objective": "Open Projects",
+    def test_empty_state_not_rejected_by_keywords(self):
+        self.assertEqual(planning.rejection_errors({"title": "Empty state", "objective": "Open Projects",
                         "expected_result": "Empty", "preconditions": ["User has no existing projects"]},
-                        planning.contract(cfg())))
+                        planning.contract(cfg())), [])
 
     def test_duplicate_rejected_even_if_graph_has_not_logged_it(self):
         tc = {"title": "Verify project search clears results", "objective": "Search", "expected_result": "Results"}
@@ -138,7 +138,7 @@ class PlannerGateTests(unittest.TestCase):
 
     def test_tools_never_force_a_rejected_proposal_into_browser(self):
         from planner import agent_loop as p
-        tc = {"title": "Verify file upload", "objective": "Upload a file", "expected_result": "Imported"}
+        tc = {"title": "Verify file upload", "objective": "Upload a file", "expected_result": ""}
         message = {"role": "assistant", "content": None, "tool_calls": [
             {"id": "proposal", "type": "function", "function": {
                 "name": "propose_test_case", "arguments": json.dumps(tc)}}]}

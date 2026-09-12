@@ -329,8 +329,7 @@ async def _run_batch(rounds: int) -> None:
         _header("PLANNER → GENERATING FIRST TEST CASE")
         try:
             tc = (gateway.next_testcase(feedback=(
-                "This is the first test. Choose one simple observable UI behavior reachable "
-                "from these actual controls. Verify a meaningful state or navigation result.\n"
+                "Current observed starting screen (not a limit on test complexity or coverage):\n"
                 + snapshot.render(initial)
             )) or {}).get("next_testcase", {})
         except Exception as exc:
