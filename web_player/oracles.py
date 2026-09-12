@@ -19,6 +19,7 @@ They are collected always and used two ways:
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from dataclasses import dataclass, field
 
 
@@ -30,10 +31,11 @@ class Findings:
     page_errors: list[str] = field(default_factory=list)
     http_failures: list[str] = field(default_factory=list)   # 5xx — the app broke
     http_client_errors: list[str] = field(default_factory=list)  # 4xx — often expected
+    network_errors: list[str] = field(default_factory=list)
 
     def is_empty(self) -> bool:
         return not (self.console_errors or self.page_errors
-                    or self.http_failures or self.http_client_errors)
+                    or self.http_failures or self.http_client_errors or self.network_errors)
 
     def counts(self) -> dict[str, int]:
         return {
@@ -41,6 +43,7 @@ class Findings:
             "page_errors": len(self.page_errors),
             "http_5xx": len(self.http_failures),
             "http_4xx": len(self.http_client_errors),
+            "network_errors": len(self.network_errors),
         }
 
     def summary(self, limit: int = 3) -> str:
@@ -53,6 +56,7 @@ class Findings:
             ("HTTP 5xx", self.http_failures),
             ("console error", self.console_errors),
             ("HTTP 4xx", self.http_client_errors),
+            ("network error", self.network_errors),
         ):
             if items:
                 shown = "; ".join(items[:limit])
@@ -108,6 +112,7 @@ class Collector:
     def reset(self) -> None:
         """Start a fresh set of findings — called between test cases."""
         self.findings = Findings()
+        self.dialogs = []
 
     # ── handlers (never raise: a listener that throws kills the page) ─────────
 
@@ -138,6 +143,8 @@ class Collector:
                 self.registry.record(response.request.method, response.url, status)
             if status < 400:
                 return
+            if urlsplit(response.url).netloc != urlsplit(self.cfg.WEB_BASE_URL).netloc:
+                return
             entry = f"{status} {response.request.method} {_short_url(response.url)}"
             bucket = (self.findings.http_failures if status >= 500
                       else self.findings.http_client_errors)
@@ -149,10 +156,12 @@ class Collector:
         try:
             # Blocked/aborted requests are mostly ad-blockers and analytics; only
             # a same-origin failure says anything about the app under test.
-            if not request.url.lower().startswith(self.cfg.WEB_BASE_URL.lower()):
+            if urlsplit(request.url).netloc != urlsplit(self.cfg.WEB_BASE_URL).netloc:
                 return
             failure = getattr(request, "failure", None) or "request failed"
-            self._add(self.findings.http_failures,
+            if "ERR_ABORTED" in failure or "NS_BINDING_ABORTED" in failure:
+                return  # Navigation cancels pending requests; there was no HTTP response.
+            self._add(self.findings.network_errors,
                       f"FAILED {request.method} {_short_url(request.url)} ({failure})")
         except Exception:
             pass
@@ -210,4 +219,8 @@ class Collector:
 
 
 def _short_url(url: str, limit: int = 120) -> str:
+    parsed = urlsplit(url)
+    query = [(k, "[REDACTED]" if any(s in k.lower() for s in ("token", "key", "password", "secret", "auth")) else v)
+             for k, v in parse_qsl(parsed.query, keep_blank_values=True)]
+    url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), ""))
     return url if len(url) <= limit else url[:limit] + "…"

@@ -1520,7 +1520,7 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             SET p.updated_at = $now
             MERGE (t:TestCase {id:$internal_test_id})
             SET t.project = $project, t.title = $title, t.area = $area,
-                t.external_id = $external_test_case_id, t.test_type = $test_type,
+                t.external_id = $external_test_case_id,
                 t.last_verdict = $verdict, t.last_notes = $notes,
                 t.last_run_at = $now, t.updated_at = $now
             """
@@ -1530,6 +1530,7 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
             # values with empty strings on that second call.
             + ("SET t.generation_prompt = $generation_prompt\n" if req.generation_prompt else "")
             + ("SET t.generation_answer = $generation_answer\n" if req.generation_answer else "")
+            + ("SET t.test_type = $test_type\n" if req.test_type else "")
             + """
             MERGE (p)-[:HAS_TEST]->(t)
             MERGE (fa:FeatureArea {key:$feature_key})
@@ -2169,7 +2170,8 @@ def execution_log(req: ExecutionLogRequest, authorization: str | None = Header(d
     _check_auth(authorization)
     now = _utc_now()
     log_id = f"{req.project}::exec::{_slug(req.test_case_id) or 'tc'}::{now}"
-    internal_tc = f"{req.project}::tc::{_slug(req.title)}" if req.title else ""
+    key_basis = (req.test_case_id or "").strip() or req.title
+    internal_tc = f"{req.project}::tc::{_slug(key_basis)}" if key_basis else ""
     with driver.session() as session:
         session.run(
             """

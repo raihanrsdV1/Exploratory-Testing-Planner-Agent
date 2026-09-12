@@ -36,7 +36,7 @@ for _stream in (sys.stdout, sys.stderr):  # emoji on a cp1252 console
 import requests  # noqa: E402
 
 import settings as cfg  # noqa: E402
-from web_player import failures, gateway, goal as goal_mod, trace  # noqa: E402
+from web_player import failures, gateway, goal as goal_mod, trace, snapshot  # noqa: E402
 from web_player.agent import WebAgent  # noqa: E402
 from web_player.api_registry import for_project  # noqa: E402
 from web_player.browser import BrowserSession  # noqa: E402
@@ -135,6 +135,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
         # batch beats four more rounds of zero-step failures, each one recorded as
         # though our navigation were at fault.
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration,
+                "error_type": kind, "attribution": cfg.classify_run("failed", kind),
                 "aborted": kind == "BROWSER_CLOSED"}
 
     agent = WebAgent(session.page, cfg, client)
@@ -143,7 +144,8 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
     agent.collector = collector
 
     try:
-        result = await agent.run(goal, cfg.WEB_MAX_STEPS, cfg.WEB_TIMEOUT)
+        remaining = max(0, cfg.WEB_TIMEOUT - (time.time() - started))
+        result = await agent.run(goal, cfg.WEB_MAX_STEPS, remaining)
     except LLMError as exc:
         # Our executor model, not the site. Recording this as a CRASH would file
         # a defect against the app for an outage on our side — and CRASH is an
@@ -158,6 +160,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
                               getattr(agent, "last_urls", []),
                               error_type="LLM_UNAVAILABLE", error_message=str(exc)[:500])
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration,
+                "error_type": "LLM_UNAVAILABLE", "attribution": "environment",
                 "aborted": True}
     except Exception as exc:
         duration = time.time() - started
@@ -170,11 +173,15 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
         log_once(tc, "failed", duration * 1000,
                               getattr(agent, "last_step", 0),
                               getattr(agent, "last_urls", []),
-                              error_type="CRASH",
+                              error_type="NAVIGATION_FAILURE",
                               error_message=f"{type(exc).__name__}: {exc}"[:500])
-        return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
+        return {"verdict": "failed", "notes": notes, "duration_seconds": duration,
+                "error_type": "NAVIGATION_FAILURE", "attribution": "agent"}
 
     success, reason, steps = result.success, result.reason, result.steps
+    if success and failures.incomplete_reason(reason):
+        success = False
+        reason = "Precondition not met: the agent did not verify the complete objective. " + reason
     error_type = failures.classify(reason, success)
     recovery_action = ""
 
@@ -184,7 +191,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
         if strategy["retry"]:
             print(f"\n🔧 Self-heal: {error_type} → {strategy['action']} (retrying once)")
             retry_goal = goal_mod.build_retry_goal(tc, error_type, reason, strategy)
-            budget = cfg.WEB_TIMEOUT * 2 if error_type == "TIMEOUT" else cfg.WEB_TIMEOUT
+            budget = max(0, cfg.WEB_TIMEOUT - (time.time() - started))
             try:
                 retry = await agent.run(retry_goal, cfg.WEB_MAX_STEPS, budget)
                 steps += retry.steps
@@ -194,6 +201,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
                     recovery_action = f"{error_type}: {strategy['action']} -> RECOVERED"
                 else:
                     reason = retry.reason
+                    error_type = failures.classify(reason)
                     recovery_action = f"{error_type}: {strategy['action']} -> still failed"
             except LLMError as exc:
                 recovery_action = f"{error_type}: model unavailable during recovery ({exc})"
@@ -237,7 +245,8 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
                           error_type=logged_error_type,
                           error_message=("" if success else reason[:500]),
                           recovery_action=recovery_action)
-    return {"verdict": verdict, "notes": notes, "duration_seconds": duration}
+    return {"verdict": verdict, "notes": notes, "duration_seconds": duration,
+            "error_type": logged_error_type, "attribution": cfg.classify_run(verdict, logged_error_type)}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -306,23 +315,6 @@ async def _run_batch(rounds: int) -> None:
         except Exception as exc:
             print(f"  ⚠️  reset failed: {exc}")
 
-    _header("PLANNER → GENERATING FIRST TEST CASE")
-    try:
-        tc = (gateway.next_testcase() or {}).get("next_testcase", {})
-    except Exception as exc:
-        print(f"❌ Could not get a test case from the planner: {_short_error(exc)}")
-        print("   The gateway is up but its model backend is not. Check the "
-              "planner's model provider before rerunning.")
-        return
-    # The planner is goal-based since the redesign: it emits objective +
-    # screen_hint, not a step list (see planner/prompts.py's output contract).
-    # Requiring 'steps' here aborted every run against a current planner.
-    if not _is_executable(tc):
-        print("❌ Planner returned an empty test case. Aborting.")
-        return
-    print("Generated test case:")
-    _show_testcase(tc)
-
     client = ChatClient(cfg)
     results: list[dict] = []
 
@@ -330,6 +322,24 @@ async def _run_batch(rounds: int) -> None:
         registry = for_project(cfg.PROJECT)
         collector = Collector(session.page, cfg, registry)
         collector.attach()
+
+        # Ground the first plan in the actual signed-in page, not just the SRS.
+        await session.reset_to_base()
+        initial = await snapshot.observe(session.page, cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
+        _header("PLANNER → GENERATING FIRST TEST CASE")
+        try:
+            tc = (gateway.next_testcase(feedback=(
+                "This is the first test. Choose one simple observable UI behavior reachable "
+                "from these actual controls. Verify a meaningful state or navigation result.\n"
+                + snapshot.render(initial)
+            )) or {}).get("next_testcase", {})
+        except Exception as exc:
+            print(f"Could not get a feasible test case: {_short_error(exc)}")
+            return
+        if not _is_executable(tc):
+            print("Planner returned an empty test case. Aborting.")
+            return
+        _show_testcase(tc)
 
         for i in range(1, rounds + 1):
             _header(f"ROUND {i}/{rounds}")
@@ -360,7 +370,11 @@ async def _run_batch(rounds: int) -> None:
 
             _header("PLANNER → GENERATING NEXT TEST CASE")
             try:
-                tc = (gateway.next_testcase() or {}).get("next_testcase", {})
+                tc = (gateway.next_testcase(
+                    excluded_titles=[r["title"] for r in results],
+                    feedback="\n".join(f"{r['title']}: {r.get('attribution', 'unknown')} / {r['notes'][:600]}"
+                                       for r in results[-5:]),
+                ) or {}).get("next_testcase", {})
             except Exception as exc:
                 # Losing the planner must not also lose the results of the rounds
                 # that DID run — that is what the summary below is for.
@@ -393,13 +407,27 @@ def _summarize(results: list[dict]) -> None:
     _header("EXECUTION SUMMARY (web)")
     total = len(results)
     passed = sum(1 for r in results if r["verdict"] == "pass")
+    classified = [r.get("attribution") or cfg.classify_run(r["verdict"], r.get("error_type", ""))
+                  for r in results]
+    app_failed = classified.count("app")
+    blocked = classified.count("environment")
+    agent_failed = classified.count("agent")
     print(f"  Total Rounds:   {total}")
+    print(f"  Site failures:  {app_failed}")
+    print(f"  Blocked:        {blocked}")
+    print(f"  Agent errors:   {agent_failed}")
+    print(f"  Completed assertions: {passed + app_failed}/{total}")
     print(f"  Passed:         {passed} ✅")
-    print(f"  Failed:         {total - passed} ❌")
+    print(f"  Not passed:     {total - passed} (includes blocked and agent errors)")
     print(f"  Total Duration: {sum(r['duration_seconds'] for r in results):.1f}s")
     print(f"  Pass Rate:      {(passed / total * 100) if total else 0:.0f}%")
     for r in results:
         status = "✅ PASS" if r["verdict"] == "pass" else "❌ FAILED"
+        attribution = r.get("attribution") or cfg.classify_run(r["verdict"], r.get("error_type", ""))
+        if attribution == "environment":
+            status = "BLOCKED"
+        elif attribution == "agent":
+            status = "AGENT ERROR"
         print(f"\n  {'─' * 66}")
         print(f"  Round {r['round']}: {r['test_case_id']} | {status} | {r['duration_seconds']:.1f}s")
         print(f"    Title: {r['title']}")

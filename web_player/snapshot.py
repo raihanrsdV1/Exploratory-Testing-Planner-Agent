@@ -241,11 +241,15 @@ _COLLECT_JS = r"""
   return {
     url: location.href,
     title: document.title || '',
+    viewport_width: window.innerWidth,
+    horizontal_overflow: document.documentElement.scrollWidth > window.innerWidth,
     elements: out,
     headings: [...new Set(headings)],
     messages: [...new Set(messages)],
     texts,
     dialog_open: !!(modal && isVisible(modal)),
+    loading: Array.from(document.querySelectorAll('[aria-busy="true"],[role="progressbar"]')).some(isVisible)
+      || texts.some((t) => /^loading[.\s…]*$/i.test(t)),
     captcha,
   };
 }
@@ -269,7 +273,7 @@ async def observe(page, max_elements: int) -> dict:
     """
     data = await _observe_once(page, max_elements)
     for _ in range(_SETTLE_RETRIES):
-        if data.get("elements") or data.get("error"):
+        if data.get("error") or (data.get("elements") and not data.get("loading")):
             break
         try:
             await page.wait_for_timeout(_SETTLE_DELAY_MS)
@@ -308,6 +312,8 @@ def render(snap: dict) -> str:
     lines = [f"URL: {snap.get('url', '')}"]
     if snap.get("title"):
         lines.append(f"TITLE: {snap['title']}")
+    if "horizontal_overflow" in snap:
+        lines.append(f"LAYOUT: viewport width={snap.get('viewport_width')}; horizontal overflow={snap['horizontal_overflow']}")
     if snap.get("captcha"):
         lines.append(
             "A HUMAN-VERIFICATION CHALLENGE (CAPTCHA) IS ON THIS PAGE. You cannot "
