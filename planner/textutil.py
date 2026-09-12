@@ -46,11 +46,31 @@ def extract_json_text(raw: str) -> str:
     return text
 
 
+def clean_req_id(value) -> str:
+    """Strip the decoration a model wraps around a copied requirement id.
+
+    The prompt lists requirements in brackets and the model copies the brackets
+    with the id - "[FR-PROJ-02]". Graph nodes carry "FR-PROJ-02", so every COVERS
+    edge silently failed to match and requirement coverage stayed near zero no
+    matter how many tests ran. Nothing errored, which is why it went unnoticed.
+    """
+    text = str(value or "").strip()
+    return text.strip("[](){}<>" + chr(34) + chr(39) + " \t.,;:")
+
+
+def _clean_ids(obj: dict) -> dict:
+    """Normalise requirement_ids in place on a parsed test case."""
+    ids = obj.get("requirement_ids")
+    if isinstance(ids, list):
+        obj["requirement_ids"] = [clean_req_id(i) for i in ids if clean_req_id(i)]
+    return obj
+
+
 def parse_testcase(raw: str) -> dict:
     try:
         obj = json.loads(extract_json_text(raw))
         if isinstance(obj, dict):
-            return obj
+            return _clean_ids(obj)
     except Exception:
         pass
     # Models often keep talking after the JSON object (or emit several). The
@@ -61,7 +81,7 @@ def parse_testcase(raw: str) -> dict:
         if start != -1:
             obj, _ = json.JSONDecoder().raw_decode(raw[start:])
             if isinstance(obj, dict):
-                return obj
+                return _clean_ids(obj)
     except Exception:
         pass
     return {"raw": raw}

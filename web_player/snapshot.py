@@ -108,6 +108,19 @@ _COLLECT_JS = r"""
     const entry = { ref, role: roleOf(el), name: accessibleName(el) };
     if (el.disabled) entry.disabled = true;
     if (el.required || el.getAttribute('aria-required') === 'true') entry.required = true;
+    // Native HTML5 validation renders as a browser tooltip that is in no node,
+    // so a form refusing to submit looked to the agent like a page that simply
+    // ignored the click. It probed six different ways and tripped the wandering
+    // guard — while testing validation, which is the thing it could not see.
+    if (typeof el.checkValidity === 'function' && !el.disabled) {
+      try {
+        if (!el.checkValidity()) {
+          entry.invalid = true;
+          const vm = (el.validationMessage || '').trim();
+          if (vm) entry.validation = clean(vm);
+        }
+      } catch (e) { /* not a form control */ }
+    }
     if (typeof el.checked === 'boolean' && ['checkbox', 'radio'].includes(entry.role)) {
       entry.checked = el.checked;
     }
@@ -116,13 +129,21 @@ _COLLECT_JS = r"""
     const valueIsNoise = ['checkbox', 'radio'].includes(entry.role);
     if (!valueIsNoise && 'value' in el && el.value !== undefined && el.value !== null) {
       const raw = String(el.value);
-      // Never echo a secret back into the prompt or the logs.
-      entry.value = entry.role === 'password' ? ('*'.repeat(raw.length)) : clean(raw);
+      // Never echo a secret into the prompt or the logs — but do not render it as
+      // a string of asterisks either. A model read '********' back out of its own
+      // observation and typed it as the new password on a real account; only the
+      // site's password policy stopped the change. Describe the field instead of
+      // showing something that looks like its contents.
+      if (entry.role === 'password') {
+        if (raw.length) entry.filled_chars = raw.length;
+      } else {
+        entry.value = clean(raw);
+      }
       // Report the TRUE length whenever we shorten the value for display.
       // Without this the agent reads a 300-character entry back as ~100 and
       // concludes the field truncated its input — a defect report about our own
       // rendering. It happened on the first real run.
-      if (raw.length > entry.value.length) entry.value_length = raw.length;
+      if (entry.value && raw.length > entry.value.length) entry.value_length = raw.length;
     }
     if (el.tagName.toLowerCase() === 'a' && el.getAttribute('href')) {
       entry.href = clean(el.getAttribute('href'));
@@ -192,6 +213,29 @@ _COLLECT_JS = r"""
     texts.push(t);
   }
 
+  // Human-verification widgets render inside a cross-origin iframe, so nothing
+  // above can see them. The agent was therefore submitting a form that silently
+  // refused, with no clue why, and wandering off to look for a different survey.
+  // It cannot solve one and must never try; it only needs to KNOW one is there.
+  const captchaFrame = Array.from(document.querySelectorAll('iframe')).find((f) => {
+    const src = (f.getAttribute('src') || '').toLowerCase();
+    return src.includes('recaptcha') || src.includes('hcaptcha')
+        || src.includes('turnstile') || src.includes('captcha');
+  });
+  const captchaHost = document.querySelector(
+    '.g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]');
+  // A SOLVED challenge does not go away - reCAPTCHA just shows a green tick, and
+  // the iframe and .g-recaptcha host both remain. Testing for presence alone kept
+  // reporting "CAPTCHA on the page" after a person had already solved it, so the
+  // run waited out its whole 300s and then failed the test as unsolved.
+  // Every provider exposes a response token that is empty until solved; that, not
+  // the widget, is what says whether the way is clear.
+  const token = document.querySelector(
+    'textarea[name="g-recaptcha-response"], textarea#g-recaptcha-response, ' +
+    'textarea[name="h-captcha-response"], input[name="cf-turnstile-response"]');
+  const solved = !!(token && String(token.value || '').trim().length > 0);
+  const captcha = !!(captchaFrame || captchaHost) && !solved;
+
   const modal = document.querySelector('[role=dialog],[role=alertdialog],dialog[open],[aria-modal=true]');
 
   return {
@@ -202,13 +246,40 @@ _COLLECT_JS = r"""
     messages: [...new Set(messages)],
     texts,
     dialog_open: !!(modal && isVisible(modal)),
+    captcha,
   };
 }
 """
 
 
+# A single-page app renders after `domcontentloaded`, so the first look at a new
+# route frequently finds nothing at all. 16% of observations in a real DataGhurhi
+# run reported zero controls, and the agent had to spend a whole turn on `wait`
+# to recover — roughly a sixth of its step budget. Re-reading here costs a second
+# of wall clock and saves a step, and it also covers in-page route changes that
+# fire no navigation event for the driver to wait on.
+_SETTLE_RETRIES = 3
+_SETTLE_DELAY_MS = 700
+
+
 async def observe(page, max_elements: int) -> dict:
-    """Snapshot the page. Never raises — a failed observation is still a turn."""
+    """Snapshot the page, re-reading briefly if it looks unrendered.
+
+    Never raises — a failed observation is still a turn.
+    """
+    data = await _observe_once(page, max_elements)
+    for _ in range(_SETTLE_RETRIES):
+        if data.get("elements") or data.get("error"):
+            break
+        try:
+            await page.wait_for_timeout(_SETTLE_DELAY_MS)
+        except Exception:
+            break
+        data = await _observe_once(page, max_elements)
+    return data
+
+
+async def _observe_once(page, max_elements: int) -> dict:
     try:
         data = await page.evaluate(_COLLECT_JS, max_elements)
     except Exception as exc:  # navigation mid-evaluate, closed page, CSP oddity
@@ -237,6 +308,14 @@ def render(snap: dict) -> str:
     lines = [f"URL: {snap.get('url', '')}"]
     if snap.get("title"):
         lines.append(f"TITLE: {snap['title']}")
+    if snap.get("captcha"):
+        lines.append(
+            "A HUMAN-VERIFICATION CHALLENGE (CAPTCHA) IS ON THIS PAGE. You cannot "
+            "solve it and must not try. Anything behind it - submitting this form, "
+            "for example - is unreachable. If your test needs that, call finish "
+            "with success=false and say the test is BLOCKED BY CAPTCHA. Anything "
+            "in front of it (field validation, layout, navigation) is still testable."
+        )
     if snap.get("dialog_open"):
         lines.append("A MODAL DIALOG IS OPEN — deal with it before anything else.")
     if snap.get("error"):
@@ -265,6 +344,12 @@ def _render_element(el: dict) -> str:
     parts = [f"[{el['ref']}] {el.get('role', 'control')}"]
     name = el.get("name") or ""
     parts.append(f'"{name}"' if name else '""')
+    if el.get("filled_chars"):
+        # Deliberately not the characters: the agent must never be able to copy a
+        # secret out of the observation and type it somewhere else.
+        parts.append(f"(contains {el['filled_chars']} hidden characters)")
+    elif el.get("role") == "password":
+        parts.append("(empty)")
     if el.get("value"):
         parts.append(f'value="{el["value"]}"')
         if el.get("value_length"):
@@ -274,6 +359,10 @@ def _render_element(el: dict) -> str:
         parts.append("checked" if el["checked"] else "unchecked")
     if el.get("required"):
         parts.append("required")
+    if el.get("validation"):
+        parts.append(f'REJECTED BY THE BROWSER: "{el["validation"]}"')
+    elif el.get("invalid"):
+        parts.append("INVALID (the browser will refuse to submit this)")
     if el.get("disabled"):
         parts.append("DISABLED")
     if el.get("expanded") is not None:

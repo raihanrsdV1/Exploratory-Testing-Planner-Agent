@@ -26,6 +26,8 @@ Two things this loop does that a naive version does not:
 from __future__ import annotations
 
 import hashlib
+import os
+import sys
 import time
 from dataclasses import dataclass, field
 
@@ -37,6 +39,47 @@ from . import trace
 # Occurrences of one (page, action) pair before warning, then before giving up.
 _LIVELOCK_WARN = 2
 _LIVELOCK_ABORT = 4
+# Raw cycle ceiling: high enough that deliberate revisiting is never
+# mistaken for a stall, low enough to stop a loop long before the budget.
+_CYCLE_ABORT = 6
+# When a sequence comes round a second time, the repetition is usually the
+# test's own answer rather than a stall. Nudge before any guard punishes it.
+_CYCLE_CONCLUDE = 2
+# How long a headed run waits for a person, when no explicit limit is set,
+# and how often it re-checks whether the challenge has cleared.
+_CAPTCHA_WAIT_DEFAULT = 180
+_CAPTCHA_POLL_MS = 3000
+# How often to beep again while still waiting for a person.
+_CAPTCHA_REMIND_SECONDS = 20
+
+
+def _alert(times: int = 3) -> None:
+    """Make an audible noise, because nobody is watching the terminal.
+
+    The terminal bell (``\\a``) alone is not enough: Windows Terminal ignores it
+    by default, and on many systems the bell sound is switched off entirely. A
+    run sat at a CAPTCHA in silence for five minutes and failed, with someone at
+    the machine the whole time.
+
+    So on Windows this plays an actual two-tone chime through ``winsound``, which
+    does not depend on any terminal setting, and falls back to the bell elsewhere.
+    Never raises: no alert is worth interrupting a run for.
+    """
+    try:
+        if os.name == "nt":
+            import winsound
+
+            for _ in range(max(1, times)):
+                winsound.Beep(880, 180)   # A5
+                winsound.Beep(1320, 180)  # E6 - a rising pair carries across a room
+            return
+    except Exception:
+        pass
+    try:
+        sys.stdout.write("\a" * max(1, times))
+        sys.stdout.flush()
+    except Exception:
+        pass
 
 _SYSTEM_PROMPT = """\
 You are an exploratory QA engineer driving a real web browser to execute one test case.
@@ -57,6 +100,9 @@ Rules:
 - Read fields back after typing into them; a page can silently discard a value.
 - If an action produced no visible change, do something DIFFERENT — never repeat it.
 - Before judging the outcome, look at the page where the result would be visible.
+- Running the test once gives you the answer. If you have entered a value, left,
+  and come back, what you now see IS the result - do not run the sequence again
+  to "make sure the procedure worked". An outcome you dislike is still an outcome.
 - Call finish as soon as you can judge the expected result, with success true or
   false and a specific reason naming what you actually observed.
 """
@@ -79,6 +125,21 @@ class WebAgent:
         self.cfg = cfg
         self.client = client
         self.dispatcher = actions_mod.Dispatcher(page, cfg)
+        # Progress so far, readable after an exception unwinds the loop. Without
+        # these the crash path logged 0 steps and an empty route for a test that
+        # had really taken ten.
+        self.last_step = 0
+        self.last_urls: list[str] = []
+        # Known API routes, so the agent works from the real list instead of
+        # inventing one. A planner-written objective once cited GET /api/projects,
+        # which does not exist; the executor chased it until the test died.
+        self.api_registry = None
+        # Native dialog text, handed over by the oracle each turn. Without it the
+        # only feedback an alert() gives is invisible, and the agent reads a
+        # successful action as one that changed nothing.
+        self.collector = None
+        # Set by the runner from the live BrowserSession. None means "ask config".
+        self.headless: bool | None = None
 
     async def run(self, goal: str, max_steps: int, timeout_s: float) -> AgentResult:
         started = time.time()
@@ -92,6 +153,23 @@ class WebAgent:
         seen: dict[str, int] = {}
         stall_signature, stall_count = None, 0
         stall_limit = getattr(self.cfg, "WEB_STALL_STEPS", 6)
+        # An action that achieves nothing is recorded as "clicked X", which reads
+        # like success, so the agent tries it again. A real run clicked a dead
+        # "Preview" button five times for exactly that reason. These carry the page
+        # state from before the last action, so the next observation can say on the
+        # action's own history line whether it accomplished anything.
+        pending = None
+        dead_controls: list[str] = []
+        cycles: dict[str, int] = {}
+        # One nudge per DISTINCT loop, not one per test case. Capping it at one
+        # per run was too blunt: an agent that circles briefly early on spends the
+        # only nudge there, and a genuine stall later gets none. A real run burned
+        # its first nudge on a search box at step 3, then looped
+        # goto-/api/projects-then-back eleven times from step 30 with no prompt at
+        # all. Bloat stays bounded because each loop is nudged once and history
+        # lines are capped.
+        nudged: set[str] = set()
+        captcha_handled = False
 
         for step in range(1, max_steps + 1):
             if time.time() - started > timeout_s:
@@ -101,11 +179,57 @@ class WebAgent:
                     step - 1, history, urls,
                 )
 
+            self.last_step = step
             snap = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
+            if snap.get("captcha") and not captcha_handled:
+                captcha_handled = True
+                snap, blocked = await self._handle_captcha(snap)
+                if blocked:
+                    trace.outcome(blocked, ok=False)
+                    return AgentResult(False, blocked, step, history, urls)
             _track_url(urls, snap.get("url", ""))
+            self.last_urls = urls
             observation = snapshot.render(snap)
+            if self.collector is not None:
+                dialogs = self.collector.take_dialogs()
+                if dialogs:
+                    nl = chr(10)
+                    observation += (nl + nl + "BROWSER DIALOGS since your last "
+                                    "action (already answered for you):" + nl
+                                    + "  " + (nl + "  ").join(dialogs))
+            content_signature = _content_signature(snap)
 
-            reply = self.client.chat(self._messages(goal, history, observation, step, max_steps))
+            if pending is not None:
+                idx, before, label, act_sig = pending
+                if content_signature == before:
+                    history[idx] += ("   <-- THIS DID NOTHING: the page was identical "
+                                     "afterwards. Do not repeat it; take another route.")
+                    if label and label not in dead_controls:
+                        dead_controls.append(label)
+                    # Only an action PROVEN inert counts toward livelock. Counting
+                    # every repeat punished legitimate revisiting: a draft-retention
+                    # test must open a URL, navigate away and open it again, and the
+                    # guard told the agent mid-test that it was going in circles.
+                    times = seen[act_sig] = seen.get(act_sig, 0) + 1
+                    if times >= _LIVELOCK_ABORT:
+                        trace.outcome("LIVELOCK - an action that changes nothing has "
+                                      "been repeated", ok=False)
+                        return AgentResult(
+                            False,
+                            f"Livelock: an action that changes nothing has been repeated "
+                            f"{times} times. The loop is not making progress.",
+                            step, history, urls,
+                        )
+                    if times == _LIVELOCK_WARN:
+                        history.append(
+                            "WARNING: you have now repeated an action that does nothing. "
+                            "That control or route is inert - take a genuinely different "
+                            "one, or finish and report that it does not work."
+                        )
+                pending = None
+
+            reply = self.client.chat(
+                self._messages(goal, history, observation, step, max_steps, dead_controls))
             action = llm_mod.parse_action(reply)
             trace.step(step, max_steps, snap, action)
             trace.observation(snap)
@@ -123,39 +247,54 @@ class WebAgent:
                     f"discarded ({action.get('reason', '')}). Reply with ONE JSON "
                     f"object and nothing else."
                 )
-                trace.outcome("model reply was not a JSON action — reprompting", ok=False)
+                trace.outcome(f"model reply was not a JSON action — reprompting "
+                              f"| {action.get('reason', '')}"[:300], ok=False)
                 continue
 
-            # Livelock guard: this exact action, against this exact page state,
-            # has already been tried — whether or not it was the previous turn.
+            # Identifies (page state, action). Counted two ways, deliberately:
+            #
+            #  * above, once the next observation PROVES the action inert - precise,
+            #    warns the agent, and never fires on useful work;
+            #  * here, as a raw cycle count - a pure safety net with a high ceiling
+            #    and NO advice injected into the history. An earlier version warned
+            #    at the second repeat and aborted at the fourth, which killed correct
+            #    tests: a draft-retention test must open a URL, leave, and open it
+            #    again, and it was being told mid-test that it was going in circles.
+            #    Legitimate revisiting needs two or three; the pathological run that
+            #    motivated this cycled thirteen times.
             signature = _signature(snap, action)
-            times = seen[signature] = seen.get(signature, 0) + 1
-            if times >= _LIVELOCK_ABORT:
-                trace.outcome("LIVELOCK — this action has already been tried and "
-                              "changed nothing", ok=False)
+            cycles[signature] = cycles.get(signature, 0) + 1
+            if cycles[signature] == _CYCLE_CONCLUDE and signature not in nudged:
+                nudged.add(signature)
+                # The decisive fix for the commonest stall. A test like "type a
+                # value, leave without saving, come back and see whether it is
+                # still there" ANSWERS ITSELF on the second pass: the field is
+                # empty again, and that is the finding. The agent instead read its
+                # own repetition as "the procedure did not take" and started over,
+                # six times. Repetition here is evidence, not failure - so say so
+                # before any guard treats it as a stall.
+                history.append(
+                    "NOTE: you have now done this twice and the page is back to a "
+                    "state you already saw. If that repeated result IS what your "
+                    "test was checking (a field empty again, a value that did or "
+                    "did not survive), that is your evidence - call finish and "
+                    "report it. Doing it again cannot tell you anything new."
+                )
+                trace.outcome("nudge: this repetition may already be the answer", ok=True)
+            if cycles[signature] >= _CYCLE_ABORT:
+                trace.outcome(f"LIVELOCK - the same action on the same page for the "
+                              f"{cycles[signature]}th time", ok=False)
                 return AgentResult(
                     False,
-                    f"Livelock: this exact action on this exact page state has been "
-                    f"tried {times} times and changed nothing. The loop is not making "
-                    f"progress.",
+                    f"Livelock: the same action on the same page state has now been "
+                    f"taken {cycles[signature]} times without reaching a verdict.",
                     step, history, urls,
                 )
-            if times == _LIVELOCK_WARN:
-                history.append(
-                    f"WARNING: you have already taken this exact action on this exact "
-                    f"page {times} times and it has changed nothing — you are going in "
-                    f"a circle. Do NOT repeat it, and do not undo-and-retry the same "
-                    f"pair of steps. Either try a genuinely different route, or finish "
-                    f"and report that this route does not lead to the objective."
-                )
-                trace.outcome(f"warning: this action has already been tried {times}x "
-                              f"with no effect", ok=False)
 
             # Wandering guard: the page itself (not the action) hasn't changed for
             # several steps in a row, even though each action tried was different —
             # e.g. scrolling repeatedly with no new content. The exact-repeat guard
             # above misses this because it keys on (page, action) together.
-            content_signature = _content_signature(snap)
             stall_count = stall_count + 1 if content_signature == stall_signature else 0
             stall_signature = content_signature
             if stall_count >= stall_limit:
@@ -180,6 +319,9 @@ class WebAgent:
                 note = await self.dispatcher.perform(action, snap)
                 history.append(f"step {step}: {note}")
                 trace.outcome(note)
+                element = snapshot.find(snap, action.get("ref", "")) or {}
+                pending = (len(history) - 1, content_signature,
+                           element.get("name", ""), signature)
             except actions_mod.ActionError as exc:
                 history.append(f"step {step}: FAILED — {exc}")
                 trace.outcome(f"REFUSED/FAILED — {exc}", ok=False)
@@ -198,10 +340,88 @@ class WebAgent:
             max_steps, history, urls,
         )
 
+    async def _handle_captcha(self, snap: dict) -> tuple[dict, str]:
+        """A CAPTCHA is the one obstacle the agent must hand back to a person.
+
+        The browser mode decides what that means, because it decides whether
+        anyone is there to help:
+
+        * **Headed** - a window is open, so ask. The run waits, watching for the
+          challenge to disappear, and carries straight on once it is solved. This
+          is the only way to reach anything behind the challenge until the
+          application itself is configured with reCAPTCHA test keys.
+        * **Headless** - nobody is watching a window that does not exist, so
+          waiting would burn the per-test timeout and end in the same place.
+          Fail the test immediately, naming the CAPTCHA.
+
+        Returns ``(snapshot, blocked_reason)``; a non-empty reason ends the test.
+        """
+        headless = self.headless
+        if headless is None:
+            headless = bool(getattr(self.cfg, "WEB_HEADLESS", True))
+        trace.emit(f"      CAPTCHA detected (browser headless={headless})")
+        if headless:
+            return snap, (
+                "Blocked by CAPTCHA: a human-verification challenge stands between "
+                "the agent and this behaviour, and the run is headless so nobody can "
+                "solve it. Re-run with WEB_HEADLESS=false to solve it by hand, or "
+                "configure reCAPTCHA test keys in the test environment."
+            )
+
+        limit = getattr(self.cfg, "WEB_CAPTCHA_PAUSE_SECONDS", 0) or _CAPTCHA_WAIT_DEFAULT
+        trace.emit("")
+        trace.emit("      " + "=" * 62)
+        trace.emit("      CAPTCHA - YOUR INPUT IS NEEDED")
+        trace.emit("      Solve the challenge in the browser window that is open.")
+        trace.emit(f"      The run resumes by itself the moment it clears "
+                   f"(waiting up to {limit}s).")
+        trace.emit("      " + "=" * 62)
+        _alert(3)
+
+        waited = 0
+        next_reminder = _CAPTCHA_REMIND_SECONDS
+        while waited < limit:
+            try:
+                await self.page.wait_for_timeout(_CAPTCHA_POLL_MS)
+            except Exception:
+                break
+            waited += _CAPTCHA_POLL_MS / 1000
+            fresh = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
+            if not fresh.get("captcha"):
+                trace.emit(f"      solved after {waited:.0f}s - continuing")
+                _alert(1)  # one short chirp: you are free to walk away again
+                return fresh, ""
+            if waited >= next_reminder:
+                # Keep nagging. A single beep at the start is easy to miss if
+                # you were out of the room, and five minutes of silence looks
+                # exactly like a run that is merely slow.
+                remaining = int(limit - waited)
+                trace.emit(f"      still waiting for the CAPTCHA - {remaining}s left")
+                _alert(2)
+                next_reminder = waited + _CAPTCHA_REMIND_SECONDS
+
+        return snap, (
+            f"Blocked by CAPTCHA: the challenge was still unsolved after {limit}s. "
+            f"Configure reCAPTCHA test keys in the test environment, or raise "
+            f"WEB_CAPTCHA_PAUSE_SECONDS."
+        )
+
     def _messages(self, goal: str, history: list[str], observation: str,
-                  step: int, max_steps: int) -> list[dict]:
-        recent = history[-12:]
+                  step: int, max_steps: int, dead: list[str] | None = None) -> list[dict]:
+        recent = [h if len(h) <= 320 else h[:317] + "..." for h in history[-12:]]
         log = "\n".join(recent) if recent else "(nothing yet — this is your first action)"
+        if dead:
+            # Refs change every turn, so these are remembered by label. Without it
+            # the agent forgets a control was inert as soon as the note scrolls out
+            # of the last-12 window, and goes straight back to it.
+            nl = chr(10)
+            listed = ", ".join('"%s"' % d for d in dead[-8:])
+            log += (nl + nl + "CONTROLS THAT DO NOTHING on this site - "
+                    "never activate these again, find another route: " + listed)
+        if self.api_registry is not None:
+            block = self.api_registry.prompt_block()
+            if block:
+                log += chr(10) + chr(10) + block
         return [
             {"role": "system",
              "content": _SYSTEM_PROMPT.format(actions=actions_mod.ACTION_SPEC)},

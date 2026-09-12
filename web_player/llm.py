@@ -18,13 +18,39 @@ import time
 import requests
 
 _RETRY_TOKENS = ("429", "500", "502", "503", "504", "too many requests",
-                 "overloaded", "timed out", "timeout")
+                 "overloaded", "timed out", "timeout",
+                 # Transport-level failures. A dropped socket used to be judged
+                 # NOT transient (none of the tokens above appear in
+                 # "('Connection aborted.', ConnectionResetError(10054, ...))"),
+                 # so a blip that one retry would have survived killed the test.
+                 "connection aborted", "connection reset", "connection refused",
+                 "remote end closed", "max retries", "read timed out",
+                 "bad handshake", "ssl", "temporarily unavailable",
+                 # A reasoning model that overran its budget on one turn may well
+                 # fit on the next; how long it thinks varies per prompt. Worth a
+                 # retry rather than declaring the provider dead and ending the
+                 # batch on a single occurrence.
+                 "returned an empty answer")
 _PERMANENT_TOKENS = ("400", "401", "403", "404", "not a valid model", "invalid api key")
 _MAX_ATTEMPTS = 4
+# Ceiling for the escalating retry above; beyond this the model is the problem.
+# Kept modest on purpose: OpenRouter pre-authorises the MAXIMUM cost a request
+# could incur, so a large max_tokens can be refused with 402 'would exceed your
+# available credits' on a nearly-spent key even when the reply would be tiny.
+# A terse model answers a browser step in ~200 tokens; 8000 is already generous.
+_MAX_BUDGET = 8000
 
 
 class LLMError(RuntimeError):
-    pass
+    """Any failure to obtain a usable reply from the executor model.
+
+    Everything that goes wrong talking to the provider must surface as this type.
+    The runner catches it and records LLM_UNAVAILABLE (an ENVIRONMENT fault); a
+    bare ``requests`` exception instead reaches the generic handler and is
+    recorded as CRASH — an APP fault — which files a false defect against the
+    site under test. That happened: a ConnectionResetError to openrouter.ai was
+    logged as a crash discovered in the application.
+    """
 
 
 class ChatClient:
@@ -48,18 +74,25 @@ class ChatClient:
 
     def chat(self, messages: list[dict]) -> str:
         last: Exception | None = None
+        budget = self.max_tokens
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             try:
-                return (self._openrouter(messages) if self.provider == "openrouter"
-                        else self._gemini(messages))
+                return (self._openrouter(messages, budget) if self.provider == "openrouter"
+                        else self._gemini(messages, budget))
             except Exception as exc:
                 last = exc
                 if attempt >= _MAX_ATTEMPTS or not _is_transient(exc):
-                    raise
+                    raise _as_llm_error(exc) from exc
+                if "empty answer" in str(exc):
+                    # Retrying with the same ceiling reproduces the same overrun:
+                    # how much a model thinks depends on the prompt, and the
+                    # prompt does not change between attempts. Give it more room.
+                    budget = min(budget * 2, _MAX_BUDGET)
+                    continue
                 time.sleep(2 ** attempt)
-        raise LLMError(str(last))
+        raise _as_llm_error(last)
 
-    def _openrouter(self, messages: list[dict]) -> str:
+    def _openrouter(self, messages: list[dict], budget: int | None = None) -> str:
         resp = requests.post(
             f"{self.base_url.rstrip('/')}/chat/completions",
             # OpenRouter asks callers to identify themselves; unidentified
@@ -69,7 +102,7 @@ class ChatClient:
                      "HTTP-Referer": "https://github.com/exploratory-testing-planner-agent",
                      "X-Title": "Exploratory Testing Planner Agent"},
             json={"model": self.model, "messages": messages,
-                  "max_tokens": self.max_tokens, "temperature": 0.2},
+                  "max_tokens": budget or self.max_tokens, "temperature": 0.2},
             timeout=180,
         )
         if resp.status_code != 200:
@@ -78,9 +111,29 @@ class ChatClient:
         choices = data.get("choices") or []
         if not choices:
             raise LLMError(f"OpenRouter returned no choices: {str(data)[:300]}")
-        return choices[0].get("message", {}).get("content", "") or ""
+        choice = choices[0]
+        message = choice.get("message") or {}
+        content = (message.get("content") or "").strip()
+        if content:
+            return content
 
-    def _gemini(self, messages: list[dict]) -> str:
+        # A reasoning model that spends its whole allowance on the hidden
+        # scratchpad answers HTTP 200 with content=null. Returning "" here made
+        # that indistinguishable from a badly formatted reply, so the run logged
+        # "model reply was not a JSON action" and nothing recorded the real cause.
+        reasoning = (message.get("reasoning") or "").strip()
+        if reasoning and choice.get("finish_reason") != "length":
+            # The model put its answer in the scratchpad. Usable; the caller's
+            # parser will find the JSON object inside it.
+            return reasoning
+        raise LLMError(
+            f"OpenRouter returned an empty answer (finish_reason="
+            f"{choice.get('finish_reason')!r}, {len(reasoning)} chars of reasoning). "
+            f"The model spent its whole {budget or self.max_tokens}-token budget "
+            f"on its scratchpad — raise WEB_LLM_MAX_TOKENS."
+        )
+
+    def _gemini(self, messages: list[dict], budget: int | None = None) -> str:
         # Gemini has no "system" role; the system text is prepended to the first
         # user turn, which is how the REST API expects it to be carried.
         system = "\n".join(m["content"] for m in messages if m["role"] == "system")
@@ -97,7 +150,7 @@ class ChatClient:
             f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent",
             headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
             json={"contents": contents,
-                  "generationConfig": {"maxOutputTokens": self.max_tokens, "temperature": 0.2}},
+                  "generationConfig": {"maxOutputTokens": budget or self.max_tokens, "temperature": 0.2}},
             timeout=180,
         )
         if resp.status_code != 200:
@@ -109,11 +162,41 @@ class ChatClient:
         return "".join(p.get("text", "") for p in parts)
 
 
+def _as_llm_error(exc: Exception | None) -> LLMError:
+    """Normalise any provider/transport failure to LLMError, preserving the text."""
+    if isinstance(exc, LLMError):
+        return exc
+    return LLMError(f"{type(exc).__name__}: {exc}")
+
+
+def _matches(msg: str, tokens) -> bool:
+    """Match tokens in a message, with digits compared as whole numbers.
+
+    Bare substring matching on status codes is a trap: our own budget-overrun
+    message contains "4000", which contains "400", so every such error was read
+    as a permanent HTTP 400 and never retried. The escalating retry therefore
+    never ran even though it was implemented and tested.
+    """
+    for tok in tokens:
+        if tok.strip().isdigit():
+            if re.search(rf"(?<!\d){re.escape(tok)}(?!\d)", msg):
+                return True
+        elif tok in msg:
+            return True
+    return False
+
+
 def _is_transient(exc: Exception) -> bool:
+    # Typed check first: a dropped connection is retryable whatever it says.
+    # String matching alone missed ConnectionResetError entirely.
+    if isinstance(exc, (requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout,
+                        requests.exceptions.ChunkedEncodingError)):
+        return True
     msg = str(exc).lower()
-    if any(tok in msg for tok in _PERMANENT_TOKENS):
+    if _matches(msg, _PERMANENT_TOKENS):
         return False
-    return any(tok in msg for tok in _RETRY_TOKENS)
+    return _matches(msg, _RETRY_TOKENS)
 
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -133,9 +216,53 @@ def parse_action(text: str) -> dict:
             obj = json.loads(candidate)
         except (json.JSONDecodeError, TypeError):
             continue
-        if isinstance(obj, dict) and obj.get("action"):
-            return obj
-    return {"action": "_error", "reason": "no JSON action object found in the reply"}
+        # Models plan several steps ahead and answer with a list. Take the first
+        # entry rather than throwing the turn away: it is the action they wanted
+        # next, and the loop re-observes before the one after it anyway.
+        if isinstance(obj, list) and obj:
+            obj = obj[0]
+        if isinstance(obj, dict):
+            normalised = _normalise_keys(obj)
+            if normalised.get("action"):
+                return normalised
+    # Keep the reply. A 23% parse-failure rate was undiagnosable because the text
+    # that failed was discarded, leaving only a generic message in the trace.
+    snippet = " ".join((text or "").split())[:200] or "(empty reply)"
+    return {"action": "_error",
+            "reason": f"no JSON action object found in the reply | reply was: {snippet}"}
+
+
+# What the models actually emit when they drift off contract, mapped to what the
+# dispatcher expects. Observed from real runs: element_id/_element for "ref",
+# _action for "action", _text/value for "text".
+_KEY_ALIASES = {
+    "_action": "action", "action_type": "action", "type": "action", "name": "action",
+    "element_id": "ref", "element": "ref", "_element": "ref", "target": "ref",
+    "element_ref": "ref", "id": "ref",
+    "_text": "text", "value": "text", "input": "text", "content": "text",
+    "_reason": "reason", "explanation": "thought", "reasoning": "thought",
+}
+
+
+def _normalise_keys(obj: dict) -> dict:
+    """Accept the common near-miss key spellings instead of failing the turn."""
+    out = dict(obj)
+    for alias, canonical in _KEY_ALIASES.items():
+        if alias in out and canonical not in out:
+            out[canonical] = out[alias]
+    # "[e12]" and "e12" both mean the same element.
+    ref = out.get("ref")
+    if isinstance(ref, str):
+        out["ref"] = ref.strip().strip("[]")
+    # A bare "scroll_down"/"scroll up" is the scroll action with a direction.
+    act = str(out.get("action", "")).lower().strip()
+    if act.startswith("scroll") and act != "scroll":
+        direction = act.replace("scroll", "").strip(" _-")
+        out["action"] = "scroll"
+        out.setdefault("direction", direction or "down")
+    else:
+        out["action"] = act
+    return out
 
 
 def _candidates(text: str):

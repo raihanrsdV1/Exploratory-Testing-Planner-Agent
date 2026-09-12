@@ -312,6 +312,15 @@ def execute_retrieval(state: AgentState) -> AgentState:
         if bucket is not None:
             bucket.append(block.text)
         round_retrieved_notes.append(block.note)
+        if state["debug_trace"]:
+            state["debug_trace_data"].setdefault("retrieved_blocks", []).append({
+                "round": state["round_no"],
+                "source": source_name,
+                "query": req.query,
+                "screen": req.screen,
+                "note": block.note,
+                "context": block.text,
+            })
         if block.resolved_state:
             rs = block.resolved_state
             if not any(s.get("id") == rs.get("id") for s in state["selected_live_states"]):
@@ -363,6 +372,15 @@ def generate_testcase(state: AgentState) -> AgentState:
         block = data.get("context", "")
         if block:
             state["srs_context_blocks"].append(block)
+            if state["debug_trace"]:
+                state["debug_trace_data"].setdefault("retrieved_blocks", []).append({
+                    "round": state["round_no"],
+                    "source": "srs",
+                    "query": state["objective"],
+                    "screen": "",
+                    "note": "fallback grounding (retrieval loop returned nothing)",
+                    "context": block,
+                })
     if not state["figma_ui_blocks"] and "figma_ui" in available_names and state["fallback_screens"]:
         state["selected_screens"] = state["fallback_screens"][:2]
             

@@ -22,7 +22,7 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
 import settings as st  # noqa: E402
-from planner import proposal as P, tools  # noqa: E402
+from planner import proposal as P, textutil, tools  # noqa: E402
 
 _passed = _failed = 0
 
@@ -139,6 +139,51 @@ def main():
     if st.ENABLED_SOURCES and "figma_ui" not in st.ENABLED_SOURCES:
         check("a disabled source contributes no tools",
               any(n.startswith("get_figma") for n in names), False)
+
+    # -- requirement ids survive the model\'s decoration --------------
+    # The planner emitted ['[FR-PROJ-02]', '[FR-PROJ-06]'] - brackets copied out
+    # of the bracketed list the prompt shows. Graph nodes carry bare ids, so every
+    # COVERS edge silently failed to match and requirement coverage sat at 2%
+    # however many tests ran. Nothing errored, which is why it went unnoticed.
+    check("a bracketed id is cleaned", P._clean_req_id("[FR-PROJ-02]"), "FR-PROJ-02")
+    check("a bare id is untouched", P._clean_req_id("FR-RESP-01"), "FR-RESP-01")
+    check("quotes and padding go too", P._clean_req_id('  "FR-AUTH-09" '), "FR-AUTH-09")
+    check("parens are decoration as well", P._clean_req_id("(NFR-03)"), "NFR-03")
+    check("a trailing comma is stripped", P._clean_req_id("FR-SURV-02,"), "FR-SURV-02")
+    check("nothing survives as empty", P._clean_req_id(None), "")
+    check("an internal hyphen is not eaten", P._clean_req_id("[FR-I18N-02]"), "FR-I18N-02")
+
+    norm = P.normalize({"title": "t", "requirement_ids": ["[FR-PROJ-02]", " FR-RESP-01 ", ""]})
+    check("normalize emits ids the graph can match",
+          norm["requirement_ids"], ["FR-PROJ-02", "FR-RESP-01"])
+
+    # validate() compared the RAW ids against the citable set, so a bracketed id
+    # was rejected as non-existent and the model burned a retry re-sending it.
+    prop = {"title": "x", "requirement_ids": ["[FR-PROJ-02]"]}
+    P.validate("__no_such_project__", prop)
+    check("validate writes the cleaned ids back", prop["requirement_ids"], ["FR-PROJ-02"])
+
+    # The gateway path never calls normalize(): langgraph_agent builds the test
+    # case straight from the parsed model output, and that dict is what both the
+    # response AND the /tests/log POST (the only place COVERS edges are written)
+    # carry. So the cleaning has to happen in the parser, not just the validator.
+    tc = textutil.parse_testcase(
+        '{"title":"t","requirement_ids":["[FR-PROJ-01]","[FR-PROJ-06]",""]}')
+    check("the parser cleans ids on the gateway path",
+          tc["requirement_ids"], ["FR-PROJ-01", "FR-PROJ-06"])
+
+    # Models often keep talking after the JSON; that second parse path needs it too.
+    tc2 = textutil.parse_testcase('{"requirement_ids":["[FR-X-9]"]} and then I said more')
+    check("the trailing-prose parse path cleans too",
+          tc2["requirement_ids"], ["FR-X-9"])
+
+    check("a test case with no ids is left alone",
+          textutil.parse_testcase('{"title":"t"}'), {"title": "t"})
+
+    # strip_reasoning must keep stripping only whitespace - it shares the phrase
+    # "text.strip(" with the cleaner and is easy to clobber by accident.
+    check("strip_reasoning still strips only whitespace",
+          textutil.strip_reasoning('  <think>x</think> {"a":1}  '), '{"a":1}')
 
     print(f"\n{_passed}/{_passed + _failed} checks passed")
     return 1 if _failed else 0

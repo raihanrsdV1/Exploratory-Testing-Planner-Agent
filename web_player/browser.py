@@ -22,6 +22,7 @@ class BrowserSession:
     def __init__(self, cfg):
         self.cfg = cfg
         self._pw = None
+        self.headless = bool(getattr(cfg, "WEB_HEADLESS", True))
         self.browser = None
         self.context = None
         self.page = None
@@ -37,6 +38,11 @@ class BrowserSession:
                 f"(use chromium, firefox or webkit)."
             )
         # slow_mo makes a headed run followable; it costs nothing headless.
+        # Remember what we really launched. The CAPTCHA hand-off depends on whether
+        # a window exists, and deciding that from config at the moment of use left
+        # one test reporting "the run is headless" while the next one correctly
+        # asked for help - in the same process, with the same settings.
+        self.headless = bool(self.cfg.WEB_HEADLESS)
         self.browser = await launcher.launch(
             headless=self.cfg.WEB_HEADLESS,
             slow_mo=max(0, int(getattr(self.cfg, "WEB_SLOW_MO_MS", 0))),
@@ -74,12 +80,26 @@ class BrowserSession:
             pass
 
     async def reset_to_base(self) -> None:
-        """Return to the site's entry point before a test case."""
-        await self.page.goto(
-            self.cfg.WEB_BASE_URL,
-            wait_until="domcontentloaded",
-            timeout=self.cfg.WEB_NAV_TIMEOUT_MS,
-        )
+        """Return to the site's entry point before a test case.
+
+        Waits for the network to settle so the first observation is not of an
+        unrendered page - but falls back, because an app that polls (or embeds a
+        CAPTCHA widget) may never reach idle at all. Without the fallback this
+        threw at the navigation timeout and cost a whole test case before it had
+        taken a single step.
+        """
+        try:
+            await self.page.goto(
+                self.cfg.WEB_BASE_URL,
+                wait_until="networkidle",
+                timeout=self.cfg.WEB_NAV_TIMEOUT_MS,
+            )
+        except Exception:
+            await self.page.goto(
+                self.cfg.WEB_BASE_URL,
+                wait_until="domcontentloaded",
+                timeout=self.cfg.WEB_NAV_TIMEOUT_MS,
+            )
 
     async def screenshot(self, name: str) -> str:
         """Best-effort screenshot; returns the path written, or '' on failure."""

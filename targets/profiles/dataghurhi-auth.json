@@ -3,7 +3,7 @@
   "kind": "web",
   "project": "dataghurhi-auth",
   "display_name": "DataGhurhi (signed in)",
-  "description": "DataGhurhi as a signed-in tester, via a captured session. THROWAWAY ACCOUNT ONLY — the agent acts as that user. Destructive/irreversible controls stay blocked.",
+  "description": "DataGhurhi signed in via stored session — authenticated surface only (auth/registration flows belong to the 'dataghurhi' profile).",
   "web": {
     "base_url": "https://dataghurhi.cse.buet.ac.bd",
     "browser": "chromium",
@@ -52,14 +52,14 @@
     }
   },
   "knowledge": {
-    "srs_path": "./data/inputs/dataghurhi-spec.md",
+    "srs_path": "./data/inputs/dataghurhi-auth-spec.md",
     "figma_path": "",
     "defects_path": ""
   },
   "run": {
     "rounds": 5,
-    "max_steps": 30,
-    "timeout": 420,
+    "max_steps": 80,
+    "timeout": 600,
     "clean_slate": true,
     "self_heal": true
   },

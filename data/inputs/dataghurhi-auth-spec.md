@@ -1,53 +1,36 @@
-# DataGhurhi — Requirements Specification
+# DataGhurhi — Requirements for the SIGNED-IN surface
 
-**Provenance.** Written on 12 Sep 2026 from the running application at
-`https://dataghurhi.cse.buet.ac.bd`, not from description. Three sources, in
-order of authority:
+Companion to `dataghurhi-spec.md`, which remains the complete reference. This
+edition is ingested by the **`dataghurhi-auth`** target profile, which runs with a
+stored session and is therefore permanently signed in.
 
-1. **The application's own router and client bundle** — 31 declared routes and
-   129 `/api/*` paths, read out of `/assets/index-*.js`.
-2. **A read-only walk of every route** with an authenticated session, recording
-   headings, form fields, controls and the API calls each page issued.
-3. **Direct probes** of individual endpoints to separate "exists" from "named".
+## Session the tests run under
 
-The previous edition of this document was written without seeing the site. It
-claimed 19 API routes; several did not exist, one was misspelled, and whole
-subsystems (admin, payments, vouchers, question bank, template sharing) were
-missing. Anything below that is *not* directly observed is marked
-**[UNVERIFIED]** so it can never again be mistaken for fact.
+- The browser starts **already signed in**, from a saved session. There is no
+  sign-in step to perform and no sign-in form to reach.
+- **Signing out is forbidden.** The batch shares one session; ending it would
+  abort every remaining test. `Logout` is blocked in the dispatcher, not merely
+  discouraged.
+- Therefore **no test may have a precondition of "the user is not signed in."**
+  Registration, sign-in, password recovery and the public password policy are
+  covered by the `dataghurhi` (signed-out) profile and are deliberately absent
+  from this document.
+- **Changing the account password is forbidden** for the same reason: it
+  invalidates the saved session and locks every later run out of the account.
 
----
+## Writing a testable precondition
 
-## 0. Surfaces
+Prefer preconditions the agent can satisfy in two or three actions. A test that
+spends its whole step budget building fixtures never reaches its own assertion.
 
-**Public** — reachable signed out: `/`, `/v/:slug`, `/signup`,
-`/forgot-password`, `/about`, `/faq`, `/faq/:topic`, `/faq/help-videos`.
+Good: *"Open an existing project from the project list."*
+Bad: *"Create a project, then a survey, then add a Likert question with
+requireEachRowResponse set, then open preview."*
 
-**Authenticated** — everything else: `/dashboard`, `/addproject`,
-`/view-survey/:survey_id`, `/survey-responses/:survey_id`, `/my-templates`,
-`/my-templates/:template_id/edit`, `/edit-profile`, `/security-settings`,
-`/subscription`, `/saved-files`, `/search-results`, `/analysis`, `/preprocess`,
-`/visualization`, `/report`, `/qualitative-analysis`,
-`/qualitative-analysis/:survey_id`, `/group-preview`, `/user-response-view`,
-`/preview`, `/survey-success`, `/home`.
-
-**Observed oddity.** `/signup` and `/forgot-password` render their forms **while
-a session is active**, rather than redirecting a signed-in user away. Worth a
-decision: intended, or a missing guard?
-
-**Rendered nothing.** `/about`, `/preview` and `/user-response-view` produced
-zero interactive controls and no heading on a signed-in visit. Either they are
-unfinished, or they require state this walk did not have.
-
-### Verified API surface
-
-`data/inputs/dataghurhi-api.md` holds the evidence table, and
-`data/api/<project>.json` the machine-readable list the executor is given.
-**No test may cite an endpoint absent from that list.** The route is
-`/api/project` — singular. `/api/projects` does not exist.
+Where a fixture is genuinely needed, create the smallest possible one and assert
+on it immediately.
 
 ---
-
 ## 1. Public survey response — `/v/:slug`
 
 ### FR-RESP-01 Rendering [PUBLIC]
@@ -103,51 +86,14 @@ is still showing them.
 
 ---
 
+
 ## 2. Authentication and account
-
-### FR-AUTH-01 Registration [PUBLIC]
-DETAILED DESCRIPTION: `/signup` shall collect a title, name and email address and
-begin verification by one-time code. *Observed: three text fields and a
-"Send OTP" button; `POST /api/register`, `/api/register/check-email`,
-`/api/send-otp`, `/api/verify-otp` exist in the client.*
-
-### FR-AUTH-02 Email uniqueness [PUBLIC]
-DETAILED DESCRIPTION: Registration shall refuse an address already registered,
-via `/api/register/check-email`, and say so without revealing other account data.
-
-### FR-AUTH-03 One-time code [PUBLIC] **[UNVERIFIED]**
-DETAILED DESCRIPTION: Registration shall require a code sent to the address.
-A wrong or expired code shall be refused. **Out of scope for automation:** the
-code arrives out of band.
-
-### FR-AUTH-04 Sign-in [PUBLIC]
-DETAILED DESCRIPTION: `POST /api/login` shall accept valid credentials and refuse
-invalid ones with a message that does not disclose whether the address is
-registered.
-
-### FR-AUTH-05 Password recovery [PUBLIC]
-DETAILED DESCRIPTION: `/forgot-password` shall describe the reset path and
-accept a recovery request (`/api/login/reset-password`) without revealing whether
-an address is registered.
-
-### FR-AUTH-06 Session and access control
-DETAILED DESCRIPTION: An authenticated route requested without a session shall
-refuse access rather than render its contents or another user's data.
- *Observed: `/dashboard` requested with no session renders the public landing page, not the dashboard; `GET /api/project` without a token returns 401.*
 
 ### FR-AUTH-07 Secret question [AUTH]
 DETAILED DESCRIPTION: `/security-settings` shall let a signed-in user set and
 update a secret question and answer
 (`/api/profile/get-secret-question`, `/api/profile/update-secret-question`).
 The stored answer shall never be displayed again in clear.
-
-### FR-AUTH-08 Password change [AUTH]
-DETAILED DESCRIPTION: `/security-settings` shall offer a password change
-requiring the current password (`/api/profile/match-password`,
-`/api/profile/update-password`), and shall enforce the policy in FR-AUTH-09.
-*Observed: the section is a collapsed card; expanding it reveals current, new and
-confirm fields plus "Update Password".*
-**Out of scope for automation:** changing it invalidates the stored session.
 
 ### FR-AUTH-09 Password policy
 DETAILED DESCRIPTION: A password shall be at least 8 characters and include a
@@ -161,6 +107,7 @@ details and save them (`/api/profile/update-profile`,
 "Contact", with a "Save Profile" control.*
 
 ---
+
 
 ## 3. Projects
 
@@ -197,6 +144,7 @@ renders as a label and does not execute — correct behaviour, left by earlier
 testing.*
 
 ---
+
 
 ## 4. Survey design
 
@@ -235,6 +183,7 @@ caller's allowance (`/api/reduce-survey-count`, `/api/reduce-question-count`,
 
 ---
 
+
 ## 5. Templates and question bank
 
 ### FR-TMPL-01 My templates [AUTH]
@@ -257,6 +206,7 @@ create, update, delete, share, revoke and `semantic-search`.
 
 ---
 
+
 ## 6. Collaboration
 
 ### FR-COLL-01 Project collaborators [AUTH]
@@ -276,6 +226,7 @@ used addresses.
 
 ---
  *Observed: `GET /api/survey-collaborator/get-survey-collaborators/602` returns `{"collaborators":[],"canManage":true}`.*
+
 ## 7. Responses, data and analysis
 
 ### FR-DATA-01 Responses [AUTH]
@@ -319,6 +270,7 @@ DETAILED DESCRIPTION: `/group-preview` shall preview grouped data.
 
 ---
  *Observed: renders "Preview of Grouped Data".*
+
 ## 8. Subscription and payment
 
 ### FR-SUBS-01 Packages [AUTH]
@@ -335,6 +287,7 @@ DETAILED DESCRIPTION: Vouchers may be validated and redeemed
 (`/api/vouchers/validate`, `/api/vouchers/public`, `/api/voucher-used/create`).
 
 ---
+
 
 ## 9. Search, FAQ and internationalisation
 
@@ -364,14 +317,6 @@ DETAILED DESCRIPTION: The translation call shall succeed.
 
 ---
 
-## 10. Administration [UNVERIFIED]
-
-The client declares 18 `/api/admin/*` routes — packages, validity periods, unit
-price, coupons, revenue, user- and survey-growth statistics. **No admin UI route
-was found among the 31 declared**, and the test account cannot reach them. Out of
-scope until an admin surface and account are identified.
-
----
 
 ## 11. Non-functional
 

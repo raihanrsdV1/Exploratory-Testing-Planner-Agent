@@ -14,7 +14,7 @@ must still be stopped.
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from . import snapshot
 
@@ -139,9 +139,8 @@ class Dispatcher:
                 pass
             return ActionError(
                 f"[{ref}] is still on the page but did not accept the action within "
-                f"the timeout — it may be covered by an overlay, off-screen, or "
-                f"disabled. Try scrolling to it, dismissing any overlay, or a "
-                f"different control.",
+                f"the timeout. {_why_not_actionable(exc)} Dismiss whatever is "
+                f"covering it, scroll it into view, or use a different control.",
                 category="TIMEOUT",
             )
         return ActionError(f"Timed out performing {action.get('action')}.", category="TIMEOUT")
@@ -185,7 +184,10 @@ class Dispatcher:
 
     async def _do_goto(self, action: dict, _snap: dict) -> str:
         url = self._check_url(str(action.get("url") or ""))
-        await self.page.goto(url, timeout=self.cfg.WEB_NAV_TIMEOUT_MS, wait_until="domcontentloaded")
+        # "domcontentloaded" fires before React mounts, so the next observation
+        # sees an empty page. Wait for the network to go quiet instead, and fall
+        # back if the page never reaches idle (polling apps never do).
+        await _goto_settled(self.page, url, self.cfg)
         return f"navigated to {url}"
 
     async def _do_back(self, _action: dict, _snap: dict) -> str:
@@ -229,6 +231,39 @@ class Dispatcher:
         return self.page.locator(f'[data-etp-ref="{ref}"]')
 
 
+async def _goto_settled(page, url: str, cfg) -> None:
+    """Navigate and give the app a chance to render before anyone observes it."""
+    try:
+        await page.goto(url, timeout=cfg.WEB_NAV_TIMEOUT_MS, wait_until="networkidle")
+    except Exception:
+        # networkidle never arrives on a page that polls. Land the navigation the
+        # cheap way instead of failing the action outright.
+        await page.goto(url, timeout=cfg.WEB_NAV_TIMEOUT_MS, wait_until="domcontentloaded")
+
+
+# Playwright retries an action and logs why each attempt failed. Those lines name
+# the actual obstacle - usually the element sitting on top - and we were throwing
+# them away, leaving the agent to guess between "covered, off-screen, or disabled".
+_ACTIONABILITY_HINTS = (
+    "intercepts pointer events", "not visible", "not stable", "not enabled",
+    "not editable", "outside of the viewport", "hidden", "disabled",
+)
+
+
+def _why_not_actionable(exc: Exception) -> str:
+    """Pull Playwright's own explanation out of a timeout, if it gave one."""
+    text = str(exc)
+    found = []
+    for line in text.splitlines():
+        line = line.strip().lstrip("- ").strip()
+        low = line.lower()
+        if any(h in low for h in _ACTIONABILITY_HINTS) and line not in found:
+            found.append(line)
+    if not found:
+        return "The page gave no reason; it may be covered, off-screen or disabled."
+    return "The browser reported: " + "; ".join(found[:2])[:220] + "."
+
+
 def _is_timeout(exc: Exception) -> bool:
     """Recognise Playwright's TimeoutError without importing Playwright.
 
@@ -256,4 +291,11 @@ def _origin_of(url: str) -> str:
 
 
 def _join(base: str, path: str) -> str:
-    return base.rstrip("/") + "/" + path.lstrip("/")
+    """Resolve a relative URL the way a browser does.
+
+    Plain concatenation was wrong the moment the base URL carried a path: with a
+    base of ".../dashboard", a goto("/v/abc") became ".../dashboard/v/abc". A
+    leading slash means "from the origin", which is exactly what urljoin does,
+    while "?tab=x" stays relative to the current path.
+    """
+    return urljoin(base if base.endswith("/") or urlparse(base).path else base + "/", path)

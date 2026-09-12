@@ -38,9 +38,11 @@ import requests  # noqa: E402
 import settings as cfg  # noqa: E402
 from web_player import failures, gateway, goal as goal_mod, trace  # noqa: E402
 from web_player.agent import WebAgent  # noqa: E402
+from web_player.api_registry import for_project  # noqa: E402
 from web_player.browser import BrowserSession  # noqa: E402
 from web_player.llm import ChatClient, LLMError  # noqa: E402
 from web_player.oracles import Collector  # noqa: E402
+from web_player.runlock import RunInProgress, RunLock  # noqa: E402
 
 
 def _header(text: str) -> None:
@@ -99,6 +101,16 @@ def preflight() -> None:
 async def execute_test_case(session: BrowserSession, collector: Collector,
                             client: ChatClient, tc: dict) -> dict:
     """Run one test case end to end. Returns {verdict, notes, duration_seconds}."""
+    logged: list[bool] = []
+
+    def log_once(*args, **kwargs):
+        """Record this execution exactly once, whichever exit path we leave by."""
+        if logged:
+            print("   (execution already recorded for this test case; not logging twice)")
+            return
+        logged.append(True)
+        gateway.log_execution(*args, **kwargs)
+
     tc_id = tc.get("test_case_id", "?")
     title = tc.get("title", "?")
     goal = goal_mod.build_goal(tc)
@@ -116,11 +128,19 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
         duration = time.time() - started
         notes = f"Could not open {cfg.WEB_BASE_URL}: {type(exc).__name__}: {exc}"
         print(f"\n❌ {notes}")
-        gateway.log_execution(tc, "failed", duration * 1000, 0, [],
-                              error_type="NAVIGATION_FAILURE", error_message=notes)
-        return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
+        kind = failures.classify(notes)
+        log_once(tc, "failed", duration * 1000, 0, [],
+                              error_type=kind or "NAVIGATION_FAILURE", error_message=notes)
+        # A closed browser cannot be navigated by the next test either. Ending the
+        # batch beats four more rounds of zero-step failures, each one recorded as
+        # though our navigation were at fault.
+        return {"verdict": "failed", "notes": notes, "duration_seconds": duration,
+                "aborted": kind == "BROWSER_CLOSED"}
 
     agent = WebAgent(session.page, cfg, client)
+    agent.headless = session.headless   # the truth about this browser, not config
+    agent.api_registry = getattr(collector, "registry", None)
+    agent.collector = collector
 
     try:
         result = await agent.run(goal, cfg.WEB_MAX_STEPS, cfg.WEB_TIMEOUT)
@@ -133,7 +153,9 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
                  f"run to a verdict and NOTHING was learned about the site. {exc}")
         trace.emit("")
         trace.emit(f"🛑 Executor model unavailable: {str(exc)[:200]}")
-        gateway.log_execution(tc, "failed", duration * 1000, 0, result_urls(),
+        log_once(tc, "failed", duration * 1000,
+                              getattr(agent, "last_step", 0),
+                              getattr(agent, "last_urls", []),
                               error_type="LLM_UNAVAILABLE", error_message=str(exc)[:500])
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration,
                 "aborted": True}
@@ -143,8 +165,13 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
                  f"{type(exc).__name__}: {exc}\n{traceback.format_exc()[-500:]}")
         print(f"\n❌ CRASH: {exc}")
         await session.screenshot(f"{tc_id}-crash")
-        gateway.log_execution(tc, "failed", duration * 1000, 0, [],
-                              error_type="CRASH", error_message=str(exc))
+        # Report what the agent actually did. A hardcoded 0 erased ~10 real
+        # steps from the record and made the run impossible to account for.
+        log_once(tc, "failed", duration * 1000,
+                              getattr(agent, "last_step", 0),
+                              getattr(agent, "last_urls", []),
+                              error_type="CRASH",
+                              error_message=f"{type(exc).__name__}: {exc}"[:500])
         return {"verdict": "failed", "notes": notes, "duration_seconds": duration}
 
     success, reason, steps = result.success, result.reason, result.steps
@@ -206,7 +233,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
     if shot:
         trace.emit(f"   Screenshot: {shot}")
 
-    gateway.log_execution(tc, verdict, duration * 1000, steps, result.urls,
+    log_once(tc, verdict, duration * 1000, steps, result.urls,
                           error_type=logged_error_type,
                           error_message=("" if success else reason[:500]),
                           recovery_action=recovery_action)
@@ -250,6 +277,23 @@ def _show_testcase(tc: dict) -> None:
 async def main(rounds: int) -> None:
     preflight()
 
+    # One batch at a time. Concurrent runs share the knowledge graph, the site and
+    # the trace log, so their results contaminate each other and their transcripts
+    # interleave into something that cannot be read. See web_player/runlock.py.
+    try:
+        lock = RunLock(profile=cfg.PROJECT, rounds=rounds).__enter__()
+    except RunInProgress as exc:
+        print("")
+        print(f"🔒 {exc}")
+        return
+    try:
+        await _run_batch(rounds)
+    finally:
+        lock.release()
+
+
+async def _run_batch(rounds: int) -> None:
+
     if cfg.CLEAN_SLATE:
         _header("CLEAN SLATE — resetting execution history")
         try:
@@ -283,7 +327,8 @@ async def main(rounds: int) -> None:
     results: list[dict] = []
 
     async with BrowserSession(cfg) as session:
-        collector = Collector(session.page, cfg)
+        registry = for_project(cfg.PROJECT)
+        collector = Collector(session.page, cfg, registry)
         collector.attach()
 
         for i in range(1, rounds + 1):
@@ -329,6 +374,9 @@ async def main(rounds: int) -> None:
             print("Next test case:")
             _show_testcase(tc)
 
+    if registry.save():
+        print(f"  API routes known for {cfg.PROJECT}: {len(registry.routes)} "
+              f"(updated from this run)")
     _summarize(results)
 
 

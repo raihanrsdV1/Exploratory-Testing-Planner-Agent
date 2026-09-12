@@ -534,6 +534,15 @@ ENV_FAULT = frozenset({"PRECONDITION_NOT_MET", "PERMISSION_DENIED",
                        # Web-only: the agent was stopped by a configured
                        # guardrail (a destructive control, or a foreign origin).
                        "BLOCKED_BY_GUARDRAIL",
+                       # A human-verification challenge stands between the agent
+                       # and the behaviour under test. Not a defect, not an agent
+                       # failing - the environment is simply not automatable here.
+                       "BLOCKED_BY_CAPTCHA",
+                       # The browser window went away mid-batch - closed by hand,
+                       # or it crashed. Every later test then failed instantly as a
+                       # NAVIGATION_FAILURE, blaming our navigation for a browser
+                       # that no longer existed.
+                       "BROWSER_CLOSED",
                        # OUR model provider was unreachable mid-test. Nothing was
                        # learned about the app. Previously this landed in CRASH —
                        # an APP fault — so an OpenRouter outage was recorded as a
@@ -663,6 +672,20 @@ WEB_CONSOLE_IGNORE = tuple(x.strip().lower() for x in _str(
     "WEB_CONSOLE_IGNORE",
     "favicon,third-party cookie,devtools,react devtools,download the react",
 ).split(",") if x.strip())
+
+# How long a HEADED run waits for a person to solve a CAPTCHA before giving up.
+# 0 means "use the built-in default" (180s), not "do not wait": with a window on
+# screen there is someone who can help, and the challenge is the only way through.
+# A HEADLESS run ignores this entirely and fails the test at once - nobody is
+# watching a window that does not exist, so waiting would only burn the timeout.
+WEB_CAPTCHA_PAUSE_SECONDS = _int("WEB_CAPTCHA_PAUSE_SECONDS", 0)
+
+# Whether a native confirm() is accepted. Default true: dismissing it was the
+# old implicit behaviour and it made confirm-gated actions silently not happen,
+# which the agent reads as a control that does nothing. The blocked-label
+# guardrails refuse destructive controls BEFORE the click, so they are the
+# safety layer here - not the dialog answer.
+WEB_ACCEPT_CONFIRM = _bool("WEB_ACCEPT_CONFIRM", True)
 
 WEB_SCREENSHOT_DIR = _str("WEB_SCREENSHOT_DIR", os.path.join(_ROOT, "logs", "web_shots"))
 

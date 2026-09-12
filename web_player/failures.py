@@ -31,8 +31,12 @@ _RECOVERY = {
         "retry": True,
     },
     "TIMEOUT": {
-        "action": "retry with a longer timeout and fewer steps per attempt",
-        "retry": True,
+        # Was retry=True with double the budget. A test that already used its whole
+        # wall clock does not need more of it - one test ran 1728s that way, nearly
+        # half an hour for a single case, and still failed. Same reasoning as
+        # STEP_LIMIT_EXCEEDED: the retry hits the same wall.
+        "action": "used its whole time budget; raise WEB_TIMEOUT or simplify the test",
+        "retry": False,
     },
     "PAGE_ERROR": {
         "action": "capture the exception and the state that produced it; do not retry a reproducible crash",
@@ -62,6 +66,14 @@ _RECOVERY = {
         "action": "the executor model was unreachable; nothing was learned about the app — rerun when it is back",
         "retry": False,
     },
+    "BROWSER_CLOSED": {
+        "action": "the browser window is gone; nothing can run until the batch is restarted",
+        "retry": False,
+    },
+    "BLOCKED_BY_CAPTCHA": {
+        "action": "a CAPTCHA gates this flow; use reCAPTCHA test keys or a bypass in the test environment",
+        "retry": False,
+    },
     "BLOCKED_BY_GUARDRAIL": {
         "action": "the test requires a control the guardrails forbid; report as blocked",
         "retry": False,
@@ -89,6 +101,12 @@ def classify(reason: str, success: bool = False) -> str:
 
     # 1. Not the app's fault, and not ours either — the run was refused or the
     #    test was impossible as written.
+    if any(k in r for k in ("target closed", "targetclosederror", "browser has been closed",
+                            "target page, context or browser", "browser closed")):
+        return "BROWSER_CLOSED"
+    if any(k in r for k in ("captcha", "not a robot", "human verification",
+                            "recaptcha", "hcaptcha", "turnstile")):
+        return "BLOCKED_BY_CAPTCHA"
     if any(k in r for k in ("refused to", "blocked control", "blocked url",
                             "off-origin", "guardrail")):
         return "BLOCKED_BY_GUARDRAIL"
