@@ -1,0 +1,1041 @@
+{
+  "site": "https://dataghurhi.cse.buet.ac.bd",
+  "routes": {
+    "/": {
+      "landed_on": "/",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field"
+      ],
+      "messages": [],
+      "control_count": 34,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts...",
+        "textbox:Search projects...",
+        "select:All Public Private",
+        "select:Title Research Field Created Updated",
+        "select:↑ Asc ↓ Desc"
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Collapse sidebar",
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field",
+        "Test Unpublished Survey",
+        "Test_Isolation_Project",
+        "Collaborations",
+        "My Templates",
+        "Question Bank"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Manage and organize your research projects",
+        "Privacy:",
+        "Sort:"
+      ],
+      "api_calls": [
+        "GET /api/collaborator/all-invitations 200",
+        "GET /api/collaborator/all-projects 200",
+        "GET /api/profile 200",
+        "GET /api/project 200",
+        "GET /api/project/:id/surveys 200",
+        "GET /api/project/:id/surveys 404"
+      ]
+    },
+    "/home": {
+      "landed_on": "/home",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field"
+      ],
+      "messages": [],
+      "control_count": 34,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts...",
+        "textbox:Search projects...",
+        "select:All Public Private",
+        "select:Title Research Field Created Updated",
+        "select:↑ Asc ↓ Desc"
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Collapse sidebar",
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field",
+        "Test Unpublished Survey",
+        "Test_Isolation_Project",
+        "Collaborations",
+        "My Templates",
+        "Question Bank"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Manage and organize your research projects",
+        "Privacy:",
+        "Sort:"
+      ],
+      "api_calls": [
+        "GET /api/collaborator/all-invitations 200",
+        "GET /api/collaborator/all-projects 200",
+        "GET /api/profile 200",
+        "GET /api/project 200",
+        "GET /api/project/:id/surveys 200",
+        "GET /api/project/:id/surveys 404"
+      ]
+    },
+    "/dashboard": {
+      "landed_on": "/dashboard",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field"
+      ],
+      "messages": [],
+      "control_count": 34,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts...",
+        "textbox:Search projects...",
+        "select:All Public Private",
+        "select:Title Research Field Created Updated",
+        "select:↑ Asc ↓ Desc"
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Collapse sidebar",
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field",
+        "Test Unpublished Survey",
+        "Test_Isolation_Project",
+        "Collaborations",
+        "My Templates",
+        "Question Bank"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Manage and organize your research projects",
+        "Privacy:",
+        "Sort:"
+      ],
+      "api_calls": [
+        "GET /api/collaborator/all-invitations 200",
+        "GET /api/collaborator/all-projects 200",
+        "GET /api/profile 200",
+        "GET /api/project 200",
+        "GET /api/project/:id/surveys 200",
+        "GET /api/project/:id/surveys 404"
+      ]
+    },
+    "/dashboard?tab=projects": {
+      "landed_on": "/dashboard?tab=projects",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field"
+      ],
+      "messages": [],
+      "control_count": 34,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts...",
+        "textbox:Search projects...",
+        "select:All Public Private",
+        "select:Title Research Field Created Updated",
+        "select:↑ Asc ↓ Desc"
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Collapse sidebar",
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field",
+        "Test Unpublished Survey",
+        "Test_Isolation_Project",
+        "Collaborations",
+        "My Templates",
+        "Question Bank"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Manage and organize your research projects",
+        "Privacy:",
+        "Sort:"
+      ],
+      "api_calls": [
+        "GET /api/collaborator/all-invitations 200",
+        "GET /api/collaborator/all-projects 200",
+        "GET /api/profile 200",
+        "GET /api/project 200",
+        "GET /api/project/:id/surveys 200",
+        "GET /api/project/:id/surveys 404"
+      ]
+    },
+    "/dashboard?tab=surveys": {
+      "landed_on": "/dashboard?tab=surveys",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [],
+      "messages": [],
+      "control_count": 20,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Collapse sidebar",
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field",
+        "Test Unpublished Survey",
+        "Test_Isolation_Project",
+        "Collaborations",
+        "My Templates",
+        "Question Bank"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin"
+      ],
+      "api_calls": [
+        "GET /api/collaborator/all-invitations 200",
+        "GET /api/collaborator/all-projects 200",
+        "GET /api/profile 200",
+        "GET /api/project 200",
+        "GET /api/project/:id/surveys 200",
+        "GET /api/project/:id/surveys 404"
+      ]
+    },
+    "/about": {
+      "landed_on": "/about",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [],
+      "messages": [],
+      "control_count": 0,
+      "inputs": [],
+      "buttons": [],
+      "captcha": false,
+      "texts": [],
+      "api_calls": []
+    },
+    "/faq": {
+      "landed_on": "/faq",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Browse FAQ Topics"
+      ],
+      "messages": [],
+      "control_count": 10,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "DataGhurhi logo"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin"
+      ],
+      "api_calls": [
+        "GET /api/faq 200",
+        "GET /api/profile 200"
+      ]
+    },
+    "/faq/help-videos": {
+      "landed_on": "/faq/help-videos",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "সাহায্য ভিডিও",
+        "F Test | Dataghurhi",
+        "Kolmogorov Smirnov Test | Dataghurhi",
+        "Linear Regression | Dataghurhi",
+        "Shapiro Wilk Test | Dataghurhi",
+        "T Test | Dataghurhi"
+      ],
+      "messages": [],
+      "control_count": 15,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "DataGhurhi logo"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin"
+      ],
+      "api_calls": [
+        "GET /api/profile 200"
+      ]
+    },
+    "/addproject": {
+      "landed_on": "/addproject",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Create a New Project"
+      ],
+      "messages": [],
+      "control_count": 12,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts...",
+        "textbox:Project Name",
+        "textbox:Research Field",
+        "textbox:Description (Optional)",
+        "radio:Private",
+        "radio:Public"
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Create Project",
+        "Cancel",
+        "DataGhurhi logo"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Visibility",
+        "Choose whether you want the project to be public or private."
+      ],
+      "api_calls": [
+        "GET /api/profile 200"
+      ]
+    },
+    "/analysis": {
+      "landed_on": "/analysis",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Statistical Analysis Tool"
+      ],
+      "messages": [],
+      "control_count": 3,
+      "inputs": [],
+      "buttons": [
+        "Data Analysis Form",
+        "Drag your file or click to browse",
+        "Import file from DataGhurhi Saved Folder"
+      ],
+      "captcha": false,
+      "texts": [
+        "Import File",
+        "Or"
+      ],
+      "api_calls": []
+    },
+    "/edit-profile": {
+      "landed_on": "/edit-profile",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Manage your personal info here",
+        "Basic Info",
+        "Contact",
+        "Education & Work",
+        "Other Details"
+      ],
+      "messages": [],
+      "control_count": 19,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "Save Profile",
+        "DataGhurhi logo",
+        "Basic Info"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "name",
+        "Jonayed Mohiuddin",
+        "gender",
+        "date_of_birth",
+        "religion"
+      ],
+      "api_calls": [
+        "GET /api/profile 200"
+      ]
+    },
+    "/my-templates": {
+      "landed_on": "/my-templates",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "My Templates"
+      ],
+      "messages": [],
+      "control_count": 23,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Collapse sidebar",
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field",
+        "Test Unpublished Survey",
+        "Test_Isolation_Project",
+        "Collaborations",
+        "My Templates",
+        "Question Bank"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Create, manage, and share your survey templates.",
+        "You have no saved templates yet.",
+        "Create one above, or save a survey as a template from the survey editor."
+      ],
+      "api_calls": [
+        "GET /api/collaborator/all-invitations 200",
+        "GET /api/get-saved-survey 200",
+        "GET /api/profile 200",
+        "GET /api/project 200",
+        "GET /api/project/:id/surveys 200",
+        "GET /api/project/:id/surveys 404",
+        "GET /api/template-share/my-invitations 200",
+        "GET /api/template-share/shared-with-me 200"
+      ]
+    },
+    "/preprocess": {
+      "landed_on": "/preprocess",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Data Preprocessing",
+        "Data Preview"
+      ],
+      "messages": [],
+      "control_count": 18,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts...",
+        "textbox:Select a cell to enter a value or formula start with '='",
+        "textbox:36"
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Preprocessing Menu",
+        "menu",
+        "Update Edited",
+        "Save to Folder",
+        "Find and Replace",
+        "Categorize Column",
+        "Add Sheet",
+        "DataGhurhi logo",
+        "Copy",
+        "Paste",
+        "Undo",
+        "Redo"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "File",
+        "latest_uploaded.xlsx",
+        "fx",
+        "Row Height",
+        "px"
+      ],
+      "api_calls": [
+        "GET /api/profile 200"
+      ]
+    },
+    "/preview": {
+      "landed_on": "/preview",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [],
+      "messages": [],
+      "control_count": 0,
+      "inputs": [],
+      "buttons": [],
+      "captcha": false,
+      "texts": [],
+      "api_calls": []
+    },
+    "/qualitative-analysis": {
+      "landed_on": "/qualitative-analysis",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Qualitative Analysis",
+        "📥 Start a new analysis",
+        "📤 Continue from a codebook"
+      ],
+      "messages": [],
+      "control_count": 8,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "← Back",
+        "DataGhurhi logo",
+        "📥 Start a new analysis Upload an Excel/CSV file containing your questionnaire and responses, then c",
+        "📤 Continue from a codebook Upload a codebook you previously downloaded to resume unfinished coding,"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Import a questionnaire and its responses to start coding, or resume a previously downloaded codebook"
+      ],
+      "api_calls": [
+        "GET /api/profile 200"
+      ]
+    },
+    "/report": {
+      "landed_on": "/report",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Statistical Analysis Reports"
+      ],
+      "messages": [],
+      "control_count": 3,
+      "inputs": [],
+      "buttons": [
+        "Download PDF Report",
+        "Clear Reports",
+        "Back to Analysis"
+      ],
+      "captcha": false,
+      "texts": [
+        "View and manage your data analysis results",
+        "No reports available",
+        "Run some statistical analyses to generate reports."
+      ],
+      "api_calls": []
+    },
+    "/saved-files": {
+      "landed_on": "/saved-files",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Personal Storage"
+      ],
+      "messages": [],
+      "control_count": 22,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Collapse sidebar",
+        "My Projects",
+        "<script>alert('XSS')</script>",
+        "CollabTest_Project_X",
+        "File Upload Test Project",
+        "Test Project for Survey",
+        "Test Survey Required Field",
+        "Test Unpublished Survey",
+        "Test_Isolation_Project",
+        "Collaborations",
+        "My Templates",
+        "Question Bank"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin"
+      ],
+      "api_calls": [
+        "GET /api/collaborator/all-invitations 200",
+        "GET /api/profile 200",
+        "GET /api/project 200",
+        "GET /api/project/:id/surveys 200",
+        "GET /api/project/:id/surveys 404",
+        "GET /api/sa/files 404"
+      ]
+    },
+    "/search-results": {
+      "landed_on": "/search-results",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Showing Results: \"\"← Back"
+      ],
+      "messages": [],
+      "control_count": 6,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "← Back",
+        "DataGhurhi logo"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Showing Results:",
+        "No results found."
+      ],
+      "api_calls": [
+        "GET /api/profile 200"
+      ]
+    },
+    "/security-settings": {
+      "landed_on": "/security-settings",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Manage your security settings",
+        "Change Password",
+        "Secret Question & Answer"
+      ],
+      "messages": [],
+      "control_count": 7,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "DataGhurhi logo",
+        "Change Password",
+        "Secret Question & Answer"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin"
+      ],
+      "api_calls": [
+        "GET /api/profile 200"
+      ]
+    },
+    "/subscription": {
+      "landed_on": "/subscription",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Manage Your Subscriptions",
+        "Premium Packages",
+        "Subscription History",
+        "Subscription Plans",
+        "No Active Subscriptions"
+      ],
+      "messages": [],
+      "control_count": 8,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Get Premium",
+        "DataGhurhi logo",
+        "Premium Packages",
+        "Subscription History"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Explore and upgrade to premium plans",
+        "Manage your active subscriptions and view usage history",
+        "💼",
+        "You don't have any active subscriptions. Upgrade to unlock premium features."
+      ],
+      "api_calls": [
+        "GET /api/get-user-packages 200",
+        "GET /api/profile 200"
+      ]
+    },
+    "/survey-success": {
+      "landed_on": "/survey-success",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Survey Response Submitted Successfully!"
+      ],
+      "messages": [],
+      "control_count": 1,
+      "inputs": [],
+      "buttons": [
+        "Go Back to Home"
+      ],
+      "captcha": false,
+      "texts": [
+        "Thank you for taking the time to complete our survey. Your response has been recorded."
+      ],
+      "api_calls": []
+    },
+    "/visualization": {
+      "landed_on": "/visualization",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "📈 Visualize the Data"
+      ],
+      "messages": [],
+      "control_count": 9,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Analyze the Result",
+        "📊Summary",
+        "📋Questions",
+        "👤Individual Row",
+        "DataGhurhi logo"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "📈",
+        "Visualize the Data",
+        "Interactive charts and response analytics",
+        "Total Rows",
+        "Total Columns"
+      ],
+      "api_calls": [
+        "GET /api/profile 200"
+      ]
+    },
+    "/group-preview": {
+      "landed_on": "/group-preview",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Preview of Grouped Data"
+      ],
+      "messages": [],
+      "control_count": 1,
+      "inputs": [],
+      "buttons": [],
+      "captcha": false,
+      "texts": [
+        "No preview data available."
+      ],
+      "api_calls": []
+    },
+    "/user-response-view": {
+      "landed_on": "/user-response-view",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [],
+      "messages": [],
+      "control_count": 0,
+      "inputs": [],
+      "buttons": [],
+      "captcha": false,
+      "texts": [],
+      "api_calls": []
+    },
+    "/view-survey/602": {
+      "landed_on": "/view-survey/602",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [],
+      "messages": [],
+      "control_count": 33,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts...",
+        "textbox:Enter Survey Title",
+        "textbox:Enter Section Description",
+        "checkbox:Auto Numbering",
+        "checkbox:",
+        "textbox:Enter your question here",
+        "select:Checkbox Radio Text Dropdown Rating Likert Scale Linear Scale Date/Time Tick Box Grid",
+        "textbox:Add a note / instruction for this question (displayed in red)...",
+        "textbox:Short answer text",
+        "checkbox:Required"
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Update",
+        "Save as Template",
+        "Preview",
+        "Collaborate",
+        "Settings",
+        "Survey Link",
+        "View Response 1",
+        "Edit",
+        "Delete",
+        "Collapse section",
+        "Drag question",
+        "Show Tags"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Survey Description",
+        "This is a test survey description for verifying anonymous survey rendering.",
+        "Title"
+      ],
+      "api_calls": [
+        "GET /api/get-saved-survey 200",
+        "GET /api/profile 200",
+        "GET /api/surveytemplate/:id 200",
+        "GET /api/surveytemplate/stream/:id 200",
+        "GET /api/template-share/shared-with-me 200"
+      ]
+    },
+    "/v/e07-ba4": {
+      "landed_on": "/v/e07-ba4",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Required Field Test Survey"
+      ],
+      "messages": [],
+      "control_count": 8,
+      "inputs": [
+        "radio:Red",
+        "radio:Option 2",
+        "radio:Other",
+        "textbox:Type your option"
+      ],
+      "buttons": [
+        "Submit Survey",
+        "Red",
+        "Option 2",
+        "Other"
+      ],
+      "captcha": true,
+      "texts": [
+        "* Required fields are marked.",
+        "What is your favorite color?",
+        "Page",
+        "of"
+      ],
+      "api_calls": [
+        "GET /api/fetch-survey-user/:slug 200"
+      ]
+    },
+    "/survey-responses/602": {
+      "landed_on": "/survey-responses/602",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "Survey Responses1"
+      ],
+      "messages": [],
+      "control_count": 13,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Search for projects, surveys, accounts..."
+      ],
+      "buttons": [
+        "🇬🇧",
+        "J",
+        "Download ▼",
+        "Quantitative Analysis",
+        "Qualitative Analysis",
+        "Summary",
+        "Responses",
+        "Questions",
+        "Individual",
+        "Click to Learn More",
+        "DataGhurhi logo"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "DataGhurhi",
+        "Mohiuddin",
+        "Survey Responses"
+      ],
+      "api_calls": [
+        "GET /api/generatecsv/:id 200",
+        "GET /api/profile 200",
+        "GET /api/surveytemplate/:id 200",
+        "GET /api/surveytemplate/stream/:id 200"
+      ]
+    },
+    "/signup": {
+      "landed_on": "/signup",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "One platform for all your data needs",
+        "Create Account"
+      ],
+      "messages": [],
+      "control_count": 6,
+      "inputs": [
+        "textbox:Mr.",
+        "textbox:Bob",
+        "textbox:you@example.com"
+      ],
+      "buttons": [
+        "Select language",
+        "Send OTP"
+      ],
+      "captcha": false,
+      "texts": [
+        "Beta",
+        "Data",
+        "Ghurhi",
+        "One platform for",
+        "all",
+        "your data needs",
+        "Design surveys, gather insights, and share results across 33 languages — all from one place.",
+        "Create smart surveys effortlessly and share them easily"
+      ],
+      "api_calls": []
+    },
+    "/forgot-password": {
+      "landed_on": "/forgot-password",
+      "redirected": false,
+      "title": "Dataghurhi",
+      "headings": [
+        "To reset your password, follow these steps:",
+        "Reset Your Password"
+      ],
+      "messages": [],
+      "control_count": 8,
+      "inputs": [
+        "select:All Project Survey Account",
+        "textbox:Write your search query here...",
+        "textbox:Enter your registered email address."
+      ],
+      "buttons": [
+        "Login",
+        "Send OTP"
+      ],
+      "captcha": false,
+      "texts": [
+        "DataGhurhi",
+        "English",
+        "বাংলা",
+        "Click 'Send OTP' to receive a verification code in your email.",
+        "Enter the OTP you received in your inbox.",
+        "Click 'Verify OTP' to confirm your identity.",
+        "Enter your new password and confirm it.",
+        "Click 'Reset Password' to update your credentials."
+      ],
+      "api_calls": []
+    }
+  }
+}

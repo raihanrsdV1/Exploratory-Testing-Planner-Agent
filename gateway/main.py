@@ -252,6 +252,23 @@ _PLANNER_PATHS = ("/agent/", "/srs/ingest", "/figma/ingest", "/defects/ingest", 
 # A real log record starts with HH:MM:SS; anything else is a wrapped continuation.
 _TS_PREFIX = re.compile(r"^\d{2}:\d{2}:\d{2} ")
 
+# The trace only ever shows the newest few runs, so it only needs the end of the
+# log. Reading the whole file scaled with everything the dashboard had ever
+# logged: at 240 MB, each poll took ~11 s of CPU, every other request queued
+# behind it, and the polling that caused it kept appending to the same file.
+_TRACE_TAIL_BYTES = 8 * 1024 * 1024
+
+
+def _tail_lines(path: Path, max_bytes: int) -> list[str]:
+    """The last ``max_bytes`` of a text file as whole lines, oldest first."""
+    size = path.stat().st_size
+    with path.open("rb") as fh:
+        if size > max_bytes:
+            fh.seek(size - max_bytes)
+            fh.readline()  # discard the partial line the seek landed in
+        data = fh.read()
+    return data.decode("utf-8", errors="ignore").splitlines()
+
 
 @app.get("/dashboard/planner-trace", include_in_schema=False)
 def dashboard_planner_trace(runs: int = 12, project: str = ""):
@@ -267,7 +284,7 @@ def dashboard_planner_trace(runs: int = 12, project: str = ""):
         return {"exists": False, "runs": []}
 
     try:
-        raw_lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        raw_lines = _tail_lines(log_path, _TRACE_TAIL_BYTES)
     except Exception:
         return {"exists": False, "runs": []}
 
@@ -275,6 +292,10 @@ def dashboard_planner_trace(runs: int = 12, project: str = ""):
     order: list[str] = []
     for line in raw_lines:
         if '"event"' not in line:
+            continue
+        # Substring gate before json.loads: dashboard polling is most of the file
+        # and never carries a planner path, so it never needs parsing.
+        if not any(p in line for p in _PLANNER_PATHS):
             continue
         try:
             rec = json.loads(line)

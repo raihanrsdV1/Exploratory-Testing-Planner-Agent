@@ -694,6 +694,13 @@ WEB_CONSOLE_IGNORE = tuple(x.strip().lower() for x in _str(
 # watching a window that does not exist, so waiting would only burn the timeout.
 WEB_CAPTCHA_PAUSE_SECONDS = _int("WEB_CAPTCHA_PAUSE_SECONDS", 0)
 
+# Whether a native confirm() is accepted. Default true: dismissing it was the
+# old implicit behaviour and it made confirm-gated actions silently not happen,
+# which the agent reads as a control that does nothing. The blocked-label
+# guardrails refuse destructive controls BEFORE the click, so they are the
+# safety layer here - not the dialog answer.
+WEB_ACCEPT_CONFIRM = _bool("WEB_ACCEPT_CONFIRM", True)
+
 WEB_SCREENSHOT_DIR = _str("WEB_SCREENSHOT_DIR", os.path.join(_ROOT, "logs", "web_shots"))
 
 # ── Credentials (executor-only, exactly like app_login_block) ────────────────

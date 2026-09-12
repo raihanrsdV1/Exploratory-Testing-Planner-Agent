@@ -1,538 +1,393 @@
-# DataGhurhi — Requirements Specification for Exploratory Testing
+# DataGhurhi — Requirements Specification
 
-Version 1.0 · System under test: `https://dataghurhi.cse.buet.ac.bd`
+**Provenance.** Written on 12 Sep 2026 from the running application at
+`https://dataghurhi.cse.buet.ac.bd`, not from description. Three sources, in
+order of authority:
 
-## Scope
+1. **The application's own router and client bundle** — 31 declared routes and
+   129 `/api/*` paths, read out of `/assets/index-*.js`.
+2. **A read-only walk of every route** with an authenticated session, recording
+   headings, form fields, controls and the API calls each page issued.
+3. **Direct probes** of individual endpoints to separate "exists" from "named".
 
-DataGhurhi is a multilingual web platform for research data work, developed at
-BUET CSE. It covers project management, survey design, data collection, data
-preprocessing, quantitative and qualitative analysis, and visualization, with an
-AI-assisted question generator and a shared question bank.
+The previous edition of this document was written without seeing the site. It
+claimed 19 API routes; several did not exist, one was misspelled, and whole
+subsystems (admin, payments, vouchers, question bank, template sharing) were
+missing. Anything below that is *not* directly observed is marked
+**[UNVERIFIED]** so it can never again be mistaken for fact.
 
-This document specifies the behaviour the application is **expected** to exhibit.
-Where the implementation deviates, that deviation is a defect to be reported.
+---
 
-It is written for exploratory test generation against a **live research system
-that holds real user data and real survey responses**. Section 12 defines hard
-guardrails; they override every other requirement in this document. A test that
-cannot be performed without violating Section 12 must not be generated.
+## 0. Surfaces
 
-### Surface classification
+**Public** — reachable signed out: `/`, `/v/:slug`, `/signup`,
+`/forgot-password`, `/about`, `/faq`, `/faq/:topic`, `/faq/help-videos`.
 
-The agent's reachable surface is split by whether credentials are required:
+**Authenticated** — everything else: `/dashboard`, `/addproject`,
+`/view-survey/:survey_id`, `/survey-responses/:survey_id`, `/my-templates`,
+`/my-templates/:template_id/edit`, `/edit-profile`, `/security-settings`,
+`/subscription`, `/saved-files`, `/search-results`, `/analysis`, `/preprocess`,
+`/visualization`, `/report`, `/qualitative-analysis`,
+`/qualitative-analysis/:survey_id`, `/group-preview`, `/user-response-view`,
+`/preview`, `/survey-success`, `/home`.
 
-| Surface | Routes | Testable anonymously |
-|---|---|---|
-| **Public** | `/`, `/home`, `/about`, `/faq`, `/faq/:topic`, `/faq/help-videos`, `/signup`, `/forgot-password`, `/v/:slug` | Yes |
-| **Authenticated** | `/dashboard`, `/addproject`, `/my-templates`, `/preprocess`, `/analysis`, `/qualitative-analysis`, `/visualization`, `/report`, `/saved-files`, `/edit-profile`, `/security-settings`, `/subscription`, `/survey-responses/:survey_id`, `/view-survey/:survey_id` | Only with supplied credentials |
+**Observed oddity.** `/signup` and `/forgot-password` render their forms **while
+a session is active**, rather than redirecting a signed-in user away. Worth a
+decision: intended, or a missing guard?
 
-Requirements marked **[PUBLIC]** are exercisable without an account. Requirements
-marked **[AUTH]** require `APP_LOGIN_*` credentials to be configured; without
-them, generating such a test wastes the run and must be avoided.
+**Rendered nothing.** `/about`, `/preview` and `/user-response-view` produced
+zero interactive controls and no heading on a signed-in visit. Either they are
+unfinished, or they require state this walk did not have.
+
+### Verified API surface
+
+`data/inputs/dataghurhi-api.md` holds the evidence table, and
+`data/api/<project>.json` the machine-readable list the executor is given.
+**No test may cite an endpoint absent from that list.** The route is
+`/api/project` — singular. `/api/projects` does not exist.
 
 ---
 
 ## 1. Public survey response — `/v/:slug`
 
-The primary anonymous surface. A published survey is opened by slug (for example
-`/v/53d-edc`) and rendered from `GET /api/fetch-survey-user/:slug`.
-
-### FR-RESP-01 Survey rendering [PUBLIC]
-DETAILED DESCRIPTION: Opening a valid survey slug shall render the survey's
-title, its description, and its questions grouped under their section headings,
-in the order defined by the template. The page shall render without requiring
-sign-in when the survey's `isLoggedInRequired` flag is false.
-
-RATIONALE: A respondent arriving from a shared link is anonymous by default; a
-sign-in wall on an open survey silently destroys the response rate.
+### FR-RESP-01 Rendering [PUBLIC]
+DETAILED DESCRIPTION: A published survey opened at `/v/:slug` shall render its
+title and its questions. The page is populated from
+`GET /api/fetch-survey-user/:slug`. *Observed: `/v/e07-ba4` renders the heading
+"Required Field Test Survey", three radio options and a free-text "other" field.*
 
 ### FR-RESP-02 Unknown or unpublished slug [PUBLIC]
-DETAILED DESCRIPTION: A slug that does not exist, or that names a survey which is
-not published, shall present an explicit "not found / unavailable" message. It
-shall NOT present a blank page, an endless loading indicator, or a raw error
-object.
+DETAILED DESCRIPTION: A slug that does not resolve shall render an explicit
+message and a route back. It shall not render a blank page, an endless spinner,
+or a raw error. *Observed: `/v/999-nonexistent` renders "Error | This survey does
+not exist." with a "Return Home" link.*
 
-RATIONALE: A blank page is indistinguishable from a failed load, and is the most
-common way a broken link is misdiagnosed as a network problem.
+### FR-RESP-03 Required-question enforcement **[UNVERIFIED]**
+*Could not be confirmed: submitting the response form produced no visible validation, because the reCAPTCHA gates submission before any field check runs. Testable only once the test environment uses reCAPTCHA test keys.*
+DETAILED DESCRIPTION: A question marked required shall prevent submission until
+answered, and the refusal shall name the offending question.
 
-### FR-RESP-03 Section presentation
-DETAILED DESCRIPTION: Sections shall display their title when `showTitle` is set,
-and their description when one is present. When `autoNumbering` is enabled for a
-section, its questions shall be numbered contiguously and consistently; numbering
-shall not restart, skip, or duplicate within a section.
+### FR-RESP-04 Answer types
+DETAILED DESCRIPTION: The response form shall support single-choice, an "other"
+free-text option alongside choices, multi-choice, free text, and the question
+types the builder offers (Section 4). Each shall record what the respondent
+selected and nothing else.
+ *Observed on `/v/e07-ba4`: radio options plus an "other" free-text box. Only one survey was available to sample, so the full type list in FR-SURV-02 is confirmed from the builder, not from a rendered response form.* **[PARTIALLY VERIFIED]**
 
-### FR-RESP-04 Required-question enforcement
-DETAILED DESCRIPTION: A question marked `required` shall be visibly marked as
-required, and submission shall be refused while it is unanswered. The refusal
-shall name or scroll to the specific unanswered question. Submission shall not be
-silently discarded, and the page shall not navigate away.
+### FR-RESP-05 Human verification [PUBLIC]
+DETAILED DESCRIPTION: The response page presents a reCAPTCHA challenge before
+submission. *Observed: an `I'm not a robot` widget on `/v/e07-ba4`.*
+**Testing consequence:** submission is unreachable to automation until the test
+environment uses reCAPTCHA test keys. Anything before the challenge — rendering,
+validation, retention — remains testable.
 
-RATIONALE: A refusal that does not identify *which* question is missing forces the
-respondent to re-read the whole form; on a 43-question instrument that is an
-abandonment.
+### FR-RESP-06 Submission and confirmation
+DETAILED DESCRIPTION: A completed submission shall persist the response and
+confirm it. *Observed: `/survey-success` renders "Survey Response Submitted
+Successfully".*
 
-### FR-RESP-05 Optional-question handling
-DETAILED DESCRIPTION: A question not marked `required` shall be submittable while
-left blank, and its absence shall not block submission or be recorded as an
-empty-string answer that is indistinguishable from a deliberate blank.
+### FR-RESP-07 Answer retention on a refused submission
+DETAILED DESCRIPTION: When a submission is refused, previously entered answers
+shall remain in the form.
+ *Observed: a value typed into the "other" box was still present after the submission was refused.*
 
-### FR-RESP-06 Text answers
-DETAILED DESCRIPTION: A `text` question shall accept free text, including:
-- leading and trailing whitespace (trimmed before storage);
-- Unicode beyond Latin-1, specifically Bangla script (for example `ঢাকা`);
-- long answers of at least 2,000 characters without layout overflow or client error;
-- characters with markup meaning (`<`, `>`, `&`, `"`, `'`) stored and re-displayed
-  as literal text, never interpreted as markup.
+### FR-RESP-08 Draft retention across navigation
+DETAILED DESCRIPTION: A partially completed response shall survive navigating
+away and returning to the same slug. *Observed: a value typed into the "other"
+box was still present after navigating to `/dashboard` and back.*
 
-RATIONALE: The platform is explicitly multilingual and research-facing; a text
-field that mangles Bangla or executes markup is both a data-integrity and a
-security defect.
-
-### FR-RESP-07 Single-choice (radio) answers
-DETAILED DESCRIPTION: A `radio` question shall permit exactly one selection from
-its options. Selecting a second option shall replace the first, never add to it.
-
-### FR-RESP-08 "Other" option
-DETAILED DESCRIPTION: A question with `otherAsOption` shall present an "Other"
-choice with an accompanying free-text input. Selecting "Other" shall enable that
-input; the typed value shall be submitted in place of a fixed option. Selecting
-"Other" and leaving the text empty on a *required* question shall be refused.
-
-### FR-RESP-09 Multi-choice (checkbox) answers
-DETAILED DESCRIPTION: A `checkbox` question shall permit zero or more selections.
-Where `requireAtLeastOneSelection` is set, submission shall be refused until at
-least one box is ticked, with a message stating that at least one selection is
-required.
-
-### FR-RESP-10 Likert matrix answers
-DETAILED DESCRIPTION: A `likert` question shall render its statement rows against
-its scale columns (for example: Strongly Agree · Agree · Neutral · Disagree ·
-Strongly Disagree · Never Used). Exactly one column shall be selectable per row.
-Where `requireEachRowResponse` is set, submission shall be refused until every row
-carries a response, with a message stating that a response is required for each
-row.
-
-RATIONALE: A matrix that permits two answers in one row, or that reports "complete"
-with rows unanswered, corrupts the analysis silently — the response is stored and
-looks valid.
-
-### FR-RESP-11 Other supported question types
-DETAILED DESCRIPTION: Where a survey uses them, the platform shall render and
-validate: `dropdown` (one selection), `linear` scale, `rating`, `date`, `time`,
-tick-box grid, and file upload. Each shall enforce its own type constraint — a
-date field shall reject a non-date, a rating shall not exceed its maximum.
-
-### FR-RESP-12 File-upload answers
-DETAILED DESCRIPTION: A file-upload question shall accept a file, display the
-selected filename, permit removal before submission, and enforce any configured
-size and type limits with an explicit message. An oversized or wrong-type file
-shall be refused at selection time, not silently at submit time.
-
-### FR-RESP-13 Submission and confirmation
-DETAILED DESCRIPTION: A valid submission shall be recorded via
-`POST /api/submit-survey/:id` and shall present an explicit confirmation stating
-that the response was recorded. The confirmation shall be a distinct state — not
-merely a cleared form, which is indistinguishable from a lost submission.
-
-### FR-RESP-14 Double submission
-DETAILED DESCRIPTION: Activating the submit control twice in rapid succession
-shall record at most one response. The control shall become inert, or the second
-attempt shall be rejected.
-
-RATIONALE: Duplicate responses are indistinguishable from genuine ones after the
-fact and silently bias every statistic computed from the dataset.
-
-### FR-RESP-15 Answer retention on a refused submission
-DETAILED DESCRIPTION: When submission is refused for a validation reason, every
-answer already provided shall be retained. A validation failure shall never clear
-the form.
-
-RATIONALE: Discarding twenty minutes of answers over one missed required field is
-the most expensive single defect this surface can have.
-
-### FR-RESP-16 Closed and time-bounded surveys
-DETAILED DESCRIPTION: A survey whose `ending_date` has passed, or whose
-`collect_response` flag is false, shall refuse new responses and state why. It
-shall not present a submittable form that silently discards the answer.
-
-### FR-RESP-17 Sign-in-required surveys
-DETAILED DESCRIPTION: A survey with `isLoggedInRequired` set shall require an
-authenticated respondent, and shall say so on arrival rather than after the form
-is filled in.
-
-### FR-RESP-18 Preview mode
-DETAILED DESCRIPTION: A survey opened in preview shall state that responses will
-not be recorded, and shall not record them.
-
-### FR-RESP-19 Question shuffling
-DETAILED DESCRIPTION: When `shuffleQuestions` is enabled, question order shall
-vary between renders while every question remains present exactly once. Shuffling
-shall never drop, duplicate, or reorder a question across a section boundary.
+**Defect candidate.** The value returns but the radio that enables the box does
+not: the field comes back holding its old answer while `disabled`. The stored
+answer and the control state disagree, so a respondent cannot edit what the form
+is still showing them.
 
 ---
 
 ## 2. Authentication and account
 
 ### FR-AUTH-01 Registration [PUBLIC]
-DETAILED DESCRIPTION: `/signup` shall collect the fields required to create an
-account and shall validate them before submission. Registration shall verify
-email availability (`POST /api/register/check-email`) and refuse an address that
-is already registered, with a message saying so.
+DETAILED DESCRIPTION: `/signup` shall collect a title, name and email address and
+begin verification by one-time code. *Observed: three text fields and a
+"Send OTP" button; `POST /api/register`, `/api/register/check-email`,
+`/api/send-otp`, `/api/verify-otp` exist in the client.*
 
-### FR-AUTH-02 Password policy [PUBLIC]
-DETAILED DESCRIPTION: A password shall be accepted only when it satisfies **all**
-of: at least 8 characters, at least one uppercase letter, at least one lowercase
-letter, at least one number, and at least one special character. The unmet
-criteria shall be shown to the user as they type.
+### FR-AUTH-02 Email uniqueness [PUBLIC]
+DETAILED DESCRIPTION: Registration shall refuse an address already registered,
+via `/api/register/check-email`, and say so without revealing other account data.
 
-### FR-AUTH-03 Consistent password messaging [PUBLIC]
-DETAILED DESCRIPTION: Every place the password rule is stated shall state the
-**same** rule. A message describing a weaker rule than the one enforced (for
-example, one that omits the uppercase and lowercase requirements) is a defect.
+### FR-AUTH-03 One-time code [PUBLIC] **[UNVERIFIED]**
+DETAILED DESCRIPTION: Registration shall require a code sent to the address.
+A wrong or expired code shall be refused. **Out of scope for automation:** the
+code arrives out of band.
 
-RATIONALE: The application contains at least two differently-worded statements of
-this rule; a user who satisfies the weaker one and is refused has been misled by
-the product itself.
+### FR-AUTH-04 Sign-in [PUBLIC]
+DETAILED DESCRIPTION: `POST /api/login` shall accept valid credentials and refuse
+invalid ones with a message that does not disclose whether the address is
+registered.
 
-### FR-AUTH-04 Password confirmation [PUBLIC]
-DETAILED DESCRIPTION: Where a password is confirmed, a mismatch shall be refused
-with a message stating that the passwords do not match, before any request is sent.
+### FR-AUTH-05 Password recovery [PUBLIC]
+DETAILED DESCRIPTION: `/forgot-password` shall describe the reset path and
+accept a recovery request (`/api/login/reset-password`) without revealing whether
+an address is registered.
 
-### FR-AUTH-05 Email validation [PUBLIC]
-DETAILED DESCRIPTION: An email field shall refuse a syntactically invalid address
-with an explicit message, and shall refuse an empty value with a message stating
-the address is required. Validation shall accept legitimate forms including
-subdomains, plus-addressing, and long TLDs.
+### FR-AUTH-06 Session and access control
+DETAILED DESCRIPTION: An authenticated route requested without a session shall
+refuse access rather than render its contents or another user's data.
+ *Observed: `/dashboard` requested with no session renders the public landing page, not the dashboard; `GET /api/project` without a token returns 401.*
 
-### FR-AUTH-06 Sign-in [PUBLIC]
-DETAILED DESCRIPTION: `POST /api/login` shall accept valid credentials and
-establish a session. It shall refuse invalid credentials with a message that does
-**not** disclose which of the two was wrong.
+### FR-AUTH-07 Secret question [AUTH]
+DETAILED DESCRIPTION: `/security-settings` shall let a signed-in user set and
+update a secret question and answer
+(`/api/profile/get-secret-question`, `/api/profile/update-secret-question`).
+The stored answer shall never be displayed again in clear.
 
-RATIONALE: Distinguishing "no such user" from "wrong password" is an account
-enumeration vector on a platform holding named researcher accounts.
+### FR-AUTH-08 Password change [AUTH]
+DETAILED DESCRIPTION: `/security-settings` shall offer a password change
+requiring the current password (`/api/profile/match-password`,
+`/api/profile/update-password`), and shall enforce the policy in FR-AUTH-09.
+*Observed: the section is a collapsed card; expanding it reveals current, new and
+confirm fields plus "Update Password".*
+**Out of scope for automation:** changing it invalidates the stored session.
 
-### FR-AUTH-07 Password recovery [PUBLIC]
-DETAILED DESCRIPTION: `/forgot-password` shall send a one-time code to the
-registered address (`POST /api/send-otp`), verify it (`POST /api/verify-otp`), and
-only then permit a new password subject to FR-AUTH-02. An incorrect, expired, or
-reused code shall be refused with an explicit message.
+### FR-AUTH-09 Password policy
+DETAILED DESCRIPTION: A password shall be at least 8 characters and include a
+number and a special character. *Observed verbatim: "Password must be at least 8
+characters long, include a number and a special character."*
 
-### FR-AUTH-08 Recovery does not disclose registration [PUBLIC]
-DETAILED DESCRIPTION: Requesting a code for an address that is not registered
-shall respond identically to one that is, without revealing whether the account
-exists.
-
-### FR-AUTH-09 Secret question [AUTH]
-DETAILED DESCRIPTION: A user shall be able to set and update a secret question and
-answer (`/api/profile/get-secret-question`, `/api/profile/update-secret-question`)
-and the answer shall never be displayed in plain text after it is stored.
-
-### FR-AUTH-10 Session and access control
-DETAILED DESCRIPTION: Requesting an authenticated route (Section 0, Authenticated
-surface) while signed out shall refuse access and route the visitor to sign-in. It
-shall not render the page's contents, and shall not expose data belonging to
-another user in the process.
-
-### FR-AUTH-11 Password change [AUTH]
-DETAILED DESCRIPTION: Changing a password (`/api/profile/update-password`) shall
-require the current password (`/api/profile/match-password`), enforce FR-AUTH-02
-on the new one, and refuse a new password identical to the current one.
+### FR-AUTH-10 Profile [AUTH]
+DETAILED DESCRIPTION: `/edit-profile` shall present basic info and contact
+details and save them (`/api/profile/update-profile`,
+`/api/profile/update-profile-image`). *Observed: sections "Basic Info" and
+"Contact", with a "Save Profile" control.*
 
 ---
 
 ## 3. Projects
 
-### FR-PROJ-01 Project creation [AUTH]
-DETAILED DESCRIPTION: A signed-in user shall create a project
-(`POST /api/project/create-project`) with a title. A project shall not be created
-with an empty or whitespace-only title.
+### FR-PROJ-01 Creation [AUTH]
+DETAILED DESCRIPTION: `/addproject` shall create a project from a name, a
+research field, an optional description and a visibility of Private or Public
+(`POST /api/project/create-project`). *Observed: exactly those fields, with
+Private/Public radios, "Create Project" and "Cancel".*
 
-### FR-PROJ-02 Project listing [AUTH]
-DETAILED DESCRIPTION: `GET /api/project` shall list only projects the requesting
-user owns or has been invited to collaborate on. A project belonging to another
-user shall never appear.
+### FR-PROJ-02 Required fields [AUTH]
+DETAILED DESCRIPTION: Project name and research field are required and enforced
+by native browser validation. *Observed: submitting empty yields the browser's
+own "Please fill out this field." on both.*
 
-### FR-PROJ-03 Surveys within a project [AUTH]
-DETAILED DESCRIPTION: A project shall list its surveys
-(`GET /api/project/:id/surveys`) and permit creating a new one
-(`POST /api/project/:id/create-survey`).
+### FR-PROJ-03 Listing [AUTH]
+DETAILED DESCRIPTION: `/dashboard?tab=projects` shall list the caller's projects
+(`GET /api/project`) plus those shared with them
+(`GET /api/collaborator/all-projects`), and no others.
+
+### FR-PROJ-04 Detail and surveys [AUTH]
+DETAILED DESCRIPTION: Opening a project shall show its surveys
+(`GET /api/project/:id/surveys`) and the caller's access level
+(`GET /api/project/:id/fetchaccess`).
+
+### FR-PROJ-05 Update and deletion [AUTH]
+DETAILED DESCRIPTION: A project may be renamed (`/api/project/:id/update-project`)
+and deleted (`/api/project/:id/delete-project`).
+**Out of scope for automation:** deletion is irreversible.
+
+### FR-PROJ-06 Title is escaped, not executed [AUTH]
+DETAILED DESCRIPTION: A project title containing markup shall be displayed as
+text. *Observed: a project literally titled `<script>alert('XSS')</script>`
+renders as a label and does not execute — correct behaviour, left by earlier
+testing.*
 
 ---
 
 ## 4. Survey design
 
-### FR-SURV-01 Survey builder [AUTH]
-DETAILED DESCRIPTION: The builder shall permit adding, editing, reordering, and
-deleting sections and questions, and shall persist the result
-(`POST /api/surveytemplate/save`). An unsaved change shall not be lost silently on
-navigation — the user shall be warned or the change preserved.
+### FR-SURV-01 Builder [AUTH]
+DETAILED DESCRIPTION: `/view-survey/:survey_id` shall present the survey editor
+with its questions, loaded from `GET /api/surveytemplate/:id`.
 
-### FR-SURV-02 Question configuration [AUTH]
-DETAILED DESCRIPTION: Each question shall support setting its text, type,
-required flag, options, and (where applicable) `otherAsOption`,
-`requireAtLeastOneSelection`, and `requireEachRowResponse`. A choice-type question
-shall refuse to be saved with zero options, with a message stating that at least
-one option is required.
+### FR-SURV-02 Question types [AUTH]
+DETAILED DESCRIPTION: The editor shall offer Checkbox, Radio, Text, Dropdown,
+Rating, Likert Scale, Linear Scale, Date/Time and Tick Box Grid. *Observed
+verbatim from the type selector.*
 
-### FR-SURV-03 Survey settings [AUTH]
-DETAILED DESCRIPTION: Settings (`/api/surveytemplate/settings/:survey_id`) shall
-control at least: sign-in requirement, response collection on/off, question
-shuffling, and ending date. A setting saved shall be the setting applied on the
-public response page.
+### FR-SURV-03 Saving [AUTH]
+DETAILED DESCRIPTION: Edits shall persist via `/api/surveytemplate/save` and
+confirm. *Observed: "Survey Saved successfully!".*
 
-RATIONALE: A settings screen whose values do not take effect on the live survey is
-worse than none — it reports a protection that is not in force.
+### FR-SURV-04 Settings [AUTH]
+DETAILED DESCRIPTION: Per-survey settings shall be readable and writable at
+`/api/surveytemplate/settings/:survey_id`.
 
-### FR-SURV-04 Templates [AUTH]
-DETAILED DESCRIPTION: A survey shall be savable as a template
-(`/api/get-saved-survey/save-as-template`), listable (`/my-templates`), editable,
-and copyable (`/api/surveytemplate/copy/:id`). Copying shall duplicate content
-without linking the copy's later edits back to the original.
-
-### FR-SURV-05 Question bank [AUTH]
-DETAILED DESCRIPTION: Questions shall be creatable in
-(`POST /api/question-bank/create`), searchable in — including semantic search
-(`/api/question-bank/semantic-search`) — and reusable from a question bank. A
-semantic search returning nothing shall say so explicitly rather than presenting
-an empty region.
+### FR-SURV-05 Preview [AUTH] [UNVERIFIED]
+DETAILED DESCRIPTION: The editor shows a "Preview" control. *Observed: clicking
+it changed nothing on the page — no navigation, no panel, no dialog.* Whether it
+is unimplemented, or requires an unsaved-changes state, is unestablished. **This
+is a defect candidate.**
 
 ### FR-SURV-06 AI question generation [AUTH]
-DETAILED DESCRIPTION: The AI generator
-(`/api/generate-question-with-llm/`, `/api/generate-multiple-questions-with-llm`)
-shall produce questions of a valid type with valid options, insert them into the
-survey under construction, and remain editable afterwards. A generation failure or
-timeout shall be reported to the user, never left as a silent no-op.
+DETAILED DESCRIPTION: The builder may generate questions via
+`/api/generate-question-with-llm/` and `/api/generate-multiple-questions-with-llm`,
+and tags via `/api/generate-tags/`.
 
-### FR-SURV-07 Quiz mode [AUTH]
-DETAILED DESCRIPTION: A survey with `is_quiz` set shall support per-question point
-values, a total, and a marks-release policy (immediately or later), and shall
-present the score to the respondent only according to that policy.
+### FR-SURV-07 Quotas [AUTH]
+DETAILED DESCRIPTION: Creating surveys, questions and tags decrements the
+caller's allowance (`/api/reduce-survey-count`, `/api/reduce-question-count`,
+`/api/reduce-tag-count`) and shall be refused once exhausted.
 
 ---
 
-## 5. Collaboration and sharing
+## 5. Templates and question bank
 
-### FR-COLL-01 Invitations [AUTH]
-DETAILED DESCRIPTION: A survey owner shall invite a collaborator by email
-(`/api/survey-collaborator/send-survey-collaboration-request`). The invitee shall
-see the invitation (`/api/survey-collaborator/all-invitations`) and be able to
-accept or decline it.
+### FR-TMPL-01 My templates [AUTH]
+DETAILED DESCRIPTION: `/my-templates` shall list the caller's saved templates
+(`GET /api/get-saved-survey`, `/api/get-saved-survey/user-template`).
 
-### FR-COLL-02 Collaborator permissions [AUTH]
-DETAILED DESCRIPTION: A collaborator shall access only the surveys or projects
-they were invited to, and only at the permission level granted. Removal
-(`/remove-collaborator/:id`) shall revoke that access immediately.
+### FR-TMPL-02 Editing [AUTH]
+DETAILED DESCRIPTION: `/my-templates/:template_id/edit` shall edit a template.
+ *Observed: `GET /api/get-saved-survey` returns saved templates with an `id`, so the `:template_id` route has real values to address.*
 
-RATIONALE: This is the platform's principal data-isolation boundary; a leak here
-exposes another researcher's unpublished instrument and respondent data.
+### FR-TMPL-03 Sharing [AUTH]
+DETAILED DESCRIPTION: A template may be shared, and invitations accepted,
+declined, duplicated, left or revoked
+(`/api/template-share/*`). `GET /api/template-share/shared-with-me` lists those
+shared with the caller.
 
----
-
-## 6. Responses and data collection
-
-### FR-DATA-01 Response listing [AUTH]
-DETAILED DESCRIPTION: `/survey-responses/:survey_id` shall list responses to a
-survey the user owns or collaborates on, with the answer to each question
-attributable to the response it came from.
-
-### FR-DATA-02 Response export [AUTH]
-DETAILED DESCRIPTION: Responses shall be exportable. An export shall contain every
-recorded response and every question, with Bangla text preserved intact in the
-exported file.
-
-RATIONALE: Encoding loss at export is invisible in the application and fatal in
-the analysis.
-
-### FR-DATA-03 Empty state [AUTH]
-DETAILED DESCRIPTION: A survey with no responses yet shall state that explicitly.
-It shall not render an empty table indistinguishable from a failed load.
+### FR-QB-01 Question bank [AUTH]
+DETAILED DESCRIPTION: `/api/question-bank` shall store reusable questions, with
+create, update, delete, share, revoke and `semantic-search`.
 
 ---
 
-## 7. Preprocessing, analysis and visualization
+## 6. Collaboration
 
-### FR-ANLY-01 Column selection guards [AUTH]
-DETAILED DESCRIPTION: An analysis requiring a minimum number or type of columns
-shall refuse to run until they are chosen, and shall say what is missing — for
-example that at least one numerical column, at least one categorical column, or at
-least two columns for a network graph, is required.
+### FR-COLL-01 Project collaborators [AUTH]
+DETAILED DESCRIPTION: A project owner may invite collaborators
+(`/api/project/:id/invite-collaborator`) and list them
+(`GET /api/project/:id/collaborators`).
 
-### FR-ANLY-02 Type correctness [AUTH]
-DETAILED DESCRIPTION: An operation shall refuse a column whose data type it cannot
-process, with a message naming the mismatch, rather than producing a result
-computed from coerced or dropped values.
+### FR-COLL-02 Invitations [AUTH]
+DETAILED DESCRIPTION: `GET /api/collaborator/all-invitations` lists pending
+invitations; each may be accepted or declined.
+**Out of scope for automation:** sending reaches a real mailbox.
 
-RATIONALE: A statistic silently computed over coerced data is a wrong answer
-presented with full confidence — the worst failure mode an analysis tool has.
+### FR-COLL-03 Survey collaborators [AUTH]
+DETAILED DESCRIPTION: Surveys carry their own collaborator set
+(`/api/survey-collaborator/*`), including removal and a search over previously
+used addresses.
 
-### FR-ANLY-03 Preprocessing operations [AUTH]
-DETAILED DESCRIPTION: Preprocessing (`/preprocess`) shall support at least
-duplicate detection, column deletion, and cell edits, and shall reject a cell edit
-whose value does not match the column's data type.
+---
+ *Observed: `GET /api/survey-collaborator/get-survey-collaborators/602` returns `{"collaborators":[],"canManage":true}`.*
+## 7. Responses, data and analysis
 
-### FR-ANLY-04 Quantitative analysis [AUTH]
-DETAILED DESCRIPTION: `/analysis` shall run the offered statistical procedures over
-the selected columns and persist results (`/api/sa/save-results/`). A procedure
-that cannot run on the given data shall explain why.
+### FR-DATA-01 Responses [AUTH]
+DETAILED DESCRIPTION: `/survey-responses/:survey_id` shall present a survey's
+responses with Summary, Responses and Questions views. *Observed, along with a
+Download control and `GET /api/generatecsv/:id`.*
 
-### FR-ANLY-05 Qualitative analysis [AUTH]
-DETAILED DESCRIPTION: `/qualitative-analysis/:survey_id` shall support coding and
-theming of free-text responses, and shall require at least one code and one theme
-before rendering a connection view, saying so when they are absent.
+### FR-DATA-02 Export [AUTH]
+DETAILED DESCRIPTION: Responses shall be exportable as CSV.
+ *Observed: `GET /api/generatecsv/:id` returns 200 with `content-type: text/csv` and quoted rows, including Bangla headers.*
 
-### FR-ANLY-06 Visualization [AUTH]
-DETAILED DESCRIPTION: `/visualization` shall render a chart from the selected data
-with labelled axes and a legend where more than one series is present, and shall
-remain readable when a label is long or non-Latin.
+### FR-DATA-03 Personal storage [AUTH]
+DETAILED DESCRIPTION: `/saved-files` ("Personal Storage") shall list files the
+caller has saved.
+ *Observed: `/saved-files` renders the heading "Personal Storage" with 22 controls.*
 
-### FR-ANLY-07 Report and saved files [AUTH]
-DETAILED DESCRIPTION: `/report` and `/saved-files` shall list artefacts belonging
-to the user, permit download, and shall not expose another user's artefacts.
+### FR-ANLY-01 Statistical analysis [AUTH]
+DETAILED DESCRIPTION: `/analysis` shall accept a data file by drag-and-drop,
+browse, or import from saved files, and run analyses (`/api/sa/*`).
+
+### FR-ANLY-02 Preprocessing [AUTH]
+DETAILED DESCRIPTION: `/preprocess` shall present the data as an editable grid
+with a formula bar and operations including Find and Replace and Categorize
+Column, savable to a folder. *Observed verbatim.*
+
+### FR-ANLY-03 Qualitative analysis [AUTH]
+DETAILED DESCRIPTION: `/qualitative-analysis` and
+`/qualitative-analysis/:survey_id` shall analyse free-text responses.
+ *Observed: renders "Qualitative Analysis" and "Start a new analysis".*
+
+### FR-ANLY-04 Visualization [AUTH]
+DETAILED DESCRIPTION: `/visualization` shall render charts from selected data.
+ *Observed: renders "Visualize the Data".*
+
+### FR-ANLY-05 Reports [AUTH]
+DETAILED DESCRIPTION: `/report` shall list saved analysis reports.
+ *Observed: renders "Statistical Analysis Reports".*
+
+### FR-ANLY-06 Grouped preview [AUTH]
+DETAILED DESCRIPTION: `/group-preview` shall preview grouped data.
+
+---
+ *Observed: renders "Preview of Grouped Data".*
+## 8. Subscription and payment
+
+### FR-SUBS-01 Packages [AUTH]
+DETAILED DESCRIPTION: `/subscription` shall show "Premium Packages" and
+"Subscription History" (`GET /api/get-user-packages`).
+
+### FR-SUBS-02 Purchase [AUTH]
+DETAILED DESCRIPTION: A package may be purchased
+(`/api/subscription/create`, `/api/payment/initiate`).
+**Out of scope for automation:** it spends money.
+
+### FR-SUBS-03 Vouchers [AUTH]
+DETAILED DESCRIPTION: Vouchers may be validated and redeemed
+(`/api/vouchers/validate`, `/api/vouchers/public`, `/api/voucher-used/create`).
 
 ---
 
-## 8. Subscription and packages
+## 9. Search, FAQ and internationalisation
 
-### FR-SUBS-01 Package presentation [AUTH]
-DETAILED DESCRIPTION: `/subscription` shall present available packages with their
-price, validity period, and included quotas as returned by the server, not as
-hard-coded values.
+### FR-SRCH-01 Global search [AUTH]
+DETAILED DESCRIPTION: The header search shall query projects, surveys and
+accounts, filtered by a scope selector of All / Project / Survey / Account
+(`GET /api/search`), with results at `/search-results`.
 
-### FR-SUBS-02 Quota enforcement [AUTH]
-DETAILED DESCRIPTION: Actions that consume quota (survey creation, question
-creation, tag creation) shall decrement the user's remaining allowance and shall
-refuse the action, with an explicit message, once the allowance is exhausted.
+### FR-FAQ-01 Help [PUBLIC]
+DETAILED DESCRIPTION: `/faq` shall present browsable topics (`GET /api/faq`),
+`/faq/:topic` a single topic, and `/faq/help-videos` video help.
 
-RATIONALE: A quota that is displayed but not enforced, or enforced but not
-displayed, both manifest as the user losing work at an unpredictable moment.
+### FR-I18N-01 Language [PUBLIC]
+DETAILED DESCRIPTION: The interface offers a language switch. Switching shall not
+lose entered data. *Observed: content in both English and Bangla — `/faq/help-videos`
+renders "সাহায্য ভিডিও".*
 
----
+### FR-I18N-02 Bangla text [PUBLIC]
+DETAILED DESCRIPTION: Bangla text, including conjuncts, shall be accepted,
+stored and redisplayed unchanged.
+ *Observed: Bangla with conjuncts typed into Project Name read back byte-identical; CSV export preserves Bangla column headers.*
 
-## 9. Internationalisation
-
-### FR-I18N-01 Language switching [PUBLIC]
-DETAILED DESCRIPTION: The interface shall offer a language switch. Switching shall
-translate interface text without losing the user's place, without clearing entered
-data, and without leaving a mixture of both languages in the same view.
-
-### FR-I18N-02 Content translation [PUBLIC]
-DETAILED DESCRIPTION: Where survey content is translated, the translation shall not
-alter the meaning of scale labels, and an untranslatable string shall fall back to
-the original rather than rendering blank.
-
-### FR-I18N-03 Bangla input and rendering [PUBLIC]
-DETAILED DESCRIPTION: Bangla text shall be accepted in every free-text field,
-stored without corruption, re-displayed identically, and rendered with correct
-conjunct glyph shaping.
+### FR-I18N-03 Translation service
+DETAILED DESCRIPTION: The translation call shall succeed.
+**Observed defect:** it returns **403 on every page, every run** —
+`Translation error: AxiosError: Request failed with status code 403`.
 
 ---
 
-## 10. Non-functional requirements
+## 10. Administration [UNVERIFIED]
 
-### NFR-PERF-01 Page responsiveness
-DETAILED DESCRIPTION: A public survey page shall become interactive within 3
-seconds on a normal connection. A materially slower load is a performance defect
-and shall be reported with the measured duration.
-
-### NFR-PERF-02 Large instruments
-DETAILED DESCRIPTION: A survey of at least 50 questions across at least 10 sections
-shall render, scroll, and submit without a materially degraded interaction.
-
-### NFR-SEC-01 Transport
-DETAILED DESCRIPTION: Every request shall be served over HTTPS. A page shall not
-load an active mixed-content subresource.
-
-### NFR-SEC-02 Input neutralisation
-DETAILED DESCRIPTION: No user-supplied value shall be interpreted as markup or
-script anywhere it is later displayed — in the builder, in the response view, in
-the response listing, or in an export.
-
-### NFR-SEC-03 Error disclosure
-DETAILED DESCRIPTION: An error shown to a user shall not contain a stack trace, a
-database message, an internal path, or a token.
-
-### NFR-REL-01 Client stability
-DETAILED DESCRIPTION: No user journey in Section 1 shall raise an uncaught
-exception in the browser console, and no request in that journey shall return 5xx.
-
-### NFR-REL-02 State preservation
-DETAILED DESCRIPTION: Navigating away from a partially completed form and
-returning shall either restore the entered answers or warn before discarding them.
-
-### NFR-COMP-01 Viewport compatibility
-DETAILED DESCRIPTION: Every page in Section 1 shall remain usable at a 360 px-wide
-mobile viewport: no horizontal page scroll, no control pushed off-screen, no text
-clipped by an overlapping element.
-
-### NFR-A11Y-01 Accessible controls
-DETAILED DESCRIPTION: Every interactive control shall have an accessible name.
-Every input shall have an associated label. A required field shall be marked
-programmatically, not by colour alone.
-
-### NFR-A11Y-02 Keyboard operation
-DETAILED DESCRIPTION: A survey shall be completable using the keyboard alone, with
-a visible focus indicator at every step and no keyboard trap.
+The client declares 18 `/api/admin/*` routes — packages, validity periods, unit
+price, coupons, revenue, user- and survey-growth statistics. **No admin UI route
+was found among the 31 declared**, and the test account cannot reach them. Out of
+scope until an admin surface and account are identified.
 
 ---
 
-## 11. Deriving expected behaviour where this document is silent
+## 11. Non-functional
 
-Where no requirement above covers an observed behaviour, treat these universal
-expectations as the oracle: input is validated; every action produces visible
-feedback; navigation is reversible; state survives interruption; errors are
-explained in the user's language; nothing crashes; nothing loses data. A violation
-of any of these is a defect even though no numbered requirement names it.
+### NFR-01 Client health
+DETAILED DESCRIPTION: No ordinary journey shall produce an uncaught exception or
+a 5xx. **Observed violations:** `GET /api/project/create-project` → 500;
+`GET /api/sa/save-results/` → 500; `GET /api/project/:id/surveys` → 500 for some
+ids. A GET on a create endpoint should be 404 or 405, never a server error.
 
----
+### NFR-02 Accessibility
+DETAILED DESCRIPTION: Interactive controls shall be reachable by keyboard and
+expose a name and role. **Observed violation:** the `/security-settings`
+accordion headers are `<div class="sec-card-header">` with `cursor: pointer`, no
+`role`, no `tabindex` and no `aria-expanded` — not keyboard reachable.
 
-## 12. Guardrails — these override every requirement above
-
-**This is a live research platform. Its database holds real researchers' projects
-and real respondents' answers.**
-
-### OOS-01 Do not submit to a live research survey
-The survey at `/v/53d-edc` ("Software Quality Evaluation Questionnaire") is an
-active instrument collecting real responses for research about DataGhurhi itself
-(`collect_response: true`). **A test shall never submit a response to it, or to
-any survey the tester does not own.** Every submission requirement in Section 1
-(FR-RESP-13, FR-RESP-14) shall be exercised only against a survey created by the
-tester for that purpose, or in preview mode (FR-RESP-18).
-
-Validation, rendering, navigation, and refusal behaviour (FR-RESP-01 to FR-RESP-12,
-FR-RESP-15) are all testable **without** submitting, by leaving a required field
-blank so submission is refused. Prefer that route.
-
-### OOS-02 Do not create accounts or send email
-Registration (FR-AUTH-01) and password recovery (FR-AUTH-07) send real email to
-real addresses and consume one-time codes. Test their **client-side validation
-only** — invalid email format, weak password, mismatched confirmation — by
-inspecting the refusal, never by completing the flow.
-
-### OOS-03 Do not exercise payment
-Subscription purchase, payment initiation, and coupon redemption shall not be
-exercised. Package *display* (FR-SUBS-01) is in scope; buying is not.
-
-### OOS-04 Do not destroy data
-No test shall delete a project, survey, template, question, response, collaborator,
-or account, and no test shall remove its own access to anything. Deletion
-behaviour is out of scope.
-
-### OOS-05 Do not act on other users' data
-No test shall attempt to reach another user's project, survey, or responses in
-order to confirm an isolation defect. Where FR-PROJ-02, FR-COLL-02 or FR-ANLY-07
-describe an isolation boundary, verify it only from the tester's own account, by
-confirming that only the tester's own items are listed.
-
-### OOS-06 Do not sign out or change credentials
-Sign-out, password change, and secret-question change end or invalidate the
-session the run depends on. FR-AUTH-09 and FR-AUTH-11 are documented for
-completeness and are out of scope for automated exploration.
-
-### OOS-07 Stay on the application
-No test shall follow a link off `dataghurhi.cse.buet.ac.bd`, including social
-share links, embedded video, and external documentation.
-
-### OOS-08 Load
-No test shall issue repeated rapid requests against any endpoint. FR-RESP-14
-(double submission) is exercised only against the tester's own survey, once.
+### NFR-03 Responsive layout
+DETAILED DESCRIPTION: At 375 CSS pixels the interface shall remain usable with no
+horizontal page scrolling.
+ *Observed at 375px on `/dashboard` and `/v/:slug`: scrollWidth equals clientWidth — no horizontal page scrolling.*

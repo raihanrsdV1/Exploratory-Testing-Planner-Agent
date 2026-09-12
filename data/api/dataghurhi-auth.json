@@ -1,0 +1,143 @@
+{
+  "endpoints": {
+    "/api/collaborator/all-invitations": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 32
+    },
+    "/api/collaborator/all-projects": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 23
+    },
+    "/api/fetch-survey-user/:slug": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 5
+    },
+    "/api/fetch-survey-user/nonexistent-slug-test-12345": {
+      "methods": {
+        "GET": 404
+      },
+      "seen": 1
+    },
+    "/api/fetch-survey-user/nonexistent-slug-xyz": {
+      "methods": {
+        "GET": 404
+      },
+      "seen": 1
+    },
+    "/api/generatecsv/:id": {
+      "methods": {
+        "GET": 404
+      },
+      "seen": 1
+    },
+    "/api/get-saved-survey": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 6
+    },
+    "/api/get-user-packages": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 9
+    },
+    "/api/profile": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 56
+    },
+    "/api/profile/match-password": {
+      "methods": {
+        "POST": 400
+      },
+      "seen": 1
+    },
+    "/api/project": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 33
+    },
+    "/api/project/:id": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 9
+    },
+    "/api/project/:id/collaborators": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 9
+    },
+    "/api/project/:id/create-survey": {
+      "methods": {
+        "POST": 201
+      },
+      "seen": 1
+    },
+    "/api/project/:id/fetchaccess": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 9
+    },
+    "/api/project/:id/surveys": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 196
+    },
+    "/api/project/create-project": {
+      "methods": {
+        "POST": 201
+      },
+      "seen": 1
+    },
+    "/api/sa/files": {
+      "methods": {
+        "GET": 404
+      },
+      "seen": 9
+    },
+    "/api/submit-survey/:slug": {
+      "methods": {
+        "POST": 400
+      },
+      "seen": 2
+    },
+    "/api/surveytemplate/:id": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 7
+    },
+    "/api/surveytemplate/settings/:id": {
+      "methods": {
+        "PUT": 200
+      },
+      "seen": 1
+    },
+    "/api/surveytemplate/stream/:id": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 7
+    },
+    "/api/template-share/shared-with-me": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 6
+    }
+  },
+  "project": "dataghurhi-auth"
+}

@@ -814,6 +814,160 @@ def main():
     check("the wait loop re-alerts", "next_reminder = waited" in src2, True)
     check("and chirps once when released", "free to walk away again" in src2, True)
 
+    print("a second, different loop is nudged too")
+    # The nudge was capped at one per test case. A real run spent it on a search
+    # box at step 3, then looped goto-then-back eleven times from step 30 with no
+    # prompt at all, and only the hard guard stopped it at step 41.
+    import asyncio as _a5
+    from web_player import agent as _ag5
+
+    # Two distinct A/B loops, one after the other.
+    seq = [
+        {"url": "/one", "messages": [], "texts": ["one"],
+         "elements": [{"ref": "e1", "role": "button", "name": "One"}]},
+        {"url": "/two", "messages": [], "texts": ["two"],
+         "elements": [{"ref": "e1", "role": "button", "name": "Two"}]},
+        {"url": "/three", "messages": [], "texts": ["three"],
+         "elements": [{"ref": "e1", "role": "button", "name": "Three"}]},
+        {"url": "/four", "messages": [], "texts": ["four"],
+         "elements": [{"ref": "e1", "role": "button", "name": "Four"}]},
+    ]
+    st5 = {"i": 0}
+
+    async def _two_loops(_p, _m):
+        i = st5["i"]
+        st5["i"] += 1
+        # first loop alternates 0/1 four times, then a second loop alternates 2/3
+        return seq[(i % 2) if i < 8 else 2 + (i % 2)]
+
+    class _Looper:
+        def __init__(self): self.seen = []
+        def chat(self, messages):
+            self.seen.append(messages[-1]["content"])
+            return '{"action":"click","ref":"e1"}'
+
+    class _Nop:
+        async def perform(self, action, _snap):
+            return "clicked [%s]" % action["ref"]
+
+    real5 = _ag5.snapshot.observe
+    _ag5.snapshot.observe = _two_loops
+    try:
+        c5 = _Looper()
+        ag5 = _ag5.WebAgent(page=None, cfg=st, client=c5)
+        ag5.dispatcher = _Nop()
+        _a5.run(ag5.run("goal", max_steps=16, timeout_s=30))
+        nudges = sum(p.count("that is your evidence") for p in c5.seen[-1:])
+        allp = chr(10).join(c5.seen)
+    finally:
+        _ag5.snapshot.observe = real5
+
+    check("the nudge is keyed per loop, not per run",
+          "nudged: set[str]" in open(os.path.join(
+              os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+              "web_player", "agent.py"), encoding="utf-8").read(), True)
+    check("a nudge was issued at all", "that is your evidence" in allp, True)
+
+    print("the agent works from a verified API list, not an invented one")
+    # A planner objective cited GET /api/projects. It does not exist - the real
+    # route is /api/project - and the executor chased it six times until the test
+    # died in a livelock.
+    import tempfile as _tf
+    from web_player import api_registry as _ar
+
+    real_dir = _ar.STORE_DIR
+    _ar.STORE_DIR = _tf.mkdtemp()
+    try:
+        reg = _ar.ApiRegistry("unit-test")
+        check("nothing known means nothing claimed", reg.prompt_block(), "")
+
+        reg.record("GET", "https://x.tld/api/project", 200)
+        reg.record("GET", "https://x.tld/api/project/270/surveys", 200)
+        reg.record("GET", "https://x.tld/api/projects", 404)
+
+        block = reg.prompt_block()
+        check("the real route is offered", "GET /api/project" in block, True)
+        check("ids are collapsed so one row covers all",
+              "/api/project/:id/surveys" in block, True)
+        check("a 404-only route is not offered as usable",
+              "GET /api/projects" in block, False)
+        check("but is named as known-bad", "/api/projects" in reg.broken(), True)
+        check("the agent is told not to invent", "do NOT invent" in block, True)
+
+        # It must GROW: a route met mid-run is remembered for the next one.
+        before = len(reg.routes)
+        reg.record("POST", "https://x.tld/api/question-bank/create", 201)
+        check("a newly met route is learned", len(reg.routes), before + 1)
+        check("and survives a save/load round trip",
+              (reg.save(), len(_ar.ApiRegistry("unit-test").routes))[1], before + 1)
+    finally:
+        _ar.STORE_DIR = real_dir
+
+    check("slugs are collapsed too",
+          _ar.normalise("https://x/api/fetch-survey-user/e07-ba4"),
+          "/api/fetch-survey-user/:slug")
+    # A slug rule of "letters-and-a-hyphen" ate real route names:
+    # /api/template-share/shared-with-me collapsed to /api/:slug/shared-with-me.
+    for raw, want in (
+        ("/api/template-share/shared-with-me", "/api/template-share/shared-with-me"),
+        ("/api/collaborator/all-projects", "/api/collaborator/all-projects"),
+        ("/api/survey-collaborator/all-invitations", "/api/survey-collaborator/all-invitations"),
+        ("/api/get-user-packages", "/api/get-user-packages"),
+    ):
+        check(f"hyphenated route name survives: {raw[:34]}", _ar.normalise(raw), want)
+    check("a bad URL never raises", _ar.ApiRegistry("unit-test2").record("GET", None, 200), None)
+
+    print("the shipped registry matches what the site really serves")
+    shipped = _ar.for_project("dataghurhi-auth")
+    check("seeded from the discovery walk", len(shipped.routes) >= 14, True)
+    check("the real project route is known",
+          any(r.endswith("/api/project") for r in shipped.routes), True)
+    check("the invented plural is NOT offered as usable",
+          "GET /api/projects" in shipped.prompt_block(), False)
+
+    print("native dialogs are answered and reported, not silently swallowed")
+    # Playwright DISMISSES every dialog when no handler is registered. This app
+    # calls alert() 309 times and confirm() 16 times, so alert text never reached
+    # the agent and every confirm was answered "Cancel" - the action did not
+    # happen, and the agent read it as a control that does nothing.
+    from web_player.oracles import Collector as _C
+
+    class _Cfg2:
+        WEB_COLLECT_CONSOLE = True
+        WEB_COLLECT_NETWORK = True
+        WEB_CONSOLE_IGNORE = ()
+        WEB_BASE_URL = "https://x.tld"
+        WEB_ACCEPT_CONFIRM = True
+
+    class _Dialog:
+        def __init__(self, kind, message):
+            self.type, self.message = kind, message
+            self.answered = None
+        async def accept(self): self.answered = "accept"
+        async def dismiss(self): self.answered = "dismiss"
+
+    col = _C(page=None, cfg=_Cfg2)
+    for kind, msg in (("alert", "Saved successfully!"),
+                      ("confirm", "Delete this item?"),
+                      ("prompt", "Name?")):
+        col._on_dialog(_Dialog(kind, msg))
+    seen = col.take_dialogs()
+    check("the alert text is captured",
+          any("Saved successfully!" in d for d in seen), True)
+    check("a confirm is accepted by default, not cancelled",
+          any("confirm" in d and "accepted" in d for d in seen), True)
+    check("a prompt is dismissed (we cannot know what to type)",
+          any("prompt" in d and "dismissed" in d for d in seen), True)
+    check("taking them clears them", col.take_dialogs(), [])
+
+    class _CfgNo(_Cfg2):
+        WEB_ACCEPT_CONFIRM = False
+    col2 = _C(page=None, cfg=_CfgNo)
+    col2._on_dialog(_Dialog("confirm", "Delete?"))
+    check("confirm handling is configurable",
+          any("dismissed" in d for d in col2.take_dialogs()), True)
+    check("a broken dialog object never raises", col._on_dialog(None) or True, True)
+
     print("browser findings summarise honestly")
     empty = Findings()
     check("a clean run says so", "no console errors" in empty.summary(), True)

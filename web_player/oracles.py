@@ -18,6 +18,7 @@ They are collected always and used two ways:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 
@@ -84,11 +85,20 @@ class Findings:
 class Collector:
     """Attaches to a Playwright page and accumulates findings for one test case."""
 
-    def __init__(self, page, cfg):
+    def __init__(self, page, cfg, registry=None):
         self.page = page
         self.cfg = cfg
         self.findings = Findings()
         self._attached = False
+        # Every API call the app makes passes through here already. Feeding it to
+        # the registry is how the known-route list grows without a separate crawl.
+        self.registry = registry
+        # Native dialogs. Playwright DISMISSES every dialog when no handler is
+        # registered, so alert() text never reached the agent and confirm() was
+        # silently answered "Cancel" - the action simply did not happen, and the
+        # agent read that as a control that does nothing. This application calls
+        # alert() 309 times and confirm() 16 times, so that was not a rare path.
+        self.dialogs: list[str] = []
 
     def attach(self) -> None:
         if self._attached:
@@ -99,7 +109,6 @@ class Collector:
         if self.cfg.WEB_COLLECT_NETWORK:
             self.page.on("response", self._on_response)
             self.page.on("requestfailed", self._on_request_failed)
-        # Record only: BrowserSession answers the dialog, and a second answer raises.
         self.page.on("dialog", self._on_dialog)
         self._attached = True
 
@@ -132,6 +141,8 @@ class Collector:
     def _on_response(self, response) -> None:
         try:
             status = response.status
+            if self.registry is not None:
+                self.registry.record(response.request.method, response.url, status)
             if status < 400:
                 return
             entry = f"{status} {response.request.method} {_short_url(response.url)}"
@@ -156,10 +167,39 @@ class Collector:
             pass
 
     def _on_dialog(self, dialog) -> None:
+        """Answer a native dialog, and remember what it said.
+
+        Policy, and why:
+          * alert   - accept. There is no other option, and the message is often
+                      the only confirmation the application gives.
+          * confirm - accept by default. Dismissing was the old behaviour and it
+                      made confirm-gated actions silently not happen. The label
+                      guardrails already refuse the destructive controls BEFORE
+                      the click, so they are the safety layer, not this.
+          * prompt  - dismiss. We cannot know what to type.
+          * beforeunload - accept, so navigation is not blocked.
+        """
         try:
-            self._add(self.findings.dialogs, f'{dialog.type}: "{dialog.message}"')
+            kind = dialog.type
+            message = " ".join((dialog.message or "").split())[:300]
+            accept = kind != "prompt"
+            if kind == "confirm":
+                accept = bool(getattr(self.cfg, "WEB_ACCEPT_CONFIRM", True))
+            self._add(self.dialogs, f"{kind}: {message} [{'accepted' if accept else 'dismissed'}]")
+            if accept:
+                asyncio.ensure_future(dialog.accept())
+            else:
+                asyncio.ensure_future(dialog.dismiss())
         except Exception:
-            pass
+            try:
+                asyncio.ensure_future(dialog.dismiss())
+            except Exception:
+                pass
+
+    def take_dialogs(self) -> list[str]:
+        """Hand over the dialogs seen since the last call, and forget them."""
+        seen, self.dialogs = list(self.dialogs), []
+        return seen
 
     # ── helpers ──────────────────────────────────────────────────────────────
 

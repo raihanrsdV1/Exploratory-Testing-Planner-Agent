@@ -1,0 +1,62 @@
+{
+  "site": "https://dataghurhi.cse.buet.ac.bd",
+  "note": "Observed by driving the application, not inferred. method/status pairs are what the app itself produced during a read-only walk.",
+  "endpoints": {
+    "/api/collaborator/all-invitations": [
+      "GET 200"
+    ],
+    "/api/collaborator/all-projects": [
+      "GET 200"
+    ],
+    "/api/fetch-survey-user/e07-ba4": [
+      "GET 200"
+    ],
+    "/api/get-saved-survey": [
+      "GET 200"
+    ],
+    "/api/get-user-packages": [
+      "GET 200"
+    ],
+    "/api/profile": [
+      "GET 200"
+    ],
+    "/api/project": [
+      "GET 200"
+    ],
+    "/api/project/:id": [
+      "GET 200"
+    ],
+    "/api/project/:id/collaborators": [
+      "GET 200"
+    ],
+    "/api/project/:id/fetchaccess": [
+      "GET 200"
+    ],
+    "/api/project/:id/surveys": [
+      "GET 200",
+      "GET 404"
+    ],
+    "/api/surveytemplate/:id": [
+      "GET 200"
+    ],
+    "/api/surveytemplate/stream/:id": [
+      "GET 200"
+    ],
+    "/api/template-share/shared-with-me": [
+      "GET 200"
+    ]
+  },
+  "pages": {
+    "/": "Dataghurhi",
+    "/dashboard": "Dataghurhi",
+    "/dashboard?tab=projects": "Dataghurhi",
+    "/dashboard?tab=surveys": "Dataghurhi",
+    "/security-settings": "Dataghurhi",
+    "/profile": "Dataghurhi",
+    "/subscription": "Dataghurhi",
+    "/question-bank": "Dataghurhi",
+    "/templates": "Dataghurhi",
+    "/v/e07-ba4": "Dataghurhi",
+    "/view-survey/602": "Dataghurhi"
+  }
+}

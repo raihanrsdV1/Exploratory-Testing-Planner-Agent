@@ -146,11 +146,16 @@ class WebAgent:
         # had really taken ten.
         self.last_step = 0
         self.last_urls: list[str] = []
+        # Known API routes, so the agent works from the real list instead of
+        # inventing one. A planner-written objective once cited GET /api/projects,
+        # which does not exist; the executor chased it until the test died.
+        self.api_registry = None
+        # Native dialog text, handed over by the oracle each turn. Without it the
+        # only feedback an alert() gives is invisible, and the agent reads a
+        # successful action as one that changed nothing.
+        self.collector = None
         # Set by the runner from the live BrowserSession. None means "ask config".
         self.headless: bool | None = None
-        # The session's native-dialog record, read by index so each popup is
-        # reported to the model exactly once.
-        self.dialog_log: list[dict] | None = None
         # What this test achieved, so a later failure cannot erase it from the record.
         self.events: list[str] = []
 
@@ -174,9 +179,15 @@ class WebAgent:
         pending = None
         dead_controls: list[str] = []
         cycles: dict[str, int] = {}
-        nudged = False
+        # One nudge per DISTINCT loop, not one per test case. Capping it at one
+        # per run was too blunt: an agent that circles briefly early on spends the
+        # only nudge there, and a genuine stall later gets none. A real run burned
+        # its first nudge on a search box at step 3, then looped
+        # goto-/api/projects-then-back eleven times from step 30 with no prompt at
+        # all. Bloat stays bounded because each loop is nudged once and history
+        # lines are capped.
+        nudged: set[str] = set()
         captcha_pauses = 0
-        seen_dialogs = len(self.dialog_log or [])
 
         for step in range(1, max_steps + 1):
             if time.time() - started > timeout_s:
@@ -205,22 +216,21 @@ class WebAgent:
                 if element.get("name") and element["name"] in dead_controls:
                     element["inert"] = True
             observation = snapshot.render(snap)
-            content_signature = _content_signature(snap)
-
-            new_dialogs = (self.dialog_log or [])[seen_dialogs:]
-            seen_dialogs += len(new_dialogs)
-            if new_dialogs:
-                popup_notes = [_dialog_note(d) for d in new_dialogs]
-                observation = "\n".join(popup_notes) + "\n" + observation
-                for note in popup_notes:
-                    history.append(note)
-                    trace.outcome(note, ok=True)
+            dialogs = self.collector.take_dialogs() if self.collector is not None else []
+            if dialogs:
+                nl = chr(10)
+                observation += (nl + nl + "BROWSER DIALOGS since your last "
+                                "action (already answered for you):" + nl
+                                + "  " + (nl + "  ").join(dialogs))
+                for line in dialogs:
+                    trace.outcome(f"browser dialog - {line}", ok=True)
                 # The page did answer, just not in the DOM: not a stall.
                 stall_signature = None
+            content_signature = _content_signature(snap)
 
             if pending is not None:
                 idx, before, label, act_sig = pending
-                if content_signature == before and not new_dialogs:
+                if content_signature == before and not dialogs:
                     history[idx] += ("   <-- THIS DID NOTHING: the page was identical "
                                      "afterwards. Do not repeat it; take another route.")
                     if label and label not in dead_controls:
@@ -283,8 +293,8 @@ class WebAgent:
             #    motivated this cycled thirteen times.
             signature = _signature(snap, action)
             cycles[signature] = cycles.get(signature, 0) + 1
-            if cycles[signature] == _CYCLE_CONCLUDE and not nudged:
-                nudged = True
+            if cycles[signature] == _CYCLE_CONCLUDE and signature not in nudged:
+                nudged.add(signature)
                 # The decisive fix for the commonest stall. A test like "type a
                 # value, leave without saving, come back and see whether it is
                 # still there" ANSWERS ITSELF on the second pass: the field is
@@ -462,6 +472,10 @@ class WebAgent:
             listed = ", ".join('"%s"' % d for d in dead[-8:])
             log += (nl + nl + "CONTROLS THAT DO NOTHING on this site - "
                     "never activate these again, find another route: " + listed)
+        if self.api_registry is not None:
+            block = self.api_registry.prompt_block()
+            if block:
+                log += chr(10) + chr(10) + block
         return [
             {"role": "system",
              "content": _SYSTEM_PROMPT.format(actions=actions_mod.ACTION_SPEC)},
@@ -478,12 +492,6 @@ def _track_url(urls: list[str], url: str) -> None:
     """Append the URL only when it actually changed — a route trace, not a log."""
     if url and (not urls or urls[-1] != url):
         urls.append(url)
-
-
-def _dialog_note(d: dict) -> str:
-    answered = "OK" if d.get("answer") == "accept" else "Cancel"
-    return (f'THE BROWSER SHOWED A POPUP ({d.get("type", "dialog")}): '
-            f'"{d.get("message", "")}" - answered {answered} automatically.')
 
 
 def _signature(snap: dict, action: dict) -> str:

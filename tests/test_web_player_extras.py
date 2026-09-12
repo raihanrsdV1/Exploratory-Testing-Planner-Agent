@@ -26,7 +26,6 @@ import settings as st  # noqa: E402
 from web_player import agent as agent_mod  # noqa: E402
 from web_player import snapshot  # noqa: E402
 from web_player.actions import ActionError, Dispatcher, fixture_path  # noqa: E402
-from web_player.browser import dialog_answer  # noqa: E402
 from web_player.oracles import Findings  # noqa: E402
 
 _passed = _failed = 0
@@ -49,28 +48,6 @@ class _FakeCfg:
     WEB_NAV_TIMEOUT_MS = 5000
 
 
-def _check_dialog_rules():
-    print("a native dialog is answered by rule, never ignored")
-    blocked = ("delete account", "log out")
-    # An alert has only an OK button; refusing it would hang the page.
-    check("alert is accepted", dialog_answer("alert", "Please fill in all required fields", blocked), "accept")
-    check("benign confirm is accepted", dialog_answer("confirm", "Save your changes?", blocked), "accept")
-    check("a destructive confirm is cancelled",
-          dialog_answer("confirm", "Delete this project permanently?", blocked), "dismiss")
-    check("a guardrailed confirm is cancelled",
-          dialog_answer("confirm", "Log out of this device?", blocked), "dismiss")
-    # There is no way to know what a prompt wants typed, and a wrong value is a write.
-    check("prompt is dismissed", dialog_answer("prompt", "New name?", blocked), "dismiss")
-    check("a page-leave warning is accepted", dialog_answer("beforeunload", "", blocked), "accept")
-    check("the rule holds with no guardrails configured",
-          dialog_answer("confirm", "Remove this item?", ()), "dismiss")
-
-    note = agent_mod._dialog_note({"type": "alert", "message": "Please fill in all required fields",
-                                   "answer": "accept"})
-    for needle in ("POPUP", "alert", "Please fill in all required fields", "OK"):
-        check(f"the popup note states {needle!r}", needle in note, True)
-
-
 async def _check_dialog_reaches_the_model():
     """The regression that matters: the site DID answer, and the agent must see it."""
     seen = []
@@ -89,22 +66,32 @@ async def _check_dialog_reaches_the_model():
     page_snap = {"url": "https://shop.example.com/projects", "title": "Projects",
                  "elements": [{"ref": "e1", "role": "button", "name": "Create"}],
                  "messages": [], "texts": []}
-    log = []
 
     async def fake_observe(page, max_elements):
         return dict(page_snap)
 
+    class FakeCollector:
+        """Stands in for the oracle: it has already answered the dialog."""
+
+        def __init__(self):
+            self.dialogs = []
+
+        def take_dialogs(self):
+            seen, self.dialogs = list(self.dialogs), []
+            return seen
+
+    collector = FakeCollector()
+
     async def fake_perform(action, snap):
         # What the browser does on a click that trips validation.
-        log.append({"type": "alert", "message": "Please fill in all required fields",
-                    "answer": "accept"})
+        collector.dialogs.append("alert: Please fill in all required fields [accepted]")
         return "clicked [e1]"
 
     orig = agent_mod.snapshot.observe
     agent_mod.snapshot.observe = fake_observe
     try:
         a = agent_mod.WebAgent(page=None, cfg=st, client=Client())
-        a.dialog_log = log
+        a.collector = collector
         a.dispatcher.perform = fake_perform
         result = await a.run("goal: create a project with a blank name", max_steps=5, timeout_s=999)
     finally:
@@ -368,7 +355,6 @@ def _check_screenshot_lookup():
 
 
 def main():
-    _check_dialog_rules()
     asyncio.run(_check_dialog_reaches_the_model())
     _check_honest_bail_out()
     asyncio.run(_check_repetition_is_refused())

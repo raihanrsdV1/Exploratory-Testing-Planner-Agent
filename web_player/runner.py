@@ -38,6 +38,7 @@ import requests  # noqa: E402
 import settings as cfg  # noqa: E402
 from web_player import account, failures, gateway, goal as goal_mod, trace  # noqa: E402
 from web_player.agent import WebAgent  # noqa: E402
+from web_player.api_registry import for_project  # noqa: E402
 from web_player.browser import BrowserSession  # noqa: E402
 from web_player.llm import ChatClient, LLMError  # noqa: E402
 from web_player.oracles import Collector  # noqa: E402
@@ -138,7 +139,8 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
 
     agent = WebAgent(session.page, cfg, client)
     agent.headless = session.headless   # the truth about this browser, not config
-    agent.dialog_log = session.dialogs
+    agent.api_registry = getattr(collector, "registry", None)
+    agent.collector = collector
 
     try:
         result = await agent.run(goal, cfg.WEB_MAX_STEPS, cfg.WEB_TIMEOUT)
@@ -311,7 +313,8 @@ async def _run_batch(rounds: int) -> None:
     # The browser opens before the first test is planned, so the planner can be
     # told what the account holds right now.
     async with BrowserSession(cfg) as session:
-        collector = Collector(session.page, cfg)
+        registry = for_project(cfg.PROJECT)
+        collector = Collector(session.page, cfg, registry)
         collector.attach()
 
         _header("PLANNER → GENERATING FIRST TEST CASE")
@@ -372,6 +375,9 @@ async def _run_batch(rounds: int) -> None:
             print("Next test case:")
             _show_testcase(tc)
 
+    if registry.save():
+        print(f"  API routes known for {cfg.PROJECT}: {len(registry.routes)} "
+              f"(updated from this run)")
     _summarize(results)
 
 
