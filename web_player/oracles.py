@@ -29,10 +29,13 @@ class Findings:
     page_errors: list[str] = field(default_factory=list)
     http_failures: list[str] = field(default_factory=list)   # 5xx — the app broke
     http_client_errors: list[str] = field(default_factory=list)  # 4xx — often expected
+    request_failures: list[str] = field(default_factory=list)  # no response at all (aborted, blocked) — never a 5xx
+    dialogs: list[str] = field(default_factory=list)  # native alert/confirm/prompt — the site's own messages
 
     def is_empty(self) -> bool:
         return not (self.console_errors or self.page_errors
-                    or self.http_failures or self.http_client_errors)
+                    or self.http_failures or self.http_client_errors or self.request_failures
+                    or self.dialogs)
 
     def counts(self) -> dict[str, int]:
         return {
@@ -40,6 +43,8 @@ class Findings:
             "page_errors": len(self.page_errors),
             "http_5xx": len(self.http_failures),
             "http_4xx": len(self.http_client_errors),
+            "request_failures": len(self.request_failures),
+            "dialogs": len(self.dialogs),
         }
 
     def summary(self, limit: int = 3) -> str:
@@ -52,6 +57,8 @@ class Findings:
             ("HTTP 5xx", self.http_failures),
             ("console error", self.console_errors),
             ("HTTP 4xx", self.http_client_errors),
+            ("failed request", self.request_failures),
+            ("browser dialog", self.dialogs),
         ):
             if items:
                 shown = "; ".join(items[:limit])
@@ -92,6 +99,8 @@ class Collector:
         if self.cfg.WEB_COLLECT_NETWORK:
             self.page.on("response", self._on_response)
             self.page.on("requestfailed", self._on_request_failed)
+        # Record only: BrowserSession answers the dialog, and a second answer raises.
+        self.page.on("dialog", self._on_dialog)
         self._attached = True
 
     def reset(self) -> None:
@@ -139,8 +148,16 @@ class Collector:
             if not request.url.lower().startswith(self.cfg.WEB_BASE_URL.lower()):
                 return
             failure = getattr(request, "failure", None) or "request failed"
-            self._add(self.findings.http_failures,
+            # No response came back, so this is not a server error — navigating
+            # away mid-stream aborts requests routinely.
+            self._add(self.findings.request_failures,
                       f"FAILED {request.method} {_short_url(request.url)} ({failure})")
+        except Exception:
+            pass
+
+    def _on_dialog(self, dialog) -> None:
+        try:
+            self._add(self.findings.dialogs, f'{dialog.type}: "{dialog.message}"')
         except Exception:
             pass
 

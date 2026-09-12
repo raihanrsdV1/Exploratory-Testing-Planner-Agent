@@ -341,13 +341,22 @@ def app_login_block() -> str:
     return "\n".join(lines)
 
 
-def app_session_block() -> str:
-    """Role context for the PLANNER — no secret."""
-    if not APP_LOGIN_ROLE:
-        return ""
-    lines = [f"The device is already signed in as a '{APP_LOGIN_ROLE}'. Generate tests "
-             f"reachable by that role; do not assume permissions it lacks."]
-    if APP_ACCOUNT_STATE:
+def app_session_block(account_state: str | None = None, login_role: str | None = None) -> str:
+    """Role context for the PLANNER — no secret. ``login_role`` None = this process's APP_LOGIN_ROLE."""
+    # A web run always sends its own role, so this process's (Android) session cannot leak in.
+    own_identity = login_role is None
+    role = APP_LOGIN_ROLE if own_identity else login_role
+    lines = []
+    if role:
+        lines.append(f"The device is already signed in as a '{role}'. Generate tests "
+                     f"reachable by that role; do not assume permissions it lacks.")
+    if account_state:
+        lines.append(
+            f"The account currently holds (observed just now): {account_state}. When a test "
+            f"needs an item, reuse one that already exists; create a new one only when "
+            f"creating it is what the test is about."
+        )
+    elif own_identity and role and APP_ACCOUNT_STATE:
         lines.append(
             f"Current account state: {APP_ACCOUNT_STATE} Do NOT write a test that "
             f"requires creating something this account already has — there is no "
@@ -604,6 +613,11 @@ WEB_VIEWPORT = _str("WEB_VIEWPORT", "1280x800")         # "<width>x<height>"
 # equivalent of "the device is already signed in": produce it once by hand, and
 # every test starts authenticated without spending steps on a login form.
 WEB_STORAGE_STATE = _str("WEB_STORAGE_STATE", "")
+# Same-site JSON endpoints read between tests to tell the planner what the account holds.
+WEB_ACCOUNT_PROBES = tuple(x.strip() for x in _str("WEB_ACCOUNT_PROBES", "").split(",") if x.strip())
+WEB_ACCOUNT_PROBE_BEARER_KEY = _str("WEB_ACCOUNT_PROBE_BEARER_KEY", "")
+# Local sample-data files the agent may upload; no other file can ever be sent.
+WEB_FIXTURE_FILES = tuple(x.strip() for x in _str("WEB_FIXTURE_FILES", "").split(",") if x.strip())
 WEB_NAV_TIMEOUT_MS = _int("WEB_NAV_TIMEOUT_MS", 30_000)
 WEB_ACTION_TIMEOUT_MS = _int("WEB_ACTION_TIMEOUT_MS", 10_000)
 
@@ -687,6 +701,7 @@ WEB_LOGIN_URL = _str("WEB_LOGIN_URL", "")
 WEB_LOGIN_USER = _str("WEB_LOGIN_USER", "")
 WEB_LOGIN_PASSWORD = _str("WEB_LOGIN_PASSWORD", "")
 WEB_LOGIN_HINT = _str("WEB_LOGIN_HINT", "")
+WEB_LOGIN_ROLE = _str("WEB_LOGIN_ROLE", "")   # who the planner is told the tester is
 
 
 def site_identity_block() -> str:
@@ -756,6 +771,16 @@ def web_login_block() -> str:
     lines.append("Never register a new account and never change or reset this "
                  "account's password — both would lock the suite out.")
     return "\n".join(lines)
+
+
+def web_no_credentials_block() -> str:
+    """Guidance when there is no account to sign in with, or '' when there is one."""
+    if WEB_LOGIN_USER or WEB_STORAGE_STATE:
+        return ""
+    return ("You have NO account credentials. Never type an email address, phone number "
+            "or password you made up into a sign-in form - on a real site that is a login "
+            "attempt against someone else's account. To test sign-in validation use only "
+            "values that cannot belong to anyone, such as nobody@example.invalid.")
 
 
 # ── Logging / observability ──────────────────────────────────────────────────

@@ -13,6 +13,7 @@ must still be stopped.
 
 from __future__ import annotations
 
+import os
 import re
 from urllib.parse import urlparse
 
@@ -28,6 +29,7 @@ goto         {"action":"goto","url":"/settings"}                 navigate (same 
 back         {"action":"back"}                                   browser back
 scroll       {"action":"scroll","direction":"down"}              down | up | top | bottom
 wait         {"action":"wait","seconds":2}                       let the page settle (max 5)
+upload       {"action":"upload","ref":"e5","file":"sample.csv"}  attach one of the listed sample data files
 finish       {"action":"finish","success":true,"reason":"..."}   end the test with a verdict\
 """
 
@@ -207,6 +209,22 @@ class Dispatcher:
         await self.page.wait_for_timeout(seconds * 1000)
         return f"waited {seconds:g}s"
 
+    async def _do_upload(self, action: dict, snap: dict) -> str:
+        el = self._require(action, snap)
+        self._check_label(el)
+        path = fixture_path(str(action.get("file") or ""),
+                            getattr(self.cfg, "WEB_FIXTURE_FILES", ()))
+        locator = self._locator(el["ref"])
+        timeout = self.cfg.WEB_ACTION_TIMEOUT_MS
+        if await locator.evaluate("e => e.tagName === 'INPUT' && e.type === 'file'"):
+            await locator.set_input_files(path, timeout=timeout)
+        else:
+            # Most sites hide the real <input type=file> behind a styled button.
+            async with self.page.expect_file_chooser(timeout=timeout) as chooser:
+                await locator.click(timeout=timeout)
+            await (await chooser.value).set_files(path)
+        return f"uploaded {os.path.basename(path)} via [{el['ref']}] \"{el.get('name')}\""
+
     # ── helpers ──────────────────────────────────────────────────────────────
 
     def _require(self, action: dict, snap: dict) -> dict:
@@ -225,6 +243,13 @@ class Dispatcher:
                 f"[{ref}] \"{el.get('name')}\" is disabled — it cannot be used yet.",
                 category="ASSERTION_FAILURE",
             )
+        if el.get("covered"):
+            # Refused at once, instead of after a 10s click timeout.
+            raise ActionError(
+                f"[{ref}] \"{el.get('name')}\" is behind an open dialog and cannot be "
+                f"reached. Finish or close the dialog with its own buttons first.",
+                category="ELEMENT_NOT_FOUND",
+            )
         return el
 
     def _locator(self, ref: str):
@@ -239,6 +264,23 @@ async def _goto_settled(page, url: str, cfg) -> None:
         # networkidle never arrives on a page that polls. Land the navigation the
         # cheap way instead of failing the action outright.
         await page.goto(url, timeout=cfg.WEB_NAV_TIMEOUT_MS, wait_until="domcontentloaded")
+
+
+def fixture_path(name: str, allowed) -> str:
+    """Resolve an upload request to one of the profile's sample files, or refuse.
+
+    The model only names a file; anything not on the profile's list is refused
+    rather than looked up on disk, so no other local file can ever be sent.
+    """
+    wanted = os.path.basename(name.strip())
+    for path in allowed or ():
+        if wanted and os.path.basename(path) == wanted:
+            full = os.path.abspath(path)
+            if not os.path.isfile(full):
+                raise ActionError(f"Sample file '{wanted}' is configured but missing on disk.")
+            return full
+    listed = ", ".join(os.path.basename(p) for p in allowed or ()) or "none are configured"
+    raise ActionError(f"'{name}' is not an available sample file. Upload one of: {listed}.")
 
 
 # Playwright retries an action and logs why each attempt failed. Those lines name

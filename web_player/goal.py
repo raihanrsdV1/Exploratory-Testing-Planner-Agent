@@ -13,6 +13,8 @@ re-implemented — ``UNACHIEVABLE_PRECONDITIONS`` is a property of the *project*
 
 from __future__ import annotations
 
+import os
+
 import settings as cfg
 from clients.executor_runner import filter_preconditions
 
@@ -24,6 +26,9 @@ def build_goal(test_case: dict) -> str:
     login = cfg.web_login_block()
     if login:
         parts.append(login)
+    nocred = cfg.web_no_credentials_block()
+    if nocred:
+        parts.append(nocred)
 
     safety = cfg.web_safety_block()
     if safety:
@@ -58,6 +63,12 @@ def build_goal(test_case: dict) -> str:
 
     parts.append(cfg.web_input_block())
     parts.append(cfg.verification_block())
+
+    if cfg.WEB_FIXTURE_FILES:
+        names = ", ".join(os.path.basename(p) for p in cfg.WEB_FIXTURE_FILES)
+        parts.append(f"SAMPLE DATA: when the test needs a dataset or a file to import, use "
+                     f"the 'upload' action with one of these files: {names}. Do not type a "
+                     f"dataset in by hand when one of these will do.")
 
     # Objective — WHAT to verify. Deciding HOW (which pages, which controls) is
     # the agent's job: it has live access to the site that the planner does not.

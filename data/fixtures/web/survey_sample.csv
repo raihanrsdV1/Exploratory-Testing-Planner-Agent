@@ -1,0 +1,21 @@
+respondent_id,age,gender,city,satisfaction,monthly_income,comment
+1,24,Female,Dhaka,4,32000,The survey was easy to complete
+2,31,Male,Chattogram,3,45000,Some questions were confusing
+3,45,Female,Sylhet,5,61000,খুব ভালো অভিজ্ঞতা
+4,19,Male,Dhaka,2,15000,Too many required fields
+5,38,Female,Rajshahi,4,52000,Would recommend to colleagues
+6,27,Other,Khulna,3,38000,প্রশ্নগুলো আরও সহজ হতে পারত
+7,52,Male,Dhaka,5,78000,Clear and well organised
+8,33,Female,Chattogram,1,41000,The page crashed once
+9,29,Male,Barishal,4,36000,Good overall
+10,41,Female,Sylhet,3,57000,Average experience
+11,23,Male,Dhaka,5,22000,অনেক কাজে লেগেছে
+12,36,Female,Rangpur,2,47000,Hard to find the export button
+13,48,Male,Khulna,4,69000,Fast and reliable
+14,26,Female,Dhaka,3,30000,Needs a dark mode
+15,34,Male,Rajshahi,5,50000,Excellent analysis tools
+16,57,Female,Chattogram,4,82000,ভাষা পরিবর্তন কাজ করেনি
+17,21,Male,Sylhet,2,18000,Too slow on mobile
+18,39,Female,Dhaka,5,63000,Very satisfied
+19,30,Other,Mymensingh,3,40000,Okay but could be better
+20,44,Male,Barishal,4,58000,Useful for research

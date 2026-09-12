@@ -36,7 +36,7 @@ for _stream in (sys.stdout, sys.stderr):  # emoji on a cp1252 console
 import requests  # noqa: E402
 
 import settings as cfg  # noqa: E402
-from web_player import failures, gateway, goal as goal_mod, trace  # noqa: E402
+from web_player import account, failures, gateway, goal as goal_mod, trace  # noqa: E402
 from web_player.agent import WebAgent  # noqa: E402
 from web_player.browser import BrowserSession  # noqa: E402
 from web_player.llm import ChatClient, LLMError  # noqa: E402
@@ -138,6 +138,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
 
     agent = WebAgent(session.page, cfg, client)
     agent.headless = session.headless   # the truth about this browser, not config
+    agent.dialog_log = session.dialogs
 
     try:
         result = await agent.run(goal, cfg.WEB_MAX_STEPS, cfg.WEB_TIMEOUT)
@@ -218,6 +219,7 @@ async def execute_test_case(session: BrowserSession, collector: Collector,
         f"Web execution completed in {duration:.1f}s. Steps taken: {steps}. "
         f"Success={success}. Reason: {reason} | Browser signals: {findings.summary()}"
         + (f" | Self-heal: {recovery_action}" if recovery_action else "")
+        + (f" | Progress: {'; '.join(agent.events)[:600]}" if agent.events else "")
         + (f" | Screenshot: {shot}" if shot else "")
     )
 
@@ -303,29 +305,29 @@ async def _run_batch(rounds: int) -> None:
         except Exception as exc:
             print(f"  ⚠️  reset failed: {exc}")
 
-    _header("PLANNER → GENERATING FIRST TEST CASE")
-    try:
-        tc = (gateway.next_testcase() or {}).get("next_testcase", {})
-    except Exception as exc:
-        print(f"❌ Could not get a test case from the planner: {_short_error(exc)}")
-        print("   The gateway is up but its model backend is not. Check the "
-              "planner's model provider before rerunning.")
-        return
-    # The planner is goal-based since the redesign: it emits objective +
-    # screen_hint, not a step list (see planner/prompts.py's output contract).
-    # Requiring 'steps' here aborted every run against a current planner.
-    if not _is_executable(tc):
-        print("❌ Planner returned an empty test case. Aborting.")
-        return
-    print("Generated test case:")
-    _show_testcase(tc)
-
     client = ChatClient(cfg)
     results: list[dict] = []
 
+    # The browser opens before the first test is planned, so the planner can be
+    # told what the account holds right now.
     async with BrowserSession(cfg) as session:
         collector = Collector(session.page, cfg)
         collector.attach()
+
+        _header("PLANNER → GENERATING FIRST TEST CASE")
+        try:
+            tc = await _next_testcase(session)
+        except Exception as exc:
+            print(f"❌ Could not get a test case from the planner: {_short_error(exc)}")
+            print("   The gateway is up but its model backend is not. Check the "
+                  "planner's model provider before rerunning.")
+            return
+        # Goal-based planner: objective + screen_hint, no step list.
+        if not _is_executable(tc):
+            print("❌ Planner returned an empty test case. Aborting.")
+            return
+        print("Generated test case:")
+        _show_testcase(tc)
 
         for i in range(1, rounds + 1):
             _header(f"ROUND {i}/{rounds}")
@@ -356,7 +358,7 @@ async def _run_batch(rounds: int) -> None:
 
             _header("PLANNER → GENERATING NEXT TEST CASE")
             try:
-                tc = (gateway.next_testcase() or {}).get("next_testcase", {})
+                tc = await _next_testcase(session)
             except Exception as exc:
                 # Losing the planner must not also lose the results of the rounds
                 # that DID run — that is what the summary below is for.
@@ -371,6 +373,17 @@ async def _run_batch(rounds: int) -> None:
             _show_testcase(tc)
 
     _summarize(results)
+
+
+async def _next_testcase(session) -> dict:
+    """Ask the planner for the next test, telling it what the account holds right now."""
+    state = await account.read(session, cfg)
+    if cfg.WEB_FIXTURE_FILES:
+        files = ", ".join(os.path.basename(p) for p in cfg.WEB_FIXTURE_FILES)
+        state = "; ".join(filter(None, [state, f"sample data files the tester can upload: {files}"]))
+    if state:
+        print(f"  Account now: {state[:300]}")
+    return (gateway.next_testcase(account_state=state) or {}).get("next_testcase", {})
 
 
 def _short_error(exc: Exception) -> str:

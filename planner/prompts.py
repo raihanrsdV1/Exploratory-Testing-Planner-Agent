@@ -219,6 +219,8 @@ def build_testcase_prompt(
     failure_context: str = "",
     requirements_context: str = "",
     agent_difficulty_context: str = "",
+    account_state: str = "",
+    login_role: str | None = None,
 ) -> str:
     cmap = coverage_map or {}
     rtests = recent_tests or []
@@ -294,7 +296,7 @@ def build_testcase_prompt(
     # Session identity and hard exclusions. Both are priority-0 facts: a test
     # written for a role the device is not signed in as, or for a flow the agent
     # provably cannot finish, is wasted before it is executed.
-    _session = _settings.app_session_block()
+    _session = _settings.app_session_block(account_state or None, login_role)
     _oos = [a for a in _settings.OUT_OF_SCOPE if a]
     if _session or _oos:
         parts += ["## Session Constraints — these override every other instruction"]

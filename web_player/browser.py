@@ -14,6 +14,28 @@ also the only reliable way past a login the agent cannot complete on its own.
 from __future__ import annotations
 
 import os
+import time
+
+from .actions import _matches_word
+
+# A confirm() naming one of these is answered Cancel even if the profile does not
+# block the control by label: on almost any site they mean "cannot be undone".
+_IRREVERSIBLE = ("delete", "remove", "discard", "erase", "destroy", "permanently",
+                 "deactivate", "reset", "log out", "logout", "sign out",
+                 "unsubscribe", "revoke", "pay", "purchase")
+
+
+def dialog_answer(kind: str, message: str, blocked_texts=()) -> str:
+    """'accept' or 'dismiss' for a native browser dialog. Pure."""
+    kind = (kind or "").lower()
+    if kind == "prompt":
+        return "dismiss"   # there is no way to know what it wants typed
+    if kind == "confirm":
+        low = (message or "").lower()
+        words = tuple(b for b in (blocked_texts or ()) if b) + _IRREVERSIBLE
+        if any(_matches_word(w, low) for w in words):
+            return "dismiss"
+    return "accept"        # alert (only OK exists), page-leave warning, benign confirm
 
 
 class BrowserSession:
@@ -26,6 +48,8 @@ class BrowserSession:
         self.browser = None
         self.context = None
         self.page = None
+        self.dialogs: list[dict] = []   # every native dialog seen, in order
+        self.shot_dir = getattr(cfg, "WEB_SCREENSHOT_DIR", "")
 
     async def __aenter__(self) -> "BrowserSession":
         from playwright.async_api import async_playwright
@@ -64,7 +88,22 @@ class BrowserSession:
         self.context.set_default_timeout(self.cfg.WEB_ACTION_TIMEOUT_MS)
         self.context.set_default_navigation_timeout(self.cfg.WEB_NAV_TIMEOUT_MS)
         self.page = await self.context.new_page()
+        # Unlistened dialogs are dismissed silently by Playwright: a validation alert
+        # then looks like a page that ignored the click, and was once filed as a defect.
+        self.page.on("dialog", self._on_dialog)
+        # One folder per batch, because test ids restart at TC-001 every campaign.
+        self.shot_dir = os.path.join(self.cfg.WEB_SCREENSHOT_DIR, time.strftime("%Y%m%d-%H%M%S"))
         return self
+
+    async def _on_dialog(self, dialog) -> None:
+        """Answer a native alert/confirm/prompt at once, and remember what it said."""
+        answer = dialog_answer(dialog.type, dialog.message,
+                               getattr(self.cfg, "WEB_BLOCKED_TEXTS", ()))
+        self.dialogs.append({"type": dialog.type, "message": dialog.message, "answer": answer})
+        try:
+            await (dialog.accept() if answer == "accept" else dialog.dismiss())
+        except Exception:
+            pass
 
     async def __aexit__(self, *_exc) -> None:
         for closer in (self.context, self.browser):
@@ -104,9 +143,10 @@ class BrowserSession:
     async def screenshot(self, name: str) -> str:
         """Best-effort screenshot; returns the path written, or '' on failure."""
         try:
-            os.makedirs(self.cfg.WEB_SCREENSHOT_DIR, exist_ok=True)
+            folder = self.shot_dir or self.cfg.WEB_SCREENSHOT_DIR
+            os.makedirs(folder, exist_ok=True)
             safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in name)
-            path = os.path.join(self.cfg.WEB_SCREENSHOT_DIR, f"{safe}.png")
+            path = os.path.join(folder, f"{safe}.png")
             await self.page.screenshot(path=path, full_page=False)
             return path
         except Exception:

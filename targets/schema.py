@@ -56,6 +56,9 @@ class WebTarget:
     fail_on_page_error: bool = False
     fail_on_http_5xx: bool = False
     console_ignore: list[str] = field(default_factory=list)
+    account_probes: list[str] = field(default_factory=list)  # same-site JSON paths describing the signed-in account
+    account_probe_bearer_key: str = ""  # localStorage key of a bearer token the probes need, if any
+    fixture_files: list[str] = field(default_factory=list)  # sample-data files the agent may upload; nothing else can be
     login: Login = field(default_factory=Login)
 
 
@@ -180,6 +183,13 @@ class TargetProfile:
             errors.append(f"web.browser: must be chromium, firefox or webkit (got {self.web.browser!r})")
         if not re.match(r"^\d+x\d+$", str(self.web.viewport)):
             errors.append(f"web.viewport: must look like 1280x800 (got {self.web.viewport!r})")
+        for path in self.web.account_probes:
+            if not (path.startswith("/") and not path.startswith("//") and "\\" not in path):
+                errors.append(f"web.account_probes: {path!r} must be a same-site path starting "
+                              f"with '/' — probes carry the session token")
+        for path in self.web.fixture_files:
+            if not os.path.isfile(path):
+                errors.append(f"web.fixture_files: file not found: {path}")
         return errors
 
     # ── convenience ──────────────────────────────────────────────────────────

@@ -98,6 +98,19 @@ _COLLECT_JS = r"""
   // and silently address a stale element.
   document.querySelectorAll('[data-etp-ref]').forEach((el) => el.removeAttribute('data-etp-ref'));
 
+  // A modal is whatever sits on top, marked up as a dialog or not: the outermost
+  // fixed layer over most of the viewport at the screen centre hides everything outside it.
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let overlay = null;
+  for (let n = document.elementFromPoint(vw / 2, vh / 2);
+       n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+    const st = getComputedStyle(n);
+    if (st.position !== 'fixed' || st.pointerEvents === 'none') continue;
+    const r = n.getBoundingClientRect();
+    if (r.width >= vw * 0.6 && r.height >= vh * 0.6) overlay = n;
+  }
+  const isCovered = (el) => !!overlay && !overlay.contains(el);
+
   const out = [];
   let i = 0;
   for (const el of document.querySelectorAll(INTERACTIVE_SEL)) {
@@ -106,6 +119,7 @@ _COLLECT_JS = r"""
     const ref = 'e' + (++i);
     el.setAttribute('data-etp-ref', ref);
     const entry = { ref, role: roleOf(el), name: accessibleName(el) };
+    if (isCovered(el)) entry.covered = true;
     if (el.disabled) entry.disabled = true;
     if (el.required || el.getAttribute('aria-required') === 'true') entry.required = true;
     // Native HTML5 validation renders as a browser tooltip that is in no node,
@@ -138,6 +152,12 @@ _COLLECT_JS = r"""
         if (raw.length) entry.filled_chars = raw.length;
       } else {
         entry.value = clean(raw);
+        // clean() trims, so a whitespace-only value becomes '' and the renderer
+        // then omits it entirely. The agent reads its own typing back as gone and
+        // reports that the field "discards input silently" — a defect report about
+        // our own rendering, and exactly the kind of false finding that costs a
+        // whole investigation. Whitespace is content: say so.
+        if (!entry.value && raw.length) entry.whitespace_chars = raw.length;
       }
       // Report the TRUE length whenever we shorten the value for display.
       // Without this the agent reads a 300-character entry back as ~100 and
@@ -178,6 +198,7 @@ _COLLECT_JS = r"""
     const ref = 'e' + (++i);
     el.setAttribute('data-etp-ref', ref);
     const entry = { ref, role: 'clickable', name, inferred: true };
+    if (isCovered(el)) entry.covered = true;
     const expanded = el.getAttribute('aria-expanded');
     if (expanded !== null) entry.expanded = expanded === 'true';
     out.push(entry);
@@ -237,6 +258,25 @@ _COLLECT_JS = r"""
   const captcha = !!(captchaFrame || captchaHost) && !solved;
 
   const modal = document.querySelector('[role=dialog],[role=alertdialog],dialog[open],[aria-modal=true]');
+  const coveredCount = out.filter((e) => e.covered).length;
+  // An overlay that hides nothing is layout (a fixed full-screen app shell), not a modal.
+  const blocking = overlay && coveredCount > 0 ? overlay : (modal && isVisible(modal) ? modal : null);
+  const heading = blocking && blocking.querySelector('h1,h2,h3,h4,[role=heading]');
+
+  // The browser's own constraint bubble ("Please fill out this field.") is chrome,
+  // not DOM: a form it refuses to submit looks exactly like a dead click, and the
+  // agent then repeats the click until the livelock guard ends the test.
+  // :user-invalid matches only fields the person actually tried to submit, so an
+  // untouched form reports nothing.
+  let invalid = [];
+  try {
+    document.querySelectorAll(':user-invalid').forEach((el) => {
+      const msg = el.validationMessage || '';
+      if (!msg) return;
+      const ref = el.getAttribute('data-etp-ref');
+      invalid.push((ref ? '[' + ref + '] ' : '') + (accessibleName(el) || roleOf(el)) + ': ' + msg);
+    });
+  } catch (e) { invalid = []; }   // older engines reject the selector outright
 
   return {
     url: location.href,
@@ -245,7 +285,10 @@ _COLLECT_JS = r"""
     headings: [...new Set(headings)],
     messages: [...new Set(messages)],
     texts,
-    dialog_open: !!(modal && isVisible(modal)),
+    validation_messages: invalid,
+    dialog_open: !!blocking,
+    dialog_title: heading ? clean(heading.innerText || heading.textContent) : '',
+    covered_count: coveredCount,
     captcha,
   };
 }
@@ -317,7 +360,22 @@ def render(snap: dict) -> str:
             "in front of it (field validation, layout, navigation) is still testable."
         )
     if snap.get("dialog_open"):
-        lines.append("A MODAL DIALOG IS OPEN — deal with it before anything else.")
+        title = snap.get("dialog_title")
+        # "Deal with it" was read as "close it": the agent cancelled the very dialog
+        # its test needed, reopened it, cancelled again, and burned the run.
+        line = ("A MODAL DIALOG IS OPEN" + (f' ("{title}")' if title else "")
+                + ". If it is where your test happens, work INSIDE it and do not close "
+                  "it; only cancel it when it is genuinely in your way.")
+        if snap.get("covered_count"):
+            line += (" Controls marked COVERED are behind it and cannot be used until it "
+                     "is closed with its own buttons.")
+        lines.append(line)
+
+    if snap.get("validation_messages"):
+        lines.append("THE BROWSER REFUSED TO SUBMIT THE FORM — "
+                     + " | ".join(snap["validation_messages"])
+                     + ". The form was never sent; fix these fields, then submit again. "
+                       "Clicking submit again unchanged will do nothing.")
     if snap.get("error"):
         lines.append(f"OBSERVATION ERROR: {snap['error']}")
 
@@ -355,6 +413,10 @@ def _render_element(el: dict) -> str:
         if el.get("value_length"):
             parts.append(f"({el['value_length']} chars total — shown shortened by the "
                          f"observer, the field is NOT truncated)")
+    elif el.get("whitespace_chars"):
+        # "Empty" and "holds spaces" are different answers to a blank-input test.
+        parts.append(f"value=whitespace only ({el['whitespace_chars']} space characters "
+                     f"— your typing WAS accepted; the field is not empty)")
     if el.get("checked") is not None and el.get("role") in ("checkbox", "radio"):
         parts.append("checked" if el["checked"] else "unchecked")
     if el.get("required"):
@@ -365,6 +427,10 @@ def _render_element(el: dict) -> str:
         parts.append("INVALID (the browser will refuse to submit this)")
     if el.get("disabled"):
         parts.append("DISABLED")
+    if el.get("covered"):
+        parts.append("COVERED (behind the open dialog)")
+    if el.get("inert"):
+        parts.append("ALREADY TRIED — it did nothing; choose something else")
     if el.get("expanded") is not None:
         parts.append("expanded" if el["expanded"] else "collapsed")
     if el.get("inferred"):

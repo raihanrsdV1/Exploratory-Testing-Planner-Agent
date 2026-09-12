@@ -42,6 +42,11 @@ _LIVELOCK_ABORT = 4
 # Raw cycle ceiling: high enough that deliberate revisiting is never
 # mistaken for a stall, low enough to stop a loop long before the budget.
 _CYCLE_ABORT = 6
+# From this many identical attempts on an identical page, the action is simply not
+# performed. Advice did not work: with only a nudge at _CYCLE_CONCLUDE and an abort
+# at _CYCLE_ABORT, attempts 3-5 went unchecked and 16 of 20 runs in one campaign
+# ended in a livelock having reported nothing.
+_CYCLE_REFUSE = 3
 # When a sequence comes round a second time, the repetition is usually the
 # test's own answer rather than a stall. Nudge before any guard punishes it.
 _CYCLE_CONCLUDE = 2
@@ -51,6 +56,8 @@ _CAPTCHA_WAIT_DEFAULT = 180
 _CAPTCHA_POLL_MS = 3000
 # How often to beep again while still waiting for a person.
 _CAPTCHA_REMIND_SECONDS = 20
+# A solved challenge can reappear on the next form, so a person may be asked again.
+_CAPTCHA_MAX_PAUSES = 3
 
 
 def _alert(times: int = 3) -> None:
@@ -103,6 +110,15 @@ Rules:
 - Running the test once gives you the answer. If you have entered a value, left,
   and come back, what you now see IS the result - do not run the sequence again
   to "make sure the procedure worked". An outcome you dislike is still an outcome.
+- A line starting "THE BROWSER SHOWED A POPUP" is the site answering your last
+  action. Read its message and judge the outcome by it.
+- If the test needs something you cannot get to — data you cannot produce (an
+  expired item), or a page, control or feature you cannot find after genuinely
+  looking for it — call finish with success false and a reason starting
+  "Precondition not met:" naming exactly what you could not find or arrange.
+  That is a real answer and not a defect in the site. Ending the test that way
+  is ALWAYS better than clicking the same control again hoping it changes:
+  repeated clicking tells nobody anything and the run is discarded.
 - Call finish as soon as you can judge the expected result, with success true or
   false and a specific reason naming what you actually observed.
 """
@@ -132,6 +148,11 @@ class WebAgent:
         self.last_urls: list[str] = []
         # Set by the runner from the live BrowserSession. None means "ask config".
         self.headless: bool | None = None
+        # The session's native-dialog record, read by index so each popup is
+        # reported to the model exactly once.
+        self.dialog_log: list[dict] | None = None
+        # What this test achieved, so a later failure cannot erase it from the record.
+        self.events: list[str] = []
 
     async def run(self, goal: str, max_steps: int, timeout_s: float) -> AgentResult:
         started = time.time()
@@ -154,7 +175,8 @@ class WebAgent:
         dead_controls: list[str] = []
         cycles: dict[str, int] = {}
         nudged = False
-        captcha_handled = False
+        captcha_pauses = 0
+        seen_dialogs = len(self.dialog_log or [])
 
         for step in range(1, max_steps + 1):
             if time.time() - started > timeout_s:
@@ -166,20 +188,39 @@ class WebAgent:
 
             self.last_step = step
             snap = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
-            if snap.get("captcha") and not captcha_handled:
-                captcha_handled = True
+            if snap.get("captcha") and captcha_pauses < _CAPTCHA_MAX_PAUSES:
+                captcha_pauses += 1
                 snap, blocked = await self._handle_captcha(snap)
                 if blocked:
                     trace.outcome(blocked, ok=False)
                     return AgentResult(False, blocked, step, history, urls)
             _track_url(urls, snap.get("url", ""))
             self.last_urls = urls
+            # Mark inert controls where the choice is actually made. The names were
+            # already listed in a separate warning, and a live run clicked the same
+            # dead control eleven times while that warning was on screen: the model
+            # picks a ref out of the element list and never cross-references a prose
+            # list of names.
+            for element in snap.get("elements", []):
+                if element.get("name") and element["name"] in dead_controls:
+                    element["inert"] = True
             observation = snapshot.render(snap)
             content_signature = _content_signature(snap)
 
+            new_dialogs = (self.dialog_log or [])[seen_dialogs:]
+            seen_dialogs += len(new_dialogs)
+            if new_dialogs:
+                popup_notes = [_dialog_note(d) for d in new_dialogs]
+                observation = "\n".join(popup_notes) + "\n" + observation
+                for note in popup_notes:
+                    history.append(note)
+                    trace.outcome(note, ok=True)
+                # The page did answer, just not in the DOM: not a stall.
+                stall_signature = None
+
             if pending is not None:
                 idx, before, label, act_sig = pending
-                if content_signature == before:
+                if content_signature == before and not new_dialogs:
                     history[idx] += ("   <-- THIS DID NOTHING: the page was identical "
                                      "afterwards. Do not repeat it; take another route.")
                     if label and label not in dead_controls:
@@ -256,7 +297,10 @@ class WebAgent:
                     "state you already saw. If that repeated result IS what your "
                     "test was checking (a field empty again, a value that did or "
                     "did not survive), that is your evidence - call finish and "
-                    "report it. Doing it again cannot tell you anything new."
+                    "report it. Doing it again cannot tell you anything new. And if "
+                    "you are repeating this because what the test needs is not on "
+                    'this page, finish with "Precondition not met:" and name what is '
+                    "missing instead of trying once more."
                 )
                 trace.outcome("nudge: this repetition may already be the answer", ok=True)
             if cycles[signature] >= _CYCLE_ABORT:
@@ -289,9 +333,29 @@ class WebAgent:
                 history.append(
                     "WARNING: the last few actions were all different, but the page "
                     "has not changed at all. Whatever you are trying is not working — "
-                    "try a completely different control, or finish and report why."
+                    "try a completely different control. If the page or feature this "
+                    "test needs is not here, stop now: call finish with success false "
+                    'and a reason starting "Precondition not met:" naming what you '
+                    "could not find. That answer is worth more than more clicking; a "
+                    "run that ends in repetition is thrown away and reports nothing."
                 )
                 trace.outcome("warning: several different actions, unchanged page", ok=False)
+
+            # Mechanical, not advisory: repeating must stop being possible, not
+            # merely discouraged. The model reliably ignored being told to try
+            # something else and kept clicking until the abort guard fired.
+            if cycles[signature] >= _CYCLE_REFUSE:
+                refusal = (
+                    f"REFUSED: this exact action on this exact page has already been "
+                    f"tried {cycles[signature] - 1} times and changed nothing, so it was "
+                    f"not performed again. Use a different control, or finish with "
+                    f'success false and a reason starting "Precondition not met:" naming '
+                    f"what you cannot find here."
+                )
+                history.append(f"step {step}: {refusal}")
+                trace.outcome(refusal, ok=False)
+                pending = None   # nothing was done, so there is no result to judge
+                continue
 
             try:
                 note = await self.dispatcher.perform(action, snap)
@@ -367,6 +431,8 @@ class WebAgent:
             fresh = await snapshot.observe(self.page, self.cfg.WEB_SNAPSHOT_MAX_ELEMENTS)
             if not fresh.get("captcha"):
                 trace.emit(f"      solved after {waited:.0f}s - continuing")
+                self.events.append(f"a CAPTCHA was solved by a person after {waited:.0f}s "
+                                   f"and the test continued past it")
                 _alert(1)  # one short chirp: you are free to walk away again
                 return fresh, ""
             if waited >= next_reminder:
@@ -412,6 +478,12 @@ def _track_url(urls: list[str], url: str) -> None:
     """Append the URL only when it actually changed — a route trace, not a log."""
     if url and (not urls or urls[-1] != url):
         urls.append(url)
+
+
+def _dialog_note(d: dict) -> str:
+    answered = "OK" if d.get("answer") == "accept" else "Cancel"
+    return (f'THE BROWSER SHOWED A POPUP ({d.get("type", "dialog")}): '
+            f'"{d.get("message", "")}" - answered {answered} automatically.')
 
 
 def _signature(snap: dict, action: dict) -> str:

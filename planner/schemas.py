@@ -49,6 +49,8 @@ class NextTestCaseRequest(BaseModel):
     profile: str = Field(default="", description="WP6: target device profile (mobile/tv/fhub/watch). Filters retrieval + adds a Target Environment block.")
     platform: str = Field(default="", description="WP6: target platform (android/windows/tizen). Filters retrieval to dimension-matching context.")
     application: str = Field(default="", description="WP6: target application id. Filters retrieval and scopes cross-dimensional transfer.")
+    account_state: str = Field(default="", description="What the signed-in account holds right now, observed by the executor. Overrides the gateway's configured APP_ACCOUNT_STATE for this request; empty uses it.")
+    login_role: str | None = Field(default=None, description="Who the executor is signed in as, sent with the request. None uses the gateway's APP_LOGIN_ROLE; an empty string means no role.")
 
 
 class LogVerdictRequest(BaseModel):

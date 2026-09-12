@@ -133,14 +133,28 @@ def _screenshot_for(entry: dict) -> str:
     """The web player's capture for this run, or '' when there isn't one.
 
     Mirrors web_player/browser.py's naming: the file is '<test id>-<verdict>.png'
-    with everything outside [A-Za-z0-9-_.] replaced.
+    with everything outside [A-Za-z0-9-_.] replaced. Captures now live in a
+    per-batch subfolder, and test ids restart at TC-001 every campaign, so one
+    name can match several files: the capture written closest in time to this run
+    is the one that belongs to it. Flat captures from before the subfolders
+    existed are still found, because the search is recursive from the root.
     """
     tc_id, verdict = entry.get("test_case_id") or "", entry.get("verdict") or ""
     if not tc_id:
         return ""
     safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in f"{tc_id}-{verdict}")
-    path = os.path.join(settings.WEB_SCREENSHOT_DIR, f"{safe}.png")
-    return path if os.path.isfile(path) else ""
+    root = Path(settings.WEB_SCREENSHOT_DIR)
+    if not root.is_dir():
+        return ""
+    matches = [p for p in root.rglob(f"{safe}.png") if p.is_file()]
+    if not matches:
+        return ""
+    when = _parse_ts(entry.get("created_at"))
+    if when is None:
+        return str(max(matches, key=lambda p: p.stat().st_mtime))
+    if when.tzinfo is None:      # logs are written in UTC; mtime is epoch
+        when = when.replace(tzinfo=timezone.utc)
+    return str(min(matches, key=lambda p: abs(p.stat().st_mtime - when.timestamp())))
 
 
 def gather(project: str) -> dict:
@@ -182,6 +196,7 @@ def gather(project: str) -> dict:
             "seconds": round((entry.get("duration_ms") or 0) / 1000, 1),
             "where": [w for w in (entry.get("path_labels") or []) if w],
             "summary": entry.get("trajectory_summary") or "",
+            "reason": entry.get("error_message") or "",
             "created_at": entry.get("created_at") or "",
             "screenshot": _screenshot_for(entry),
         })
@@ -240,6 +255,12 @@ You must NOT re-judge these. Never call an "agent" or "environment" outcome a \
 defect, and never downgrade an "app" outcome. Do not invent tests, screens, \
 counts or causes that are absent from the data.
 
+A run's "title" is what the test set out to do; its "reason" is what actually \
+happened. Describe every outcome from the reason. Never describe a defect by \
+restating the title, and never assume a test did what its title says: a test \
+titled "reject blank input" whose reason says the input was rejected found \
+correct behaviour, not a defect.
+
 DATA (JSON):
 {facts}
 
@@ -297,7 +318,10 @@ def _facts_for_model(facts: dict) -> dict:
         "total_seconds": facts["total_seconds"],
         "coverage": facts["coverage"],
         "runs": [
-            {k: r[k] for k in ("title", "attribution", "error_type", "steps", "where")}
+            {**{k: r[k] for k in ("title", "attribution", "error_type", "steps", "where")},
+             # The recorded outcome. Without it the model can only paraphrase the
+             # title, which states the intent of a test, not what the run observed.
+             "reason": (r.get("reason") or "")[:300]}
             for r in facts["runs"]
         ],
         "defects": [

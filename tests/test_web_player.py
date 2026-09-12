@@ -20,10 +20,11 @@ import tempfile  # noqa: E402
 os.environ.setdefault("WEB_TRACE_FILE",
                       os.path.join(tempfile.gettempdir(), "web_player_tests.log"))
 import settings as st  # noqa: E402
+from web_player import account as account_mod  # noqa: E402
 from web_player import agent as agent_mod  # noqa: E402
 from web_player import failures, llm, snapshot  # noqa: E402
 from web_player.actions import ActionError, Dispatcher  # noqa: E402
-from web_player.oracles import Findings  # noqa: E402
+from web_player.oracles import Collector, Findings  # noqa: E402
 
 _passed = _failed = 0
 
@@ -830,6 +831,39 @@ def main():
           (noisy.verdict_override(_FailOn) or ("", ""))[0], "PAGE_ERROR")
     check("console noise alone never fails a test",
           Findings(console_errors=["boom"]).verdict_override(_FailOn), None)
+
+    print("a request that got no response is reported, never treated as a server error")
+    aborted = Findings(request_failures=["FAILED GET /api/stream/1 (net::ERR_ABORTED)"])
+    check("an aborted request does not fail a test even with 5xx failing on",
+          aborted.verdict_override(_FailOn), None)
+    check("an aborted request still appears in the notes", "ERR_ABORTED" in aborted.summary(), True)
+
+    class _AbortedRequest:
+        url = "https://shop.example.com/app/api/stream/1"
+        method = "GET"
+        failure = "net::ERR_ABORTED"
+    col = Collector(page=None, cfg=_FakeCfg)
+    col._on_request_failed(_AbortedRequest())
+    check("the collector files it as a request failure", len(col.findings.request_failures), 1)
+    check("…and not as a server error", col.findings.http_failures, [])
+
+    print("the live account summary tells the planner what already exists")
+    summary = account_mod.summarize([{"path": "/api/project", "status": 200, "body": {"projects": [
+        {"project_id": 1, "title": "Alpha"}, {"project_id": 2, "title": "Alpha"},
+        {"project_id": 3, "title": "Beta"}]}}])
+    check("names the collection and its size", "projects: 3" in summary, True)
+    check("groups duplicate titles", "Alpha ×2" in summary, True)
+    check("an empty collection is stated, not dropped",
+          "projects: none" in account_mod.summarize(
+              [{"path": "/api/project", "status": 200, "body": {"projects": []}}]), True)
+    check("an unreadable probe says so",
+          "401" in account_mod.summarize([{"path": "/api/project", "status": 401, "body": None}]), True)
+    check("probes never leave the site (they carry the session token)",
+          account_mod.safe_paths(["/api/x", "https://evil.test/x", "//evil.test/x", "/\\evil.test"]),
+          ["/api/x"])
+    live = st.app_session_block("projects: 2 — Alpha, Beta")
+    check("the live account state reaches the planner", "projects: 2" in live, True)
+    check("and tells it to reuse what exists", "reuse" in live.lower(), True)
 
     print("web config guards")
     check("WEB_BASE_URL has no baked-in default", st.WEB_BASE_URL, os.environ.get("WEB_BASE_URL", ""))

@@ -1,0 +1,221 @@
+EXPLORATORY TESTING PLANNER AGENT — RUN COMMANDS
+================================================
+All commands run from the repo root:
+
+  cd "/Users/khalidhasantuhin/Documents/Terms/4-1/Capstone/Exploratory-Testing-Planner-Agent"
+
+Python is ./venv/bin/python. This venv has NO pip — install packages with uv.
+
+
+------------------------------------------------------------------------
+1. ONE-TIME SETUP
+------------------------------------------------------------------------
+
+# Python dependencies
+VIRTUAL_ENV="$PWD/venv" uv pip install -r requirements.txt
+
+# Browser for the web player (Playwright)
+./venv/bin/python -m playwright install chromium
+
+# Dashboard (React) — build once, and again after editing dashboard-react/src
+npm --prefix dashboard-react install
+npm --prefix dashboard-react run build
+
+
+------------------------------------------------------------------------
+2. START THE STACK
+------------------------------------------------------------------------
+
+# --- Option A: everything in one go ---
+./start.sh                   # Neo4j + emulator + RAG API + gateway (no data changes)
+./start.sh --no-emulator     # web targets only — skip the Android emulator
+./start.sh --build           # rebuild the dashboard first
+./start.sh --ingest          # also reset + ingest SRS/Figma  (DESTRUCTIVE: wipes tests + app model)
+./start.sh --with-executor   # also start the Android executor loop
+./start.sh --no-neo4j        # Neo4j is managed elsewhere
+
+# --- Option B: step by step ---
+
+# 1) Neo4j (Neo4j Desktop DBMS on this machine)
+DBMS="/Users/khalidhasantuhin/Library/Application Support/neo4j-desktop/Application/Data/dbmss/dbms-811359c8-8628-4849-9725-9a43a2aa8bf1"
+JAVA_HOME="/Users/khalidhasantuhin/Library/Application Support/neo4j-desktop/Application/Cache/runtime/zulu21.48.17-ca-jre21.0.10-macosx_aarch64" "$DBMS/bin/neo4j" start
+"$DBMS/bin/neo4j" status
+
+# 2) RAG API (port 9010) — first start downloads the embedding model (~20s)
+nohup ./venv/bin/python -m uvicorn rag_api.main:app --host 0.0.0.0 --port 9010 > logs/rag_api.log 2>&1 &
+
+# 3) Gateway (port 9100) — reads the app identity from .env
+nohup ./venv/bin/python -m uvicorn gateway.main:app --host 0.0.0.0 --port 9100 > logs/gateway.log 2>&1 &
+
+# 4) Health checks
+curl -s http://127.0.0.1:9010/health
+curl -s http://127.0.0.1:9100/health
+
+# --- IMPORTANT: gateway for a WEB target ---
+# A web run now sends its own identity with every request: who it is signed in as
+# (from the profile's web.login.role) and what the account actually holds right
+# now (probed live in the browser). Those no longer leak from .env, so
+# APP_LOGIN_ROLE / APP_ACCOUNT_STATE do NOT need overriding any more.
+#
+# Still read from the gateway's own environment: APP_NAME, PROJECT, OUT_OF_SCOPE.
+# Restart the gateway like this before a DataGhurhi run:
+
+pkill -f "uvicorn gateway.main:app"
+APP_NAME="DataGhurhi" PROJECT="dataghurhi-auth" OUT_OF_SCOPE="" \
+  nohup ./venv/bin/python -m uvicorn gateway.main:app --host 0.0.0.0 --port 9100 > logs/gateway.log 2>&1 &
+
+# For the signed-out DataGhurhi profile use PROJECT="dataghurhi".
+# To go back to ShobarKhamar / contacts-app, restart the gateway with no overrides.
+
+
+------------------------------------------------------------------------
+3. DASHBOARD
+------------------------------------------------------------------------
+
+open "http://127.0.0.1:9100/dashboard?project=dataghurhi-auth"
+#   Dashboard tab — live results, coverage, app model, logs
+#   Targets tab   — edit profiles, upload SRS/Figma/defects, Ingest, Run
+
+
+------------------------------------------------------------------------
+4. RUN A TARGET (the normal way)
+------------------------------------------------------------------------
+
+./venv/bin/python -m targets.run --list                        # what can I test?
+./venv/bin/python -m targets.run <profile> --dry-run           # show resolved config, run nothing
+./venv/bin/python -m targets.run <profile>                     # run it
+./venv/bin/python -m targets.run <profile> --ingest            # load its documents first, then run
+./venv/bin/python -m targets.run <profile> --ingest-only       # load documents and stop
+./venv/bin/python -m targets.run <profile> --rounds 3          # override the round count
+
+# Profiles in targets/profiles/:
+#   dataghurhi        DataGhurhi signed out (public surface)
+#   dataghurhi-auth   DataGhurhi signed in (needs auth.json — see section 5)
+#   dataghuri-up      DataGhurhi variant
+#   saucedemo         Swag Labs demo shop
+#   wikipedia         Wikipedia, read-only
+#   contacts-app      Android Contacts (needs the emulator)
+
+# Example — the signed-in DataGhurhi campaign, with an unbuffered log file:
+./venv/bin/python -u -m targets.run dataghurhi-auth --ingest > logs/dataghurhi_auth_run.log 2>&1
+
+# Only one batch can run at a time (web_player/runlock.py refuses a second one).
+# --ingest RESETS the project slice (its tests, SRS and Figma) before re-reading.
+
+
+------------------------------------------------------------------------
+5. SIGNED-IN SESSION (for dataghurhi-auth)
+------------------------------------------------------------------------
+
+# Opens a browser. Log in by hand (solve the reCAPTCHA), then CLOSE THE WINDOW —
+# the session is written to auth.json only when the window closes.
+./venv/bin/python -m playwright codegen --save-storage=auth.json https://dataghurhi.cse.buet.ac.bd
+
+# Check the session still works (prints signed in: True)
+./venv/bin/python -c "
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    b = p.chromium.launch(); c = b.new_context(storage_state='auth.json'); pg = c.new_page()
+    pg.goto('https://dataghurhi.cse.buet.ac.bd/dashboard', wait_until='networkidle')
+    print('signed in:', 'My Projects' in pg.inner_text('body')); b.close()"
+
+# auth.json is a LIVE login — it is gitignored. Delete it when you are done.
+
+
+------------------------------------------------------------------------
+6. RUN A PLAYER DIRECTLY (without a profile)
+------------------------------------------------------------------------
+
+./venv/bin/python -m web_player.runner --rounds 5     # web — uses WEB_* settings from .env
+./venv/bin/python clients/executor_runner.py          # Android device via Droidrun (EXECUTOR_ROUNDS in .env)
+./venv/bin/python clients/simulator_runner.py         # simulated verdicts, no device — for demos
+CRAWL_ROUNDS=3 CRAWL_MAX_STEPS=25 ./venv/bin/python clients/crawl_runner.py   # free exploration crawl
+
+
+------------------------------------------------------------------------
+7. WATCH A RUN
+------------------------------------------------------------------------
+
+tail -f logs/web_player.log                  # web agent: every step's thought + action
+tail -f logs/dataghurhi_auth_run.log         # campaign summary (whatever file you redirected to)
+tail -f logs/mobilerun.log                   # Android agent
+tail -f logs/gateway.log                     # planner / LLM calls
+ls logs/web_shots/                           # final screenshot per test (overwritten each campaign)
+
+
+------------------------------------------------------------------------
+8. RESULTS AND REPORTS
+------------------------------------------------------------------------
+
+# PDF report of the latest batch
+curl -s "http://127.0.0.1:9100/report/run.pdf?project=dataghurhi-auth" -o run_report.pdf
+
+# Batch summary / review sheet
+./venv/bin/python scripts/analyze_batch.py --project dataghurhi-auth
+./venv/bin/python scripts/analyze_batch.py --project dataghurhi-auth --csv out.csv
+
+# Raw data
+curl -s "http://127.0.0.1:9100/agent/coverage?project=dataghurhi-auth" | python3 -m json.tool
+curl -s "http://127.0.0.1:9010/execution/logs?project=dataghurhi-auth&limit=10" | python3 -m json.tool
+curl -s "http://127.0.0.1:9010/coverage/requirements?project=dataghurhi-auth" | python3 -m json.tool
+curl -s "http://127.0.0.1:9010/graph/stats?project=dataghurhi-auth" | python3 -m json.tool
+
+
+------------------------------------------------------------------------
+9. LOAD KNOWLEDGE BY HAND
+------------------------------------------------------------------------
+
+# SRS (any format: .md .txt .pdf .docx .html ...)
+curl -X POST http://127.0.0.1:9100/srs/ingest -H 'Content-Type: application/json' \
+  -d '{"project":"my-app","source_path":"./data/inputs/my-spec.md"}'
+
+# Figma export
+curl -X POST http://127.0.0.1:9100/figma/ingest -H 'Content-Type: application/json' \
+  -d '{"project":"my-app","source_path":"./data/inputs/GENERATED_JSON.json"}'
+
+# One-shot helper: reset -> SRS -> Figma -> stats
+PROJECT=my-app ./venv/bin/python scripts/ingest_all.py
+
+
+------------------------------------------------------------------------
+10. NEO4J MAINTENANCE
+------------------------------------------------------------------------
+
+./venv/bin/python scripts/backup_neo4j.py                        # backup -> data/backups/
+./venv/bin/python scripts/restore_neo4j.py <backup.json>         # restore a backup
+./venv/bin/python scripts/restore_neo4j.py <backup.json> --wipe-first
+./venv/bin/python scripts/reset_neo4j.py --project dataghurhi-auth              # clear test results
+./venv/bin/python scripts/reset_neo4j.py --project dataghurhi-auth --wipe-appmodel
+./venv/bin/python scripts/reset_neo4j.py --project dataghurhi-auth --full       # also SRS + Figma
+
+
+------------------------------------------------------------------------
+11. TESTS
+------------------------------------------------------------------------
+
+./venv/bin/python tests/run_all.py              # every module; non-zero exit on any failure
+./venv/bin/python tests/test_web_player.py      # one module
+
+
+------------------------------------------------------------------------
+12. DEBUGGING HELPERS
+------------------------------------------------------------------------
+
+PROJECT=dataghurhi-auth ./venv/bin/python scripts/dump_prompt.py     # the planner's full prompt
+./venv/bin/python scripts/dump_extraction.py --path ./data/inputs/dataghurhi-auth-spec.md
+./venv/bin/python scripts/verify_enhancements.py
+
+
+------------------------------------------------------------------------
+13. STOP
+------------------------------------------------------------------------
+
+./stop.sh                     # services + emulator + Neo4j
+./stop.sh --services-only     # RAG API + gateway only
+./stop.sh --keep-neo4j        # leave Neo4j running
+./stop.sh --keep-emulator     # leave the emulator running
+
+# By hand
+pkill -f "uvicorn gateway.main:app"
+pkill -f "uvicorn rag_api.main:app"
+"$DBMS/bin/neo4j" stop        # DBMS as set in section 2

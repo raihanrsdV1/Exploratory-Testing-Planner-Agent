@@ -2337,6 +2337,9 @@ def execution_logs(project: str, limit: int = 20, authorization: str | None = He
                    e.duration_ms AS duration_ms, e.device_steps AS device_steps,
                    e.states_visited AS states_visited, e.error_type AS error_type,
                    e.recovery_action AS recovery_action,
+                   // What actually happened, in the player's own words. A title says
+                   // what a test meant to do; only this says how it ended.
+                   e.error_message AS error_message,
                    e.path AS path, e.path_labels AS path_labels, e.created_at AS created_at,
                    // Full audit trail for the dashboard: what the planner was given and
                    // produced (on the TestCase), and what the evaluator was given and

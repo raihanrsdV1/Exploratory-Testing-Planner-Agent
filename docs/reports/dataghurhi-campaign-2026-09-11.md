@@ -1,227 +1,219 @@
 # DataGhurhi — Exploratory Testing Campaign Report
 
-**Target:** `https://dataghurhi.cse.buet.ac.bd` · **Project slice:** `dataghurhi`
-**Date:** 11 Sep 2026 · **Rounds:** 5 · **Player:** web (Playwright/Chromium, headed)
+**Target:** `https://dataghurhi.cse.buet.ac.bd` · **Dates:** 11–12 Sep 2026
+**Campaigns:** 4 × 5 rounds · **Player:** web (Playwright/Chromium, headed)
 **Planner model:** `deepseek/deepseek-v4-flash-0731` · **Executor model:** `qwen/qwen3.5-flash-02-23`
-**Specification:** [`data/inputs/dataghurhi-spec.md`](../../data/inputs/dataghurhi-spec.md) — 67 requirements, 8 guardrails
+**Specifications:** [`dataghurhi-spec.md`](../../data/inputs/dataghurhi-spec.md) (runs 1–3), [`dataghurhi-auth-spec.md`](../../data/inputs/dataghurhi-auth-spec.md) (run 4)
+**Auto-generated PDF for run 4:** [`dataghurhi-run4-report.pdf`](dataghurhi-run4-report.pdf) — **its "1 defect" is wrong; see §3.5**
 
 ---
 
 ## 1. Headline
 
-**The campaign found no defects, and it produced almost no evidence about DataGhurhi's
-quality. Autonomy was 0%: all five runs were lost to our own agent or our own guardrails,
-not to the application.**
+**Twenty runs produced no confirmed defect in DataGhurhi.**
 
-This is reported first because the opposite reading — "5 failed tests, 5 bugs" — is the
-single most damaging misreading available here. In this system a `failed` verdict spans
-three different things, and only one of them is evidence about the app.
+Run 4 recorded one app-attributed verdict — TC-001, a whitespace-only project name
+"refused with no feedback". **That verdict was false.** DataGhurhi does give feedback: a
+native browser alert, *"Please fill in all required fields"*. Our web player never listens
+for native dialogs, and Playwright dismisses them automatically, so the agent never saw
+it. My own reproduction used the same driver and repeated the mistake. The error was
+caught by the tester trying the form by hand (§3.5).
 
-| Test | Attribution | Class | Duration | Steps |
+| | Run 1 — anonymous | Run 2 — signed in | Run 3 — account probe | Run 4 — jonayed's fixes merged |
 |---|---|---|---|---|
-| TC-001 | `NAVIGATION_LIVELOCK` | agent fault | 17.4s | 5 |
-| TC-002 | `NAVIGATION_FAILURE` | agent fault | 223.5s | 60 |
-| TC-003 | `BLOCKED_BY_GUARDRAIL` | environment | 3.6s | 1 |
-| TC-004 | `STEP_LIMIT_EXCEEDED` | environment | 138.8s | 30 |
-| TC-005 | `BLOCKED_BY_GUARDRAIL` | environment | 7.1s | 3 |
-
-**App faults: 0 of 5.** Requirement coverage: **7 / 82**, and those seven are covered only
-in the sense that a test *cited* them — none was actually exercised against the app.
+| What stopped the runs | login wall | guardrail on *Publish* | invisible modal, load race, budget | invisible modal, finding the right screen, CAPTCHA, invisible alert |
+| Agent faults | 2 | 0 | 4 | 3 |
+| Environment / guardrail | 3 | 5 | 1 | 1 |
+| **App faults** | **0** | **0** | **0** | **1 recorded — false (our tool)** |
 
 ---
 
-## 2. What the agent actually did
+## 2. Runs 1–3 (summary)
 
-Every run converged on the same place. The screenshot captured at the end of TC-004
-(`logs/web_shots/TC-004-failed.png`) shows it exactly: the agent is sitting on the
-**login page**, having typed an invented email address (`2105002@ugrad.cse.buet.ac.bd`)
-and a password, with the site answering *"Please complete the reCAPTCHA verification."*
+- **Run 1 — anonymous.** The signed-out site is a login wall; my spec's public-surface
+  table was derived from routes that exist, not routes that render without a session.
+  The agent invented a BUET student email and tried to log in (stopped by reCAPTCHA).
+- **Run 2 — signed in** via a session captured by hand. Three tests stopped at the
+  blocked *Publish*; a fixed "no projects" account state made each round rebuild the
+  same project.
+- **Run 3 — live account state added.** No more duplicate projects, and a test
+  published a survey for the first time. Four runs livelocked: the dashboard briefly
+  shows "No Projects Found" while loading, and the "Create New Project" modal carries no
+  dialog role, so the agent kept clicking behind it.
 
-Routes reached across the whole campaign:
+---
 
-| Route | Visits |
+## 3. Run 4
+
+### 3.1 What changed
+
+jonayed's branch was merged in first. From it:
+- the page settles (`networkidle` plus re-reads of a blank snapshot) before the agent looks —
+  this removed run 3's "No Projects Found" misread;
+- a **CAPTCHA hand-off**: a headed run pauses up to 180 s, beeping, for a person to solve it;
+- a run lock, 80 steps and 600 s per test, and an **auth-only spec** (71 requirements) so
+  no signed-out test can be drawn.
+
+Kept from run 3: the live account probe, and the oracle fix (aborted requests are never
+counted as server errors).
+
+### 3.2 Results
+
+| Test | Objective | Recorded result | Actually | Duration | Steps |
+|---|---|---|---|---|---|
+| TC-001 | a whitespace-only name is rejected | `ASSERTION_FAILURE` | **false defect — the app showed an alert the agent could not see (§3.5)** | 32.3s | 8 |
+| TC-002 | analysis refuses categorical-only columns | `NAVIGATION_LIVELOCK` | agent could not find the screen | 232.3s | 58 |
+| TC-003 | analysis refuses an unsupported data type | `NAVIGATION_LIVELOCK` | invisible modal | 260.2s | 48 |
+| TC-004 | an expired survey refuses new responses | `BLOCKED_BY_CAPTCHA` | precondition never set up (§3.4) | 231.7s | 21 |
+| TC-005 | preprocessing rejects a wrongly typed cell edit | `NAVIGATION_LIVELOCK` | agent oscillated between two screens | 132.9s | 34 |
+
+169 steps in 889 s. Every probe observed the account holding 7 projects; only TC-005
+created another, with a distinct name, for its own data-type test.
+
+### 3.3 The livelock still happens — for two different reasons
+
+| Test | Cause |
 |---|---|
-| `/` (login wall) | 101 |
-| `/visualization` | 4 |
-| `/analysis` | 4 |
-| `/forgot-password` | 4 |
-| `/signup` | 2 |
-| `/login` | 1 |
+| TC-003 | **The invisible modal.** Clicks behind "Create New Project" were refused with the browser naming `modal-overlay-modern` as the element in the way. The agent's own reasoning shows the gap: *"previous steps failed due to modal overlay, but current page shows no visible modal."* |
+| TC-002 | **Could not find the screen.** Clicked the "Test Categorical Analysis" project six times without reaching an analysis view for that survey. |
+| TC-005 | **Oscillated** between "open the project" and "Quantitative Analysis", looking for the preprocessing screen, until the guard stopped it. |
 
-101 of ~120 observations were the same signed-out landing page.
+TC-004 also hit a modal (the *Survey Link* dialog) mid-run, but recovered.
 
----
+### 3.4 TC-004 — the CAPTCHA hand-off worked; the verdict hides that
 
-## 3. Why it failed — four causes, in order of impact
+1. The agent opened its own published survey's public form (`/v/b39-c02`) and hit reCAPTCHA.
+2. The run paused, beeping: *"CAPTCHA — YOUR INPUT IS NEEDED"*.
+3. After 120 s: *"solved after 120s — continuing"* — a person solved it.
+4. The agent clicked **Submit**; DataGhurhi showed its success page (`/survey-success`).
+   Its next thought: *"submitted successfully despite expecting it to be closed — this
+   suggests a potential defect. I need to go back and verify the survey settings."* It did,
+   and found the end date was not in the past — so it did **not** file a false defect.
+5. It then went back to the form, met a **fresh** CAPTCHA, and finished as
+   `BLOCKED_BY_CAPTCHA`.
 
-### 3.1 The anonymous surface is a login wall (spec error, mine)
+The recorded verdict describes step 5 and erases step 4. The objective concerned an
+**expired** survey and the agent never set one up; accepting the response was correct.
+The honest outcome is *precondition not met*.
 
-`data/inputs/dataghurhi-spec.md` classifies `/`, `/home`, `/about`, `/faq` and `/v/:slug`
-as a **public** surface worth 19 requirements. In practice the site root *is* the sign-in
-page for a signed-out visitor, and the routes the planner wanted (`/analysis`,
-`/visualization`, `/preprocess`) bounce straight back to it.
+### 3.5 TC-001 — a false defect, and why verification missed it
 
-The surface table in the spec was derived from the React route table in the JS bundle,
-which lists routes that *exist* — not routes that *render anything without a session*.
-That inference was wrong and the campaign paid for it in full.
+**What the agent reported.** It typed a project name of only spaces, pressed *Create
+Project*, saw nothing happen, and concluded the app refused silently.
 
-### 3.2 Nothing enforces the PUBLIC/AUTH split the spec documents
+**What actually happens.** DataGhurhi raises a native browser alert —
+*"dataghurhi.cse.buet.ac.bd says: Please fill in all required fields"* — and creates
+nothing. That is correct behaviour: the input is refused and the user is told.
 
-The spec marks every requirement `[PUBLIC]` or `[AUTH]`, precisely so an unauthenticated
-run would stay on reachable ground. **The planner never sees that distinction** — the
-markers are prose inside requirement text, not a filter. So it generated:
+**Why the agent could not see it.** A native `alert()` is drawn by the browser, not the
+page, so it appears in no snapshot. Playwright dismisses any dialog nobody listens for,
+and `web_player/` never listens. The message existed for a moment and vanished unread.
 
-- TC-001 — chart axis labels (`/visualization`, AUTH)
-- TC-002 — analysis column-type refusal (`/analysis`, AUTH)
-- TC-004 — analysis with only categorical columns (`/analysis`, AUTH)
-- TC-003 — password change (AUTH)
-- TC-005 — password recovery (public, but see 3.3)
+**Why my reproduction agreed with the agent.** I checked for new page text, validation
+messages, style changes and DOM mutations — all page-level channels, and all run through
+the same Playwright driver that auto-dismisses the alert. Three methods, one blind spot.
+A rerun with a dialog listener attached captures the alert immediately:
+`('alert', 'Please fill in all required fields')`.
 
-Five for five on the authenticated surface, with no credentials configured. These tests
-were impossible before the browser opened.
+**What caught it.** The tester trying the form by hand.
 
-### 3.3 The guardrails did their job, and that ended two tests instantly
-
-TC-003 died after **one step** and TC-005 after **three**:
-
-> `Refused to activate 'Sign Up' — it matches the blocked control 'sign up' for this target.`
-> `Refused to activate 'Send OTP' — it matches the blocked control 'send otp' for this target.`
-
-Both refusals are correct — `OOS-02` forbids creating accounts and sending real email to
-real addresses. But a password-recovery test whose only route to a verdict is *pressing
-Send OTP* cannot succeed under that rule. The guardrail and the test case were in direct
-contradiction, and nothing detected that before spending a round on it.
-
-### 3.4 reCAPTCHA gates the one action that would open everything
-
-Login is protected by reCAPTCHA, so even correct credentials would not let an automated
-run through unaided. This was visible in the JS bundle before the campaign
-(`recaptchaToken` on submit, `"রিক্যাপচা যাচাই সম্পন্ন করুন"` in the Bangla strings) and
-is confirmed by the TC-004 screenshot.
+**The PDF** counts this as the run's one defect and describes it as a whitespace title
+not being rejected. Both are wrong; the recorded verdict in the knowledge graph is still
+`ASSERTION_FAILURE` and should be corrected before the PDF is regenerated.
 
 ---
 
-## 4. What was observed about the application anyway
+## 4. Findings about DataGhurhi
 
-The browser oracles collect signals regardless of whether a test reaches a verdict, so
-the campaign is not entirely empty. **All of the following are unvalidated candidates
-and need a human to confirm them.**
+All are **unconfirmed candidates**, found by investigating failed runs by hand. None came
+from an agent verdict. None depends on native dialogs, so none is affected by the blind
+spot in §3.5 — but each still needs a human to confirm it.
 
-### 4.1 The translation feature returns 403 on the live site — candidate defect
+| # | Finding | Evidence | Relates to |
+|---|---|---|---|
+| 4.1 | **Translation requests fail with 403** on every page load. The browser sends a Google API key in the request URL and Google refuses it — consistent with a restricted or disabled key | every run, signed in and out | `FR-I18N-01/02` |
+| 4.2 | **The session JWT travels in a URL query string** (`/api/surveytemplate/stream/<id>?token=…`) | live traffic and the shipped bundle | `NFR-SEC` |
+| 4.3 | **A project with no surveys returns 404** (`GET /api/project/{id}/surveys` → `No surveys found for this project`) instead of an empty list | reproduced on 4 projects | `FR-PROJ-03`, `FR-DATA-03` |
+| 4.4 | **The dashboard shows "No Projects Found" while still loading** | timed at ~2.5–3.0 s | `FR-DATA-03` |
+| 4.5 | **The "Create New Project" modal has no dialog semantics** (no `role="dialog"`, no `aria-modal`), unlike "Create New Survey" | DOM inspected | `NFR-A11Y-01` |
 
-Present on **every** test, on ordinary page loads:
-
-```
-Translation error: AxiosError: Request failed with status code 403
-    at Ike (https://dataghurhi.cse.buet.ac.bd/assets/…)
-Failed to load resource: the server responded with a status of 403 ()
-```
-
-DataGhurhi advertises multilingual operation prominently — *"Create multilingual reports
-(33 languages)"*, *"৩৩টি ভাষায় সার্ভে তৈরি করুন"* — and the client calls the Google
-Translate v2 endpoint directly. A 403 there means the translation path is failing in
-production for anonymous visitors.
-
-Relates to `FR-I18N-01` / `FR-I18N-02`. Most likely an API key that is expired, out of
-quota, or referrer-restricted. **Confirm manually** by opening the site and switching
-language; if the UI silently stays in English, `FR-I18N-02`'s fallback requirement is met
-in appearance but the feature is broken underneath.
-
-### 4.2 A 404 on a page resource
-
-`Failed to load resource: the server responded with a status of 404 ()` — captured but not
-attributed to a specific request. Low confidence, low value without the URL.
-
-### 4.3 No crashes, no 5xx
-
-Across ~120 page observations, no uncaught page exception and no 5xx from the application's
-own backend. `WEB_FAIL_ON_HTTP_5XX` was on for this run, so a server error would have
-failed a test outright. None did. That is a genuine, if narrow, positive signal about the
-signed-out surface.
+**Checked and ruled out:**
+- **Whitespace-only project name** — refused, with an alert. Not a defect (§3.5). A minor
+  observation only: the generic *"fill in all required fields"* does not name the field,
+  and the field visibly contains something (spaces). A usability nicety, not a fault.
+- Global search works; duplicate project names are allowed by the spec; no crashes and no
+  genuine 5xx in four campaigns.
 
 ---
 
 ## 5. Agent behaviour worth flagging
 
-**The agent invented credentials and attempted to log in.** It typed
-`2105002@ugrad.cse.buet.ac.bd` — a plausible BUET student address it was never given —
-and submitted the login form. The attempt failed at reCAPTCHA and no account was accessed.
-
-This was not blocked because `blocked_texts` deliberately leaves *Log in* clickable, so
-that sign-in **validation** (`FR-AUTH-05`, `FR-AUTH-06`) stays testable. The tradeoff is
-now visible: on a real system, repeated failed logins against invented addresses are
-indistinguishable from credential stuffing in the target's own logs. Recommend blocking
-`log in` as well unless credentials are supplied.
-
-**The wandering guard worked.** TC-001 ended at 17.4s with `NAVIGATION_LIVELOCK` rather
-than burning all 30 steps — the repeat-detection added to `web_player/agent.py` firing as
-designed on a page that did not respond.
+- **TC-001 — accurate about what it could see, unaware of what it could not.** Nothing
+  on the page changed, so it reported nothing changed. The fault is the tool's (§6.12).
+- **TC-004 — caught its own false defect** (§3.4), then let the final verdict overwrite
+  real progress.
+- **Run 1 — invented credentials** and attempted a login. Block `log in` on profiles
+  without credentials.
 
 ---
 
-## 6. Defects found in *our own system* during this campaign
+## 6. Defects found in our own system
 
-Three, all fixed or flagged in the course of the run:
-
-1. **Session context leaked across projects.** `targets/env.py` sets `APP_LOGIN_ROLE` only
-   for `android` profiles, so a web run inherited whatever `.env` held. The gateway was
-   still carrying ShobarKhamar's session block (*"signed in as a 'farmer/seller'… already
-   has a farm named 'Trust Dairy Farm'"*) and injected it into every generation prompt as
-   *"Session Constraints — these override every other instruction."* The first test
-   generated for DataGhurhi was **"Edit farm name to 255 characters"**. Worked around by
-   restarting the gateway with a neutral session env; **not yet fixed in code** — the
-   profile configures the runner process, but the gateway that generates test cases is
-   long-lived and reads `.env`.
-
-2. **The web player could not run at all against the current planner.** kmazd-v2's
-   goal-based redesign removed `steps` from the planner's output contract (replacing it
-   with `screen_hint` + `objective`), and the Android executor was migrated to match — but
-   `web_player/` was not. `runner.py` hard-required `steps` and aborted every run with
-   *"Planner returned an empty test case."* Migrated `goal.py` and `runner.py` to the new
-   contract.
-
-3. **Playwright was never installed**, so the web player had never successfully run on this
-   machine. It is listed in `requirements.txt`; the venv has no `pip`, so it was installed
-   with `uv pip install`.
+| # | Defect | Status |
+|---|---|---|
+| **6.12** | **Native browser dialogs are invisible and silently dismissed.** `web_player/` never listens for `dialog` events, so Playwright auto-dismisses every `alert`, `confirm` and `prompt`. Validation shown in an alert reads to the agent as "no response" — a **false app defect**, the most damaging misclassification this system can make. A `confirm("Are you sure?")` is silently answered **Cancel**, so any flow behind a confirmation can never be completed or tested | **not fixed** — produced the only app verdict in four campaigns |
+| 6.1 | Session context leaks across projects (`targets/env.py` maps the login role only for Android; the gateway reads identity from its own environment) | worked around; **not fixed** |
+| 6.2 | Web player incompatible with the goal-based planner | fixed (run 1) |
+| 6.3 | Playwright never installed | fixed (run 1) |
+| 6.4 | Oracle counted aborted requests as server 5xx | fixed (run 3) |
+| 6.5 | Account state was a fixed snapshot | fixed (run 3) |
+| 6.6 | Screenshots from one campaign overwrite another's | **not fixed**; reviewed screenshots copied to `docs/reports/assets/` |
+| 6.7 | First snapshot taken before a single-page app loads | fixed (jonayed) |
+| 6.8 | The snapshot cannot see a modal without ARIA dialog semantics, and lists controls behind any modal as clickable | **not fixed** — 1 of 3 livelocks in run 4 |
+| 6.9 | No data fixture: analysis and preprocessing tests must find and build their own data | **not fixed** — 2 of 3 livelocks in run 4 |
+| 6.10 | A test's final verdict ignores what it achieved earlier (TC-004) | **not fixed** |
+| 6.11 | The PDF narrative describes defects from the test title, not the evidence | **not fixed** |
 
 ---
 
-## 7. What to change before the next campaign
+## 7. Housekeeping
 
-Ordered by how much each unlocks.
-
-1. **Supply credentials.** Two-thirds of the spec is `[AUTH]`. Capture a session once with
-   `playwright codegen --save-storage=auth.json` and set `web.storage_state` in the
-   profile — this also sidesteps reCAPTCHA, which no automated login can pass. Without
-   this, no further campaign will produce meaningfully different results.
-
-2. **Create a test survey you own**, then unblock `submit` and point at its `/v/<slug>`.
-   That converts Section 1 of the spec (19 requirements — the richest, most defect-dense
-   part) from untestable to testable, without touching the live research study.
-
-3. **Make the PUBLIC/AUTH split machine-readable** so an unauthenticated run cannot draw
-   an `[AUTH]` requirement. Simplest form: keep two spec files and ingest only the public
-   one when no credentials are configured.
-
-4. **Fix the session leak in code** (item 6.1) so a project's app identity travels with the
-   request rather than living in the gateway's process env.
-
-5. **Reconcile guardrails against generated tests before execution.** A test whose verdict
-   depends on a blocked control should be discarded at generation time, not discovered
-   3.6 seconds into a round.
+- **Throwaway account now holds 9 projects** — #262–#268 and #278 from the agent, #279
+  (`V`) from manual testing. **Survey #597 is published, public, and holds at least one
+  submitted response** (TC-004). Delete or unpublish by hand.
+- `auth.json` is a live session (gitignored). Delete it when done.
+- **The gateway is running with DataGhurhi's session context.** Restart it plainly before
+  any ShobarKhamar or contacts-app run (see `RUN_COMMANDS.txt`, section 2).
 
 ---
 
-## 8. Honest summary
+## 8. What to change before run 5
 
-This campaign tested our testing system more than it tested DataGhurhi. It surfaced three
-real defects in our own pipeline and one credible candidate defect in the target (the
-translation 403). As an assessment of DataGhurhi's quality it is **not usable** — 0% of
-runs produced app evidence, and the spec's own public-surface assumption turned out to be
-wrong.
+1. **Handle native dialogs (§6.12).** Listen for `dialog` events; put the message into the
+   agent's next observation and into the browser findings; let the agent choose accept or
+   dismiss, with guardrail text checked against the message. Then correct TC-001's recorded
+   verdict and regenerate the PDF.
+2. **Only list controls that can actually receive a click (§6.8)** — hit-test each
+   element's centre with `document.elementFromPoint`, and name what covers it.
+3. **Seed a data fixture once per campaign (§6.9)** so analysis and preprocessing tests
+   start on the right screen.
+4. **Record the furthest point a test reached (§6.10)**; classify an impossible setup as
+   `PRECONDITION_NOT_MET`.
+5. **Build the PDF narrative from verdict notes (§6.11)**; fix the session leak (§6.1);
+   key screenshots by campaign (§6.6).
 
-The next run, with a captured session and a self-owned test survey, is the one whose
-numbers will mean something.
+---
+
+## 9. Honest summary
+
+Across four campaigns the pipeline learned to sign in, build and publish surveys, and hand
+a CAPTCHA to a person. It has not yet produced a confirmed defect in DataGhurhi: its only
+app verdict came from a native alert it could not see.
+
+The lesson is about verification as much as the agent. A defect reported by a tool must be
+reproduced through a **different channel** from the one the tool uses — ideally a person
+at the screen — because checks run through the same driver share its blind spots. That is
+what went wrong here, and a manual test is what put it right.
 
 ---
 
@@ -229,9 +221,9 @@ numbers will mean something.
 
 | Item | Path |
 |---|---|
-| Specification | `data/inputs/dataghurhi-spec.md` |
-| Target profile | `targets/profiles/dataghurhi.json` |
-| Campaign log | `logs/dataghurhi_campaign.log` |
-| Agent trace (per step) | `logs/web_player.log` |
-| Final screenshots | `logs/web_shots/TC-00{1..5}-failed.png` |
-| Knowledge graph | Neo4j project slice `dataghurhi` — 82 requirements, 85 validation rules, 28 embedded chunks |
+| Specifications | `data/inputs/dataghurhi-spec.md`, `data/inputs/dataghurhi-auth-spec.md` |
+| Target profiles | `targets/profiles/dataghurhi.json`, `targets/profiles/dataghurhi-auth.json` |
+| Campaign logs | `logs/dataghurhi_campaign.log` (1), `logs/dataghurhi_auth_campaign.log` (2), `logs/dataghurhi_auth_run3.log` (3), `logs/dataghurhi_auth_run4.log` (4) |
+| Agent trace | `logs/web_player.log` (all runs, in time order) |
+| Run 4 PDF | `docs/reports/dataghurhi-run4-report.pdf` — superseded on TC-001 by §3.5 |
+| Preserved screenshots | `docs/reports/assets/dataghurhi-2026-09-11/` — incl. `run4-TC-001-alert-hidden-from-agent.png` |

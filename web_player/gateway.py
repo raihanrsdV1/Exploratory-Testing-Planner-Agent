@@ -26,7 +26,7 @@ _MAX_ATTEMPTS = 4
 _PERMANENT = ("not set in .env", "not installed")
 
 
-def next_testcase(max_new_tokens: int = 8000) -> dict:
+def next_testcase(max_new_tokens: int = 8000, account_state: str = "") -> dict:
     """Ask the planner for the next test case, scoped to the web platform."""
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         resp = requests.post(
@@ -41,6 +41,8 @@ def next_testcase(max_new_tokens: int = 8000) -> dict:
                 "enable_thinking": False,
                 "debug_trace": cfg.DEBUG_TRACE,
                 "platform": PLATFORM,
+                "account_state": account_state,
+                "login_role": cfg.WEB_LOGIN_ROLE,
             },
             timeout=900,
         )

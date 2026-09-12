@@ -59,6 +59,8 @@ class AgentState(TypedDict):
     max_new_tokens: int
     enable_thinking: bool
     debug_trace: bool
+    account_state: str  # live account contents from the executor; "" uses the configured state
+    login_role: Optional[str]  # the caller's role; None uses the gateway's APP_LOGIN_ROLE
     
     # Global context (computed once)
     brief: dict
@@ -406,6 +408,8 @@ def generate_testcase(state: AgentState) -> AgentState:
         failure_context=state.get("failure_context", ""),
         requirements_context=state.get("requirements_context", ""),
         agent_difficulty_context=state.get("agent_difficulty_context", ""),
+        account_state=state.get("account_state", ""),
+        login_role=state.get("login_role"),
     )
 
     # Attach the target screen's real screenshot, if the retrieval loop resolved
@@ -504,6 +508,8 @@ def duplicate_check(state: AgentState) -> AgentState:
             failure_context=state.get("failure_context", ""),
             requirements_context=state.get("requirements_context", ""),
             agent_difficulty_context=state.get("agent_difficulty_context", ""),
+            account_state=state.get("account_state", ""),
+            login_role=state.get("login_role"),
         ) + "\n\nBlocked titles (semantic overlap with any of these is FORBIDDEN):\n" + blocked
         
         model_data = model_client.call_model(retry_prompt, state["max_new_tokens"], state["enable_thinking"])
@@ -574,6 +580,8 @@ def run_agent(req_args: dict) -> dict:
         max_new_tokens=req_args.get("max_new_tokens", 8000),
         enable_thinking=req_args.get("enable_thinking", False),
         debug_trace=req_args.get("debug_trace", False),
+        account_state=req_args.get("account_state", ""),
+        login_role=req_args.get("login_role"),
         
         brief={}, recent_tests=[], done_titles=[], failed_titles=[], done_areas=[],
         figma_screens=[], figma_overview=[], fallback_screens=[], coverage_map={},

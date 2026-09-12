@@ -77,7 +77,14 @@
       "password": "",
       "hint": "",
       "role": "signed-in tester (throwaway account)"
-    }
+    },
+    "account_probes": [
+      "/api/project"
+    ],
+    "account_probe_bearer_key": "token",
+    "fixture_files": [
+      "./data/fixtures/web/survey_sample.csv"
+    ]
   },
   "android": {
     "package": "",

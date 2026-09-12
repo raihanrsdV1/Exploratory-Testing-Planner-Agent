@@ -6,7 +6,9 @@ const EMPTY_LOGIN = { url: '', user: '', password: '', hint: '', role: '' }
 const EMPTY_WEB = {
   base_url: '', browser: 'chromium', headless: false, slow_mo_ms: 300, viewport: '1280x800',
   same_origin_only: true, blocked_texts: [], blocked_url_patterns: [], storage_state: '',
-  fail_on_page_error: false, fail_on_http_5xx: false, console_ignore: [], login: { ...EMPTY_LOGIN },
+  fail_on_page_error: false, fail_on_http_5xx: false, console_ignore: [],
+  account_probes: [], account_probe_bearer_key: '', fixture_files: [],
+  login: { ...EMPTY_LOGIN },
 }
 const EMPTY_ANDROID = {
   package: '', activity: '', labels: [], target_app_only: false, device_reset: 'pm_clear',
@@ -342,6 +344,11 @@ export default function Targets() {
                     <ListField profile={profile} path="web.blocked_texts" label="Blocked control texts" onChange={update} />
                     <ListField profile={profile} path="web.blocked_url_patterns" label="Blocked URL patterns" onChange={update} />
                     <ListField profile={profile} path="web.console_ignore" label="Console noise to ignore" onChange={update} />
+                    <ListField profile={profile} path="web.account_probes" label="Account probes (same-site paths)" onChange={update} />
+                    <TextField profile={profile} path="web.account_probe_bearer_key" label="Probe token key"
+                               hint="localStorage key of a bearer token, if the probes need one" onChange={update} />
+                    <ListField profile={profile} path="web.fixture_files"
+                               label="Sample data files the agent may upload" onChange={update} />
                   </div>
                   <h3>Login</h3>
                   <div className="field-grid"><LoginFields profile={profile} section="web" onChange={update} /></div>

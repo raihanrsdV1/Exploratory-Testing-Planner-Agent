@@ -61,6 +61,8 @@ def _web(profile: TargetProfile) -> dict[str, str]:
         "WEB_LOGIN_USER": web.login.user,
         "WEB_LOGIN_PASSWORD": web.login.password,
         "WEB_LOGIN_HINT": web.login.hint,
+        "WEB_ACCOUNT_PROBE_BEARER_KEY": web.account_probe_bearer_key,
+        "WEB_LOGIN_ROLE": web.login.role,
     }
     # A blank list must NOT be written: settings falls back to its default on an
     # empty value, so "" and "unset" mean the same thing — and writing "" for a
@@ -69,6 +71,8 @@ def _web(profile: TargetProfile) -> dict[str, str]:
     _set_list(env, "WEB_BLOCKED_TEXTS", web.blocked_texts)
     _set_list(env, "WEB_BLOCKED_URL_PATTERNS", web.blocked_url_patterns)
     _set_list(env, "WEB_CONSOLE_IGNORE", web.console_ignore)
+    _set_list(env, "WEB_ACCOUNT_PROBES", web.account_probes)
+    _set_list(env, "WEB_FIXTURE_FILES", web.fixture_files)
     if model.provider:
         env["WEB_LLM_PROVIDER"] = model.provider
     if model.model:
