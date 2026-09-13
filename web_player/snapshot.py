@@ -89,6 +89,7 @@ _COLLECT_JS = r"""
       const t = (el.getAttribute('type') || 'text').toLowerCase();
       if (t === 'checkbox' || t === 'radio' || t === 'submit' || t === 'button') return t;
       if (t === 'password') return 'password';
+      if (t === 'file') return 'file';
       return 'textbox';
     }
     return 'control';
@@ -98,11 +99,21 @@ _COLLECT_JS = r"""
   // and silently address a stale element.
   document.querySelectorAll('[data-etp-ref]').forEach((el) => el.removeAttribute('data-etp-ref'));
 
+  // A file input is nearly always display:none behind a styled drop zone, so the
+  // visibility filter above would discard the one control that can actually
+  // receive a file. Playwright sets files on the element directly and never
+  // opens the native picker, so a hidden file input is fully actionable — it
+  // just has to be visible to the AGENT. Without this the agent sees only the
+  // drop-zone div, clicks it repeatedly to no effect, and reports a working
+  // feature as untestable.
+  const isFileInput = (el) => el.tagName.toLowerCase() === 'input'
+    && (el.getAttribute('type') || '').toLowerCase() === 'file';
+
   const out = [];
   let i = 0;
   for (const el of document.querySelectorAll(INTERACTIVE_SEL)) {
     if (out.length >= maxElements) break;
-    if (!isVisible(el)) continue;
+    if (!isVisible(el) && !isFileInput(el)) continue;
     const ref = 'e' + (++i);
     el.setAttribute('data-etp-ref', ref);
     const entry = { ref, role: roleOf(el), name: accessibleName(el) };
@@ -129,7 +140,10 @@ _COLLECT_JS = r"""
     }
     // A checkbox's value is always "on"; `checked` above already says the useful
     // half, so reporting both spends prompt tokens on nothing.
-    const valueIsNoise = ['checkbox', 'radio'].includes(entry.role);
+    // A file input's own .value is the browser's "C:\fakepath\report.csv"
+    // placeholder, which tells the agent nothing and invites it to treat the
+    // control as a text field. The real filenames are read from .files below.
+    const valueIsNoise = ['checkbox', 'radio', 'file'].includes(entry.role);
     if (!valueIsNoise && 'value' in el && el.value !== undefined && el.value !== null) {
       const raw = String(el.value);
       // Never echo a secret into the prompt or the logs — but do not render it as
@@ -153,6 +167,23 @@ _COLLECT_JS = r"""
     }
     if (el.tagName.toLowerCase() === 'select') {
       entry.options = Array.from(el.options).slice(0, 12).map((o) => clean(o.textContent || o.value));
+    }
+    if (entry.role === 'file') {
+      // A hidden input has no text of its own; name it after the drop zone the
+      // user actually sees, or the agent cannot tell what it feeds.
+      if (!entry.name) {
+        let host = el.parentElement;
+        for (let hop = 0; host && hop < 3 && !entry.name; hop++, host = host.parentElement) {
+          entry.name = clean(host.innerText || host.textContent);
+        }
+        if (!entry.name) entry.name = 'file upload';
+      }
+      const accept = el.getAttribute('accept');
+      if (accept) entry.accept = clean(accept);
+      if (el.multiple) entry.multiple = true;
+      if (el.files && el.files.length) {
+        entry.value = Array.from(el.files).map((f) => f.name).join(', ');
+      }
     }
     out.push(entry);
   }

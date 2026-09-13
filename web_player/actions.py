@@ -13,15 +13,17 @@ must still be stopped.
 
 from __future__ import annotations
 
+import os
 import re
 from urllib.parse import urljoin, urlparse
 
-from . import snapshot
+from . import fixtures, snapshot
 
 ACTION_FIELDS = {
     "click": ("ref",), "fill": ("ref", "text"), "press": ("ref", "key"),
     "select": ("ref", "value"), "goto": ("url",), "back": (),
     "scroll": ("direction",), "wait": ("seconds",), "finish": ("success", "reason"),
+    "upload": ("ref", "file"),
 }
 
 # The action reference injected into the system prompt verbatim.
@@ -30,6 +32,7 @@ click        {"action":"click","ref":"e12"}                      activate a cont
 fill         {"action":"fill","ref":"e3","text":"a@b.com"}       replace a field's value
 press        {"action":"press","key":"Enter","ref":"e3"}         send a key ("ref" optional)
 select       {"action":"select","ref":"e7","value":"Large"}      choose a dropdown option
+upload       {"action":"upload","ref":"e5","file":"csv"}         attach a file (see the list below)
 goto         {"action":"goto","url":"/settings"}                 navigate (same origin only)
 back         {"action":"back"}                                   browser back
 scroll       {"action":"scroll","direction":"down"}              down | up | top | bottom
@@ -187,6 +190,47 @@ class Dispatcher:
             # Fall back to matching by value when the visible label is not it.
             await locator.select_option(value=value, timeout=self.cfg.WEB_ACTION_TIMEOUT_MS)
         return f"selected '{value}' in [{el['ref']}] \"{el.get('name')}\""
+
+    async def _do_upload(self, action: dict, snap: dict) -> str:
+        """Attach a fixture file to a file input, or to a click-to-browse drop zone.
+
+        Two paths, because sites build uploads two ways. A real `<input type=file>`
+        takes the files directly — hidden or not, and without the native picker
+        ever opening. A styled drop zone with no reachable input gets the same
+        treatment one level up: click it and satisfy the file chooser it raises.
+        """
+        el = self._require(action, snap)
+        key = str(action.get("file") or "").strip()
+        path = fixtures.resolve(key)
+        if path is None:
+            raise ActionError(
+                f"Unknown file '{key}'. Upload one of: {', '.join(fixtures.keys())}. "
+                f"Filesystem paths are not accepted.",
+                category="ASSERTION_FAILURE",
+            )
+
+        locator = self._locator(el["ref"])
+        if el.get("role") == "file":
+            await locator.set_input_files(path, timeout=self.cfg.WEB_ACTION_TIMEOUT_MS)
+        else:
+            # Not a file input — assume a drop zone that opens a chooser on click.
+            try:
+                async with self.page.expect_file_chooser(
+                        timeout=self.cfg.WEB_ACTION_TIMEOUT_MS) as info:
+                    await locator.click(timeout=self.cfg.WEB_ACTION_TIMEOUT_MS)
+                chooser = await info.value
+                await chooser.set_files(path)
+            except Exception as exc:
+                raise ActionError(
+                    f"[{el['ref']}] \"{el.get('name')}\" is not a file input and opened "
+                    f"no file chooser when clicked, so a file cannot be attached to it. "
+                    f"Look for an element with role 'file' in the observation.",
+                    category="ELEMENT_NOT_FOUND",
+                ) from exc
+
+        name = os.path.basename(path)
+        return (f"uploaded {name} ({fixtures.describe(key)}) "
+                f"into [{el['ref']}] \"{el.get('name')}\"")
 
     async def _do_goto(self, action: dict, _snap: dict) -> str:
         url = self._check_url(str(action.get("url") or ""))

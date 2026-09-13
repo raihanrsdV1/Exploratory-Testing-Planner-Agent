@@ -22,6 +22,7 @@ os.environ.setdefault("WEB_TRACE_FILE",
 import settings as st  # noqa: E402
 from web_player import agent as agent_mod  # noqa: E402
 from web_player import failures, llm, snapshot  # noqa: E402
+from web_player import actions as A  # noqa: E402
 from web_player.actions import ActionError, Dispatcher  # noqa: E402
 from web_player.oracles import Findings  # noqa: E402
 
@@ -996,6 +997,58 @@ def main():
 
     print("wandering guard ends a stalled run before the step budget")
     asyncio.run(_check_wandering_guard())
+
+    print("the agent can see and use a file input")
+    # Two tests in a row reported DataGhurhi's /analysis upload as untestable.
+    # Three things were wrong at once: roleOf mapped type=file to "textbox",
+    # isVisible discarded it (the input is display:none behind a styled drop
+    # zone), and there was no upload action. Playwright sets files on a hidden
+    # input directly - the native picker never opens - so the capability was
+    # there all along and the harness hid it.
+    csrc = snapshot._COLLECT_JS
+    check("a file input gets its own role", "if (t === 'file') return 'file';" in csrc, True)
+    check("a hidden file input survives the visibility filter",
+          "!isVisible(el) && !isFileInput(el)" in csrc, True)
+    check("its fakepath value is not reported as text",
+          "['checkbox', 'radio', 'file']" in csrc, True)
+    check("the accept list is surfaced so the agent picks a usable type",
+          "entry.accept" in csrc, True)
+
+    from web_player import fixtures  # noqa: E402
+    check("upload is a known action", "upload" in A.ACTION_FIELDS, True)
+    check("it takes a ref and a file key", A.ACTION_FIELDS["upload"], ("ref", "file"))
+    check("the action reference shows it", "upload" in A.ACTION_SPEC, True)
+
+    print("upload fixtures are named, never paths")
+    # A model that can choose its own path can upload .env to a live website.
+    check("an unknown key resolves to nothing", fixtures.resolve("wat"), None)
+    check("a path is not a key", fixtures.resolve("../../.env"), None)
+    check("an absolute path is not a key either",
+          fixtures.resolve("D:\\\\.env"), None)
+    check("the catalogue is non-empty", len(fixtures.keys()) >= 5, True)
+
+    csv_path = fixtures.resolve("csv")
+    check("a text fixture materialises on demand", os.path.exists(csv_path), True)
+    check("and holds the dataset",
+          "respondent_id" in open(csv_path, encoding="utf-8").read(), True)
+
+    # DataGhurhi's analysis input declares accept=".xls,.xlsx" - a CSV never
+    # reaches the server, so the feature needs a real workbook to test at all.
+    xlsx_path = fixtures.resolve("xlsx")
+    check("the xlsx fixture is built", os.path.exists(xlsx_path), True)
+    from openpyxl import load_workbook  # noqa: E402
+    _ws = load_workbook(xlsx_path).active
+    check("it is a readable workbook", _ws.max_row, 11)
+    check("with the expected columns", _ws.max_column, 5)
+    check("and a real header row", _ws.cell(row=1, column=1).value, "respondent_id")
+
+    print("the goal no longer tells the agent uploads are impossible")
+    gsrc = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "web_player", "goal.py"), encoding="utf-8").read()
+    check("the old prohibition is gone", "You cannot upload files" in gsrc, False)
+    check("and the capability is stated", "You CAN upload files" in gsrc, True)
+    check("the fixture list reaches the prompt", "fixtures.prompt_block()" in gsrc, True)
+    check("the block names a real key", "csv" in fixtures.prompt_block(), True)
 
     print(f"\n{_passed}/{_passed + _failed} checks passed")
     return 1 if _failed else 0

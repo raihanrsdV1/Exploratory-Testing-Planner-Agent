@@ -16,6 +16,8 @@ from __future__ import annotations
 import settings as cfg
 from clients.executor_runner import filter_preconditions
 
+from . import fixtures
+
 
 def build_goal(test_case: dict) -> str:
     """Render a planner test case as the goal text handed to the agent."""
@@ -55,9 +57,13 @@ def build_goal(test_case: dict) -> str:
         "the test needs data that is missing, create it only when the available UI "
         "actions and guardrails permit it within this test's budget. Otherwise finish "
         "with success=false and 'Precondition not met', naming the missing data. "
-        "You cannot upload files, drag-and-drop, inspect downloaded files, or solve CAPTCHAs. "
+        "You CAN upload files with the 'upload' action — a file input counts as usable "
+        "even when the page hides it behind a styled drop zone, so look for role 'file' "
+        "in the observation rather than clicking the drop zone. You cannot drag-and-drop, "
+        "inspect downloaded files, or solve CAPTCHAs. "
         "Do not search repeatedly for a workaround for an unsupported action."
     )
+    parts.append(fixtures.prompt_block())
 
     parts.append(cfg.web_input_block())
     parts.append(cfg.verification_block())

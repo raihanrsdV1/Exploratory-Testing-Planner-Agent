@@ -4,13 +4,13 @@
       "methods": {
         "GET": 200
       },
-      "seen": 64
+      "seen": 70
     },
     "/api/collaborator/all-projects": {
       "methods": {
         "GET": 200
       },
-      "seen": 51
+      "seen": 57
     },
     "/api/fetch-survey-user/:slug": {
       "methods": {
@@ -34,13 +34,19 @@
       "methods": {
         "GET": 200
       },
-      "seen": 78
+      "seen": 85
+    },
+    "/api/profile/match-password": {
+      "methods": {
+        "POST": 400
+      },
+      "seen": 3
     },
     "/api/project": {
       "methods": {
         "GET": 200
       },
-      "seen": 67
+      "seen": 74
     },
     "/api/project/:id": {
       "methods": {
@@ -64,14 +70,14 @@
       "methods": {
         "GET": 200
       },
-      "seen": 536
+      "seen": 618
     },
     "/api/project/create-project": {
       "methods": {
         "GET": 500,
         "POST": 201
       },
-      "seen": 9
+      "seen": 10
     },
     "/api/question-bank": {
       "methods": {
