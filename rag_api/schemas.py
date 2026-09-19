@@ -201,6 +201,9 @@ class FindingIn(BaseModel):
     # the evaluator, which holds the step evidence. Authoritative over the
     # embedding safety net when it resolves.
     confirms: str = ""
+    # Ref of an OPEN question this finding answers. The claim becomes the
+    # recorded resolution.
+    resolves: str = ""
 
 
 class RecordFindingsRequest(BaseModel):
@@ -209,3 +212,9 @@ class RecordFindingsRequest(BaseModel):
     log_id: str = ""
     test_case_id: str = ""
     findings: list[FindingIn] = Field(default_factory=list)
+
+
+class RecordAttemptRequest(BaseModel):
+    """Count one test aimed at an open question (see rag_api/findings.py)."""
+    project: str = Field(..., min_length=1)
+    ref: str = Field(..., min_length=1, description="Finding ref ('F-1a2b3c4d') or full id.")

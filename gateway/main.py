@@ -507,6 +507,13 @@ If a finding restates one already listed above, do NOT write it out again - set
 evidence. That is how a finding becomes independently confirmed rather than
 duplicated. Only report what is NEW, or what confirms/contradicts what is known.
 
+Any finding above marked **OPEN QUESTION** is something an earlier run raised but
+never settled. If THIS run's steps answer one, say so: emit a finding whose claim
+IS the answer and set `resolves` to that question's ref. An answer is a real
+result whichever way it goes - "the control does not exist anywhere in this flow"
+closes a question just as well as "it exists and works". Only resolve what your
+steps actually show; leave it open otherwise.
+
 An empty `findings` list is a valid and useful answer when the run established
 nothing new. Do not invent findings to fill space.
 
@@ -523,7 +530,7 @@ Return STRICT JSON only. No markdown fences, no text outside the object:
                "screen": "<a screen name from the visited list>",
                "evidence": "steps 12-14: ...",
                "severity": "high|medium|low", "confidence": "high|medium|low",
-               "requirement_ids": [], "confirms": ""}]}"""
+               "requirement_ids": [], "confirms": "", "resolves": ""}]}"""
 
 
 def _verdict_summary(verdict: dict, findings: list, recorded: dict) -> str:
@@ -546,6 +553,9 @@ def _verdict_summary(verdict: dict, findings: list, recorded: dict) -> str:
         parts.append("Findings: " + ", ".join(f"{n} {k.lower()}" for k, n in sorted(kinds.items())) + ".")
     if recorded:
         parts.append(f"({recorded.get('created', 0)} new, {recorded.get('reinforced', 0)} reinforced)")
+    resolved = [f.get("resolves") for f in findings if f.get("resolves")]
+    if resolved:
+        parts.append(f"Closed open question(s): {', '.join(str(r) for r in resolved)}.")
     return " ".join(parts)
 
 
@@ -596,10 +606,11 @@ def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None 
             }).get("findings", []) or []
             for f in known:
                 seen = f.get("times_seen") or 1
+                flag = " **OPEN QUESTION**" if f.get("status") == "open" else ""
                 known_lines.append(
                     f"- [{f.get('ref','?')}] ({f.get('kind','?')}"
                     + (f", seen {seen}x" if seen > 1 else "")
-                    + f") {f.get('claim','')}")
+                    + f"){flag} {f.get('claim','')}")
         except Exception:
             pass
         known_findings_text = "\n".join(known_lines) or "none yet — this is early in the campaign"

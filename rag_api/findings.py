@@ -79,6 +79,43 @@ def group_kinds(name: str) -> list[str]:
     """Kinds in a named group; empty list for an unknown name (= no filter)."""
     return sorted(GROUPS.get(str(name or "").strip().lower(), frozenset()))
 
+
+# ── Lifecycle ────────────────────────────────────────────────────────────────
+# Some findings are ANSWERS ("the list loads and shows 5 entries"); others are
+# QUESTIONS ("the run never established whether the list loads"). Before this,
+# both were stored as flat facts ranked by times_seen, so an unfinished
+# investigation competed for attention with settled knowledge and usually lost —
+# a brand-new area always looks more attractive than a half-finished one. The
+# result was a system that recorded failures and moved on without ever reaching
+# a conclusion.
+OPEN, RESOLVED, INCONCLUSIVE = "open", "resolved", "inconclusive"
+
+# A question is anything the app might still answer differently once probed
+# properly: something we could not determine, or a defect claim that could still
+# turn out to be a misread of the spec.
+_QUESTION_KINDS = frozenset({"UNVERIFIED", "SUSPECTED_DEFECT", "SPEC_VIOLATION"})
+
+# Our own agent's difficulties are NOT app questions. Retrying a test the agent
+# could not physically complete just burns the step budget again — the fix is a
+# narrower test, not a repeat. Giving these no status keeps them out of the
+# open-question queue entirely.
+_NO_STATUS_KINDS = frozenset({"AGENT_DIFFICULTY"})
+
+# How many tests may be aimed at one open question before it is closed as
+# inconclusive. Bounded deliberately: an earlier campaign produced five
+# near-duplicate tests that each burned the full step budget digging into an
+# area the agent could not reach. "Inconclusive, here is the evidence" is a
+# result for a human; an unbounded retry loop is not.
+MAX_FINDING_ATTEMPTS = 3
+
+
+def initial_status(kind: str) -> str:
+    """Lifecycle status a finding of this kind starts in ('' = not a question)."""
+    k = normalize_kind(kind)
+    if k in _NO_STATUS_KINDS:
+        return ""
+    return OPEN if k in _QUESTION_KINDS else RESOLVED
+
 _DEFAULT_KIND = "UNEXPECTED_BEHAVIOUR"
 
 # Per-field caps. Bounding happens here, at the field level, rather than by
@@ -221,6 +258,10 @@ def record(session, project, findings, *, log_id, test_case_id, embed_texts, now
             # The evaluator's own judgement that this restates a finding it was
             # shown. Authoritative when it resolves — it saw the evidence.
             "confirms": _clean(f.get("confirms"), 80),
+            # Ref of an OPEN question this finding answers. The claim itself
+            # becomes the recorded resolution — a separate 'resolution' field
+            # would just be the claim written twice.
+            "resolves": _clean(f.get("resolves"), 80),
         })
     if not prepared:
         return {"created": 0, "reinforced": 0, "findings": []}
@@ -289,6 +330,8 @@ def record(session, project, findings, *, log_id, test_case_id, embed_texts, now
                     f.severity = $severity, f.confidence = $confidence,
                     f.screen_label = $screen, f.last_seen = $now,
                     f.times_seen = coalesce(f.times_seen, 0) + 1,
+                    f.status = coalesce(f.status, $status),
+                    f.attempts = coalesce(f.attempts, 0),
                     f.evidence = [e IN [$evidence] WHERE e <> '']
                 """
                 + ("SET f.embedding = $embedding\n" if vec else "")
@@ -296,6 +339,7 @@ def record(session, project, findings, *, log_id, test_case_id, embed_texts, now
                 project=project, id=fid, now=now, claim=item["claim"], kind=item["kind"],
                 severity=item["severity"], confidence=item["confidence"],
                 screen=item["screen"], evidence=item["evidence"], embedding=vec,
+                status=initial_status(item["kind"]),
             )
             existing.append({"id": fid, "claim": item["claim"], "kind": item["kind"],
                              "embedding": vec})
@@ -316,6 +360,20 @@ def record(session, project, findings, *, log_id, test_case_id, embed_texts, now
             session.run(
                 "MATCH (f:Finding {id:$id}) MATCH (e:ExecutionLog {id:$log_id}) "
                 "MERGE (f)-[:FOUND_BY]->(e)", id=match_id, log_id=log_id)
+        # An open question this finding answers. Resolving is deliberately
+        # separate from reinforcing: `confirms` says "same observation again",
+        # `resolves` says "that question now has an answer, and here it is".
+        target = by_ref.get(item["resolves"], "")
+        if target and target != match_id:
+            session.run(
+                """
+                MATCH (f:Finding {id:$id})
+                WHERE coalesce(f.status, '') <> $resolved
+                SET f.status = $resolved, f.resolution = $resolution, f.resolved_at = $now
+                """,
+                id=target, resolved=RESOLVED, resolution=item["claim"], now=now,
+            )
+
         for rid in item["requirement_ids"]:
             session.run(
                 """
@@ -329,7 +387,7 @@ def record(session, project, findings, *, log_id, test_case_id, embed_texts, now
 
 
 def query(session, project, *, screens=None, kinds=None, limit: int = 20,
-          exclude_log_id: str = "") -> list[dict]:
+          exclude_log_id: str = "", status: str = "") -> list[dict]:
     """Findings for this project, optionally narrowed to screens and/or kinds.
 
     ``screens`` accepts UIState ids or observed labels. Ordering puts
@@ -353,16 +411,21 @@ def query(session, project, *, screens=None, kinds=None, limit: int = 20,
         cypher.append("AND f.kind IN $kinds")
     if screens:
         cypher.append("AND (s.label IN $screens OR s.id IN $screens OR f.screen_label IN $screens)")
+    if status:
+        cypher.append("AND f.status = $status")
     if exclude_log_id:
         cypher.append("AND NOT EXISTS { MATCH (f)-[:FOUND_BY]->(:ExecutionLog {id:$exclude_log_id}) }")
     cypher.append(
         "RETURN DISTINCT f.id AS id, f.claim AS claim, f.kind AS kind, f.severity AS severity, "
         "f.confidence AS confidence, f.screen_label AS screen, f.times_seen AS times_seen, "
-        "f.evidence AS evidence, f.last_seen AS last_seen "
+        "f.evidence AS evidence, f.last_seen AS last_seen, "
+        "coalesce(f.status,'') AS status, coalesce(f.attempts,0) AS attempts, "
+        "coalesce(f.resolution,'') AS resolution "
         "ORDER BY f.times_seen DESC, f.last_seen DESC LIMIT $limit")
 
     rows = session.run("\n".join(cypher), project=project, kinds=kinds, screens=screens,
-                       exclude_log_id=exclude_log_id, limit=max(1, min(limit, 200)))
+                       exclude_log_id=exclude_log_id, status=status,
+                       limit=max(1, min(limit, 200)))
     out = []
     for r in rows:
         d = dict(r)
@@ -371,6 +434,95 @@ def query(session, project, *, screens=None, kinds=None, limit: int = 20,
         d["ref"] = short_ref(d["id"])
         out.append(d)
     return out
+
+
+def open_questions(session, project, limit: int = 10) -> list[dict]:
+    """Findings still awaiting a conclusion, balanced between started and fresh.
+
+    Selection is by RESERVED SLOTS, not a single sort, because either sort alone
+    starves one half:
+
+      * ``attempts ASC`` (the first version of this) put every 0-attempt question
+        above every started one. Since each run mints new UNVERIFIED findings,
+        the queue refills with fresh questions and a half-investigated one is
+        never shown again — the system never concludes anything, which is the
+        exact failure the lifecycle exists to prevent.
+      * ``attempts DESC`` inverts it: the slots fill with started questions and
+        newly discovered ones are never surfaced.
+
+    So half the slots are reserved for questions already under way, the rest for
+    fresh ones, and either pool backfills the other when short. Within the
+    started pool the MOST-attempted come first: a question at 2 of 3 attempts is
+    one probe from a conclusion either way, which is the highest-value slot.
+    """
+    rows = [dict(r) for r in session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)
+        WHERE f.status = $open
+        RETURN f.id AS id, f.claim AS claim, f.kind AS kind, f.screen_label AS screen,
+               f.evidence AS evidence, coalesce(f.attempts,0) AS attempts,
+               f.times_seen AS times_seen, f.severity AS severity
+        """, project=project, open=OPEN)]
+    for d in rows:
+        d["ref"] = short_ref(d["id"])
+        d["attempts_left"] = max(0, MAX_FINDING_ATTEMPTS - int(d.get("attempts") or 0))
+
+    limit = max(1, min(limit, 50))
+    started = sorted([r for r in rows if r["attempts"] > 0],
+                     key=lambda r: (-r["attempts"], -(r["times_seen"] or 0)))
+    fresh = sorted([r for r in rows if r["attempts"] == 0],
+                   key=lambda r: -(r["times_seen"] or 0))
+
+    reserved = max(1, limit // 2)
+    picked = started[:reserved] + fresh[:limit - min(reserved, len(started))]
+    # One pool short -> the other takes the spare slots rather than wasting them.
+    if len(picked) < limit:
+        seen = {r["id"] for r in picked}
+        picked += [r for r in started + fresh if r["id"] not in seen][:limit - len(picked)]
+    return picked[:limit]
+
+
+def record_attempt(session, project, ref: str, now: str) -> dict:
+    """Count one test aimed at an open question; close it when the budget runs out.
+
+    Called when the planner commits to a test that names this question, not when
+    the test finishes — the cost is incurred either way, and a test that fails to
+    run still consumed an attempt.
+    """
+    fid = ""
+    for r in session.run(
+        "MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding) RETURN f.id AS id",
+        project=project,
+    ):
+        if short_ref(r["id"]) == ref or r["id"] == ref:
+            fid = r["id"]
+            break
+    if not fid:
+        return {"status": "unknown_ref", "ref": ref}
+
+    row = session.run(
+        """
+        MATCH (f:Finding {id:$id})
+        SET f.attempts = coalesce(f.attempts, 0) + 1, f.last_attempt_at = $now
+        RETURN coalesce(f.attempts,0) AS attempts, coalesce(f.status,'') AS status
+        """, id=fid, now=now).single()
+    attempts, status = row["attempts"], row["status"]
+
+    if status == OPEN and attempts >= MAX_FINDING_ATTEMPTS:
+        # Out of budget. This is a RESULT — "we probed this three times and could
+        # not settle it, here is what we saw" — not a failure, and it stops the
+        # planner returning to it forever.
+        session.run(
+            """
+            MATCH (f:Finding {id:$id})
+            SET f.status = $inconclusive, f.resolved_at = $now,
+                f.resolution = 'Inconclusive after ' + toString($attempts) +
+                               ' attempts — needs human review.'
+            """, id=fid, inconclusive=INCONCLUSIVE, now=now, attempts=attempts)
+        status = INCONCLUSIVE
+
+    return {"status": status, "ref": short_ref(fid), "attempts": attempts,
+            "attempts_left": max(0, MAX_FINDING_ATTEMPTS - attempts)}
 
 
 def stats(session, project) -> dict:
@@ -382,4 +534,11 @@ def stats(session, project) -> dict:
         ORDER BY n DESC
         """, project=project)
     by_kind = [dict(r) for r in rows]
-    return {"by_kind": by_kind, "total": sum(r["n"] for r in by_kind)}
+    life = [dict(r) for r in session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)
+        WHERE coalesce(f.status,'') <> ''
+        RETURN f.status AS status, count(f) AS n ORDER BY n DESC
+        """, project=project)]
+    return {"by_kind": by_kind, "total": sum(r["n"] for r in by_kind),
+            "by_status": life}

@@ -171,6 +171,42 @@ The prose summary still exists on the `ExecutionLog` for the dashboard, but **no
 it any more**. Separating "readable by a human" from "consumable by a prompt" is the conflation
 that caused the original growth.
 
+### Finding lifecycle — open questions
+
+Some findings are **answers** ("the disease list loads and shows 5 entries"); others are
+**questions** ("the run never established whether it loads"). Before the lifecycle, both were
+flat facts ranked by `times_seen`, so an unfinished investigation competed with settled knowledge
+and usually lost — a brand-new area is always more attractive than a half-finished one. The
+system recorded failures and moved on without ever concluding anything.
+
+Each finding now carries `status` and `attempts`:
+
+| kind | initial status |
+|---|---|
+| `UNVERIFIED`, `SUSPECTED_DEFECT`, `SPEC_VIOLATION` | **open** — a question |
+| `CONFIRMED_BEHAVIOUR`, `SPEC_GAP`, `CONTROL_DISCOVERED` | **resolved** — an answer |
+| `AGENT_DIFFICULTY` | *none* — not an app question at all |
+
+**Answering one.** Open questions are marked `**OPEN QUESTION**` in the evaluator's known-findings
+block. When a run's steps settle one, the evaluator emits a finding whose claim IS the answer and
+sets `resolves` to that question's ref. An answer counts either way — *"the control does not exist
+anywhere in this flow"* closes a question just as well as *"it exists and works"*.
+
+**Asking about one.** The planner sees the open questions inline in its seed message (not behind a
+tool call — measured, with only a count in the seed it read the queue and still opened a new area)
+and names one via `addresses` on `propose_test_case`, which spends an attempt.
+
+**Bounded.** At `MAX_FINDING_ATTEMPTS` (3) a question auto-closes as `inconclusive` with the
+evidence gathered. That is a result for a human, not a failure — and it is what stops the loop that
+once produced five near-duplicate tests each burning the full step budget on an unreachable area.
+Questions whose evidence shows the agent never *reached* the screen are agent-capability problems,
+not app questions: the answer is a narrower test, never a repeat.
+
+```bash
+curl "http://127.0.0.1:9010/findings/open?project=$PROJECT" | python3 -m json.tool
+./venv/bin/python scripts/backfill_finding_status.py --project $PROJECT   # one-time, for pre-lifecycle findings
+```
+
 ### Lifetime across campaigns
 
 Findings are cleared by the **`delete_appmodel`** slice of `POST /project/reset`
@@ -188,6 +224,11 @@ navigation memory.
 
 So a default `./start.sh` campaign wipes tests, execution logs and navigation memory, and
 **keeps** the app map and the findings.
+
+Because the wipe destroys the outgoing campaign's evidence, a `CampaignSummary` is written
+immediately before it — tests and verdicts, error-type histogram, device steps, findings by
+status, requirement coverage, app-model size. `GET /campaigns` lists them, and comparing
+consecutive rows is the cheapest available answer to "is the agent getting better?"
 
 ---
 

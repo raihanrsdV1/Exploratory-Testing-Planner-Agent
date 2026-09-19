@@ -21,7 +21,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
-from rag_api import embeddings, findings as F  # noqa: E402
+from rag_api import embeddings, findings as F, learning as L  # noqa: E402
 
 _passed = _failed = 0
 PROJECT = "__findings_selftest__"
@@ -154,12 +154,163 @@ def main():
         check("claim clamped to the field cap", len(stored[0]["claim"]), F.CLAIM_MAX)
         check("evidence clamped to the field cap", len(stored[0]["evidence"][0]), F.EVIDENCE_MAX)
 
+        print("\nlifecycle: questions open, answers do not")
+        # Kind decides. A finding the app might still answer differently is a
+        # question; one that records what was seen to work is already an answer.
+        check("an unverified item opens a question", F.initial_status("UNVERIFIED"), F.OPEN)
+        check("a suspected defect opens a question", F.initial_status("SUSPECTED_DEFECT"), F.OPEN)
+        check("a confirmed behaviour is already an answer",
+              F.initial_status("CONFIRMED_BEHAVIOUR"), F.RESOLVED)
+        check("our own agent's difficulty is NOT an app question",
+              F.initial_status("AGENT_DIFFICULTY"), "")
+
+        F.record(s, PROJECT, [
+            {"claim": "The run never established whether the disease list loads at all",
+             "kind": "UNVERIFIED", "screen": "Chats", "evidence": "steps 1-50: budget spent navigating"}],
+            log_id="", test_case_id="TC-Q", embed_texts=_embed, now=NOW)
+        # Match on the claim, not the kind: an earlier check in this file also
+        # creates an UNVERIFIED finding, which is legitimately a question too.
+        q = [x for x in F.open_questions(s, PROJECT, limit=20)
+             if x["claim"].startswith("The run never established")]
+        check("the question reaches the open queue", len(q), 1)
+        ref = q[0]["ref"]
+        check("it starts with a full attempt budget", q[0]["attempts_left"], F.MAX_FINDING_ATTEMPTS)
+        check("resolved findings are not in the queue",
+              any(x["kind"] == "CONFIRMED_BEHAVIOUR" for x in F.open_questions(s, PROJECT, limit=20)), False)
+        check("agent difficulties are never queued as questions",
+              any(x["kind"] == "AGENT_DIFFICULTY" for x in F.open_questions(s, PROJECT, limit=20)), False)
+
+        print("\ncuriosity is bounded — a question cannot be chased forever")
+        for i in range(F.MAX_FINDING_ATTEMPTS - 1):
+            out = F.record_attempt(s, PROJECT, ref, NOW)
+            check(f"attempt {i+1} keeps it open", out["status"], F.OPEN)
+        final = F.record_attempt(s, PROJECT, ref, NOW)
+        check("the last attempt closes it as inconclusive", final["status"], F.INCONCLUSIVE)
+        check("an exhausted question leaves the queue",
+              any(x["ref"] == ref for x in F.open_questions(s, PROJECT, limit=20)), False)
+        check("an unknown ref is reported, not silently counted",
+              F.record_attempt(s, PROJECT, "F-deadbeef", NOW)["status"], "unknown_ref")
+
+        print("\nan answer closes a question")
+        q2 = F.record(s, PROJECT, [
+            {"claim": "The favourites control does not exist anywhere in the product detail flow",
+             "kind": "UNVERIFIED", "screen": "Medicine", "evidence": "steps 4-9"}],
+            log_id="", test_case_id="TC-R", embed_texts=_embed, now=NOW)
+        ref2 = q2["findings"][0]["ref"]
+        F.record(s, PROJECT, [
+            {"claim": "Favourites is not implemented on product detail — no such control after full search",
+             "kind": "CONFIRMED_BEHAVIOUR", "screen": "Medicine",
+             "evidence": "steps 1-12 exhaustive", "resolves": ref2}],
+            log_id="", test_case_id="TC-S", embed_texts=_embed, now=NOW)
+        closed = [x for x in F.query(s, PROJECT, limit=60) if x["ref"] == ref2]
+        check("the question is now resolved", closed[0]["status"], F.RESOLVED)
+        check("the answer is stored on it", bool(closed[0]["resolution"]), True)
+        check("a resolved question leaves the queue",
+              any(x["ref"] == ref2 for x in F.open_questions(s, PROJECT, limit=20)), False)
+
         print("\na runaway batch cannot flood the graph")
         many = [{"claim": f"distinct observation number {i} about a control", "kind": "CONTROL_DISCOVERED",
                  "screen": "Chats", "evidence": f"step {i}"} for i in range(40)]
         r3 = F.record(s, PROJECT, many, log_id="", test_case_id="TC-W", embed_texts=_embed, now=NOW)
         check("batch truncated to the per-run guard",
               r3["created"] + r3["reinforced"], F._MAX_FINDINGS_PER_RUN)
+
+        print("\nthe open queue balances started questions against fresh ones")
+        # Neither sort alone works. attempts ASC starves started questions (each
+        # run mints new ones, so a half-investigated question is never shown
+        # again and nothing is ever concluded). attempts DESC starves fresh
+        # discoveries. Slots are reserved for both.
+        _wipe(s)
+        # Claims must be genuinely different, or the embedding safety net merges
+        # them into one finding — correctly — and there is no queue to balance.
+        FRESH = [
+            "Whether the checkout total includes delivery charges was never determined",
+            "The vaccination reminder schedule could not be reached from any menu",
+            "Whether product photos survive an app restart remains untested",
+            "The feed order cancellation flow was never exercised",
+            "Whether a sold animal disappears from the marketplace is unknown",
+            "The medicine expiry date field was never validated",
+        ]
+        F.record(s, PROJECT, [
+            {"claim": c, "kind": "UNVERIFIED", "screen": f"Screen{i}", "evidence": f"step {i}"}
+            for i, c in enumerate(FRESH)],
+            log_id="", test_case_id="TC-F", embed_texts=_embed, now=NOW)
+
+        STARTED = [
+            ("Saving a farm with a blank name shows success instead of a validation error", 2),
+            ("The chat search box ignores leading and trailing whitespace entirely", 1),
+            ("Tapping a sold listing opens a blank detail page rather than a notice", 2),
+        ]
+        started = []
+        for claim, n_attempts in STARTED:
+            r = F.record(s, PROJECT, [
+                {"claim": claim, "kind": "SUSPECTED_DEFECT",
+                 "screen": "Marketplace", "evidence": "steps 3-7"}],
+                log_id="", test_case_id="TC-S2", embed_texts=_embed, now=NOW)
+            ref = r["findings"][0]["ref"]
+            for _ in range(n_attempts):          # 1 or 2, never the cap
+                F.record_attempt(s, PROJECT, ref, NOW)
+            started.append(ref)
+        check("the fixtures did not collapse into one finding",
+              len(F.open_questions(s, PROJECT, limit=50)) >= 8, True)
+
+        picked = F.open_questions(s, PROJECT, limit=5)
+        n_started = sum(1 for q in picked if q["attempts"] > 0)
+        n_fresh = len(picked) - n_started
+        check("started questions are not starved by fresh ones", n_started >= 1, True)
+        check("fresh questions are not starved by started ones", n_fresh >= 1, True)
+        check("the slot budget is respected", len(picked), 5)
+        started_attempts = [q["attempts"] for q in picked if q["attempts"] > 0]
+        check("closest-to-conclusion comes first among started",
+              started_attempts == sorted(started_attempts, reverse=True), True)
+
+        print("\nwhen one pool is empty the other takes the spare slots")
+        _wipe(s)
+        F.record(s, PROJECT, [
+            {"claim": c, "kind": "UNVERIFIED", "screen": f"Only{i}", "evidence": "step 1"}
+            for i, c in enumerate([
+                "Whether the profile photo upload accepts a large file is unknown",
+                "The district dropdown was never opened during any run",
+                "Whether an order receipt can be shared was never checked",
+                "The livestock weight field accepted no input this run",
+            ])],
+            log_id="", test_case_id="TC-O", embed_texts=_embed, now=NOW)
+        only_fresh = F.open_questions(s, PROJECT, limit=5)
+        check("all slots go to fresh when nothing is started", len(only_fresh), 4)
+        check("and none of them are marked started",
+              all(q["attempts"] == 0 for q in only_fresh), True)
+        _wipe(s)
+
+        print("\ncampaign snapshots survive the reset that destroys everything else")
+        # The balance test above wiped the project, so seed one finding: the
+        # snapshot is meant to capture what existed at wipe time.
+        F.record(s, PROJECT, [
+            {"claim": "A finding that exists at the moment the campaign is wiped",
+             "kind": "CONFIRMED_BEHAVIOUR", "screen": "Chats", "evidence": "step 1"}],
+            log_id="", test_case_id="TC-SNAP", embed_texts=_embed, now=NOW)
+        # CLEAN_SLATE deletes tests and execution logs at the start of every
+        # campaign, which is correct for a clean measurement but destroyed the
+        # evidence a campaign-over-campaign comparison needs. The snapshot is
+        # taken in the one moment the outgoing campaign still exists.
+        snap = L.snapshot_campaign(s, PROJECT, NOW, reason="selftest")
+        check("an empty project is not recorded as a campaign",
+              snap.get("snapshotted"), False)
+
+        s.run("""MERGE (p:Project {name:$p})
+                 MERGE (t:TestCase {id:$p + '::tc::selftest'})
+                 SET t.last_verdict='pass', t.external_id='TC-SELFTEST'
+                 MERGE (p)-[:HAS_TEST]->(t)""", p=PROJECT)
+        snap = L.snapshot_campaign(s, PROJECT, NOW, reason="selftest")
+        check("a campaign with tests IS recorded", snap.get("snapshotted"), True)
+        check("it counts the tests", snap.get("tests"), 1)
+        check("it counts the findings that existed at wipe time",
+              snap.get("findings_total") > 0, True)
+        rows = L.list_campaigns(s, PROJECT, limit=5)
+        check("the summary is listable", len(rows) >= 1, True)
+        check("its properties are flat, not nested under a key",
+              "ended_at" in (rows[0] if rows else {}), True)
+        s.run("MATCH (c:CampaignSummary) WHERE c.project=$p DETACH DELETE c", p=PROJECT)
+        s.run("MATCH (t:TestCase) WHERE t.id STARTS WITH $p DETACH DELETE t", p=PROJECT)
 
         _wipe(s)
     driver.close()

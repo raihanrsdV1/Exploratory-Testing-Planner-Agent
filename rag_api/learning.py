@@ -351,3 +351,104 @@ def session_end(session, project, session_id, now) -> dict:
     return {"project": project, "ended": True, "session_id": target,
             "tests_generated": ctx.get("tests_generated", 0),
             "defects_found": ctx.get("defects_found", 0)}
+
+
+# ── Campaign snapshots ────────────────────────────────────────────────────────
+# CLEAN_SLATE deletes tests, execution logs and navigation memory at the start of
+# every campaign — correctly, because those are OUTCOMES and a clean measurement
+# needs them wiped. The side effect is that campaign N-1's evidence is destroyed
+# before campaign N begins, so "run two campaigns and compare" — the experiment
+# that would actually show whether the agent gets smarter — cannot be done from
+# the graph at all. (Verified the hard way: a paired comparison had to be
+# reconstructed from raw log files.)
+#
+# A snapshot taken just before the wipe keeps the aggregates that comparison
+# needs, at zero risk to any existing query: nothing reads CampaignSummary
+# unless it asks for it, so no metric can silently inherit an old campaign.
+
+def snapshot_campaign(session, project, now, reason: str = "clean_slate") -> dict:
+    """Persist a CampaignSummary of the project's current state. Best-effort."""
+    row = session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
+        RETURN count(t) AS tests,
+               sum(CASE WHEN t.last_verdict = 'pass'    THEN 1 ELSE 0 END) AS passed,
+               sum(CASE WHEN t.last_verdict = 'failed'  THEN 1 ELSE 0 END) AS failed,
+               sum(CASE WHEN t.last_verdict = 'planned' THEN 1 ELSE 0 END) AS never_run
+        """, project=project).single()
+    tests = dict(row) if row else {}
+
+    execs = [dict(r) for r in session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog)
+        RETURN coalesce(e.error_type,'') AS error_type,
+               coalesce(e.device_steps,0) AS steps,
+               coalesce(e.duration_ms,0) AS duration_ms
+        """, project=project)]
+    errors: dict[str, int] = {}
+    for e in execs:
+        if e["error_type"]:
+            errors[e["error_type"]] = errors.get(e["error_type"], 0) + 1
+    steps = [e["steps"] for e in execs if e["steps"]]
+
+    findings = [dict(r) for r in session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)
+        RETURN CASE WHEN coalesce(f.status,'') = '' THEN 'none' ELSE f.status END AS status,
+               count(f) AS n
+        """, project=project)]
+
+    cov = session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(r:Requirement)
+        OPTIONAL MATCH (t:TestCase)-[:COVERS]->(r)
+        RETURN count(DISTINCT r) AS total, count(DISTINCT CASE WHEN t IS NOT NULL THEN r END) AS covered
+        """, project=project).single()
+
+    states = session.run(
+        "MATCH (p:Project {name:$project})-[:HAS_STATE]->(s:UIState) RETURN count(s) AS c",
+        project=project).single()
+
+    summary = {
+        "id": f"{project}::campaign::{now}",
+        "project": project,
+        "ended_at": now,
+        "reason": reason,
+        "tests": int(tests.get("tests") or 0),
+        "passed": int(tests.get("passed") or 0),
+        "failed": int(tests.get("failed") or 0),
+        "never_run": int(tests.get("never_run") or 0),
+        "executions": len(execs),
+        "device_steps_total": sum(steps),
+        "device_steps_mean": round(sum(steps) / len(steps), 1) if steps else 0.0,
+        "error_types": [f"{k}={v}" for k, v in sorted(errors.items(), key=lambda x: -x[1])],
+        "findings_total": sum(f["n"] for f in findings),
+        "findings_by_status": [f"{f['status']}={f['n']}" for f in findings],
+        "requirements_total": int(cov["total"] if cov else 0),
+        "requirements_covered": int(cov["covered"] if cov else 0),
+        "app_model_states": int(states["c"] if states else 0),
+    }
+
+    # Nothing to remember: an empty project being reset is not a campaign.
+    if not summary["tests"] and not summary["executions"]:
+        return {"snapshotted": False, "reason": "no tests or executions to summarise"}
+
+    session.run(
+        """
+        MERGE (p:Project {name:$project})
+        MERGE (c:CampaignSummary {id:$id})
+        SET c += $props
+        MERGE (p)-[:HAS_CAMPAIGN]->(c)
+        """, project=project, id=summary["id"], props=summary)
+    return {"snapshotted": True, **summary}
+
+
+def list_campaigns(session, project, limit: int = 20) -> list[dict]:
+    """Past campaign summaries, newest first — the input to a gets-smarter comparison."""
+    # `RETURN c {.*} AS c` nests every property under the key "c"; callers want
+    # the properties themselves.
+    return [dict(r["c"]) for r in session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_CAMPAIGN]->(c:CampaignSummary)
+        RETURN c {.*} AS c ORDER BY c.ended_at DESC LIMIT $limit
+        """, project=project, limit=max(1, min(limit, 100)))]

@@ -76,43 +76,57 @@ it. Zero protection on exactly the run where the agent knows least. Fix: when no
 observed, require `screen_hint: "unknown"`, gated by a `REQUIRE_GROUNDED_SCREEN_HINT` setting so
 it can be switched off.
 
-### 3.2 Finding lifecycle — make the agent *conclude* things *(the substantial one)*
+### 3.2 Finding lifecycle — make the agent *conclude* things ✅ **DONE (7 Sep 2026)**
 Findings are flat facts. Nothing marks one as an **open question that must be closed**. If the
 SRS claims a feature, we test it, and it fails, there are three possible answers — not
 implemented / broken / implemented differently — and the planner currently records the failure
 and wanders off.
 
-Add `status: open | resolved | inconclusive` and `attempts` to findings, a `list_open_questions()`
-tool, and a directive rule: *close an open question before opening a new area.* Bound it at 2–3
-attempts, then mark `inconclusive` with the evidence gathered — that is a result for a human, not
-a failure.
+Built: `status` + `attempts` on findings, `list_open_questions()` tool, `addresses` on
+`propose_test_case`, `resolves` in the investigator contract, auto-close at 3 attempts, and
+`scripts/backfill_finding_status.py` for findings created before the lifecycle. See
+[INVESTIGATOR.md](INVESTIGATOR.md) §"Finding lifecycle". Verified end to end: the planner
+targeted an open question and spent an attempt (1/3).
+
+**Still open:** pipeline mode has no open-question prompt block — the mechanism works in
+`PLANNER_MODE=tools` only.
 
 **Hard constraint:** an earlier campaign produced five near-duplicate tests that each burned the
 full step budget digging into an area the agent could not reach. Curiosity must split the two
 cases: *reached it and it misbehaved* (probe narrower) versus *never reached it* (an agent
 problem — a repeat just burns budget). The taxonomy already distinguishes these.
 
-### 3.3 Coverage reporting *(~15 min)*
+### 3.3 Preserve campaign evidence ✅ **DONE (7 Sep 2026)**
+
+`CLEAN_SLATE` destroyed the previous campaign's tests and execution logs before the next one
+started, so the campaign-over-campaign comparison in §4 could not be run from the graph at all —
+a paired comparison had to be reconstructed from raw log files. A `CampaignSummary` is now written
+immediately before the wipe (`GET /campaigns`).
+
+**Still open:** aggregates only. Per-test comparison across campaigns would need campaign-scoped
+ids (Option B) — worth doing only if the aggregates turn out to be too coarse.
+
+### 3.4 Coverage reporting *(~15 min)*
 `coverage_pct` is computed from **Figma** screen purposes. With no Figma it reports `0%` while
 requirement coverage says 11% — misleading in the dashboard and in any write-up. Report
 requirement coverage when no design file exists.
 
-### 3.4 Finding decay and retirement
+### 3.5 Finding decay and retirement
 UIStates decay (90-day half-life) and strategies decay; findings never do. A fixed defect stays
 in the oracle forever and the planner keeps steering around a bug that no longer exists. The
 `FOUND_BY` edges give the raw material: a finding not re-observed across N recent runs touching
 its screen is a retirement candidate.
 
-### 3.5 Typical step cost per area
+### 3.6 Typical step cost per area
 The planner has no sense that "this kind of flow needs 35+ steps" and can write a test that
 structurally cannot fit in `EXECUTOR_MAX_STEPS`. Same `ExecutionLog` data as the agent-difficulty
 signal.
 
-### 3.6 Proven interaction steps, not just control names
+### 3.7 Proven interaction steps, not just control names
 The planner sees real control names for a screen but not *actions that provably worked*. Requires
 matching trajectory steps to screens — a bigger lift, worth it after 3.1–3.3 land.
 
-### 3.7 Vision captioning for thin screens
+### 3.8 Vision captioning for thin screens
 Screens with no usable accessibility tree (pure Compose/Flutter) are invisible beyond a control
 count. Screenshots are already captured in `data/appmodel/<project>/`. Direct vision at
 generation time is already implemented; the remaining gap is **cached captions** for screens with
@@ -135,8 +149,9 @@ Two experiments, cheapest first:
 
 **A. Campaign-over-campaign (a few dollars, an afternoon).** Run two campaigns back to back on
 the same app, keeping the graph. Measure whether campaign 2 cites more real screens, hits more
-untested requirements, and produces fewer `UNVERIFIED` findings. This became possible only
-recently — findings now survive `CLEAN_SLATE`, tied to the app-model slice.
+untested requirements, and produces fewer `UNVERIFIED` findings. Now possible: findings survive
+`CLEAN_SLATE`, and `GET /campaigns` preserves each campaign's aggregates past the reset that used
+to destroy them.
 
 **B. Seeded-defect build (under $1).** 8–12 known defects with a ground-truth list, three arms:
 full agent / memory disabled / random baseline. Gives precision, recall, F1 and an ablation for

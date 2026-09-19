@@ -71,6 +71,7 @@ _PROPOSE_TOOL = {
                 "preconditions": {"type": "array", "items": {"type": "string"}, "description": "App state reachable by navigating, or data the test's OWN first steps create. Never an assumption you can only observe."},
                 "requirement_ids": {"type": "array", "items": {"type": "string"}, "description": "Ids copied exactly from search_requirements or list_untested_requirements. Empty list if none apply."},
                 "rationale": {"type": "string", "description": "The specific defect class or risk this test is designed to expose."},
+                "addresses": {"type": "string", "description": "If this test is closing an open question from list_open_questions, its ref (e.g. 'F-1a2b3c4d'). Leave empty otherwise. Naming it spends one of that question's attempts."},
             },
             "required": ["title", "objective", "expected_result"],
         },
@@ -89,6 +90,12 @@ _SYSTEM = (
     "costs the executor its entire step budget hunting for it.\n"
     "- Check list_findings before choosing. Re-testing something already confirmed or already "
     "found broken wastes the run; probe a DIFFERENT rule, screen or interaction instead.\n"
+    "- Call list_open_questions early. A question an earlier run raised but never settled is "
+    "usually worth more than a brand-new area — the campaign has already partly paid for it, and "
+    "leaving it open means nothing was concluded. If you target one, pass its ref as "
+    "'addresses'. Do NOT retry a question whose evidence shows the agent never reached the "
+    "screen at all: that is our own limitation, and a repeat spends the same budget "
+    "re-discovering it. Write a narrower test instead.\n"
     "- Prefer negative, boundary and state-transition tests over happy-path ones.\n"
     "- Stay strictly app-agnostic: rely only on what the tools return. Never assume a feature, "
     "screen or rule you have not seen evidence for.\n"
@@ -98,7 +105,8 @@ _SYSTEM = (
 
 
 def _seed_user_message(project: str, objective: str, coverage_map: dict,
-                       recent_tests: list, available: list[str]) -> str:
+                       recent_tests: list, available: list[str],
+                       open_questions: list | None = None, total_open: int = 0) -> str:
     """Small orientation message. Everything else the model fetches itself.
 
     Contrast with the old design, where ~15 blocks were assembled and
@@ -123,6 +131,34 @@ def _seed_user_message(project: str, objective: str, coverage_map: dict,
         "Exploration directive to follow:",
         coverage_mod.build_exploration_directive(coverage_map, recent_tests),
         "",
+    ]
+
+    # Open questions are shown INLINE, not left behind a tool call. Measured:
+    # with only a count in the seed and the list a tool away, the planner read
+    # the queue on turn 1 and still opened a brand-new area — a fresh area is
+    # simply more salient at decision time than an unfinished one. Putting the
+    # actual questions in front of the first decision is the whole point of the
+    # lifecycle; leaving them one call away recreates the problem it fixes.
+    oq = open_questions or []
+    if oq:
+        parts += [
+            f"## Open questions ({len(oq)} shown of {total_open or len(oq)}) — earlier runs "
+            f"raised these and never settled them",
+            "Closing one is usually worth more than opening a new area: the campaign has already "
+            "partly paid for it, and while it stays open nothing was concluded. If you target one, "
+            "pass its ref as 'addresses'.",
+        ]
+        for q in oq[:5]:
+            parts.append(f"- [{q.get('ref')}] ({q.get('kind')}, {q.get('attempts_left')} attempts left) "
+                         f"{q.get('claim')}")
+        parts += [
+            "Do NOT retry one whose evidence shows the agent never reached the screen at all — "
+            "that is our own limitation and a repeat spends the same budget re-discovering it. "
+            "Write a narrower test, or choose a different question.",
+            "",
+        ]
+
+    parts += [
         f"Tests executed so far: {coverage_map.get('total_tests', 0)}. "
         f"Tools available: {', '.join(available)}.",
         "",
@@ -145,12 +181,19 @@ def run_agent_tools(req_args: dict) -> dict:
     coverage_map = coverage_mod.compute_coverage_map(recent_tests, screens)
 
     available = tools.available(brief if isinstance(brief, dict) else {})
+    try:
+        _oq = rag_client.rag_get("/findings/open", {"project": project, "limit": 5})
+        open_questions = _oq.get("open_questions", []) or []
+        total_open = int(_oq.get("total_open") or len(open_questions))
+    except Exception:
+        open_questions, total_open = [], 0
     tool_schemas = tools.schemas(available) + [_PROPOSE_TOOL]
 
     messages = [
         {"role": "system", "content": _SYSTEM.format(app_name=app_name)},
         {"role": "user", "content": _seed_user_message(project, objective, coverage_map,
-                                                       recent_tests, available)},
+                                                       recent_tests, available, open_questions,
+                                                       total_open)},
     ]
 
     call_log: list[dict] = []
@@ -209,6 +252,21 @@ def run_agent_tools(req_args: dict) -> dict:
                 if ok:
                     accepted = proposal_mod.normalize(args)
                     result = "ACCEPTED. This test case has been recorded."
+                    # Spend one of the question's attempts. Counted at COMMIT,
+                    # not at completion: the cost is incurred either way, and a
+                    # test that fails to run still consumed the opportunity.
+                    ref = str(args.get("addresses") or "").strip()
+                    if ref:
+                        try:
+                            out = rag_client.rag_post("/findings/attempt",
+                                                      {"project": project, "ref": ref})
+                            accepted["addresses"] = ref
+                            trace.append({"turn": turns, "action": "attempt",
+                                          "ref": ref, "result": out})
+                            log.info("open_question_attempt", project=project, ref=ref,
+                                     status=out.get("status"), attempts=out.get("attempts"))
+                        except Exception as e:
+                            log.warning("attempt_record_failed", ref=ref, error=str(e)[:160])
                 else:
                     rejections += 1
                     last_errors = errors

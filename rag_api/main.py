@@ -538,8 +538,20 @@ def health():
 def project_reset(req: ResetProjectRequest, authorization: str | None = Header(default=None)):
     """Delete project data slices to rebuild graph cleanly (tests/srs/figma)."""
     _check_auth(authorization)
+    snapshot = {}
     with driver.session() as session:
         if req.delete_tests:
+            # Capture the outgoing campaign before anything is destroyed. This is
+            # the only moment it still exists: everything below deletes the
+            # evidence a campaign-over-campaign comparison would need, which is
+            # what made "does the agent get smarter across campaigns?"
+            # unanswerable from the graph. Best-effort — a snapshot failure must
+            # never block a reset.
+            try:
+                snapshot = learning_mod.snapshot_campaign(session, req.project, _utc_now())
+            except Exception as e:  # noqa: BLE001
+                snapshot = {"snapshotted": False, "error": str(e)[:200]}
+
             session.run(
                 """
                 MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
@@ -702,6 +714,7 @@ def project_reset(req: ResetProjectRequest, authorization: str | None = Header(d
             "srs": req.delete_srs,
             "figma": req.delete_figma,
             "appmodel": req.delete_appmodel,
+            "campaign_snapshot": snapshot.get("snapshotted", False),
         },
     }
 
@@ -2263,7 +2276,8 @@ def findings_record(req: RecordFindingsRequest, authorization: str | None = Head
 
 @app.get("/findings")
 def findings_list(project: str, screens: str = "", kinds: str = "", group: str = "", limit: int = 20,
-                  exclude_log_id: str = "", authorization: str | None = Header(default=None)):
+                  exclude_log_id: str = "", status: str = "",
+                  authorization: str | None = Header(default=None)):
     """Findings for a project, narrowed to screens and/or kinds.
 
     ``screens`` and ``kinds`` are pipe-separated ('Chats|Medicine'). ``screens``
@@ -2281,9 +2295,63 @@ def findings_list(project: str, screens: str = "", kinds: str = "", group: str =
             session, project,
             screens=[s for s in screens.split("|") if s.strip()],
             kinds=[k for k in kinds.split("|") if k.strip()] or findings_mod.group_kinds(group),
-            limit=limit, exclude_log_id=exclude_log_id,
+            limit=limit, exclude_log_id=exclude_log_id, status=status,
         )
-    return {"project": project, "count": len(rows), "findings": rows}
+        # The TOTAL matters as much as the rows. A caller told only `count: 7`
+        # cannot tell "that is everything known" from "that is 7 of 300", and
+        # the per-call character cap means the second case arrives silently.
+        total = session.run(
+            "MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding) RETURN count(f) AS c",
+            project=project).single()["c"]
+    return {"project": project, "count": len(rows), "total": total, "findings": rows}
+
+
+@app.get("/campaigns")
+def campaigns(project: str, limit: int = 20, authorization: str | None = Header(default=None)):
+    """Past campaign summaries, newest first.
+
+    Each row is a snapshot taken just before a CLEAN_SLATE reset wiped that
+    campaign's tests and execution logs. Comparing consecutive rows is the
+    cheapest available answer to "is the agent getting better?" — see
+    docs/ROADMAP.md §4.
+    """
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = learning_mod.list_campaigns(session, project, limit=limit)
+    return {"project": project, "count": len(rows), "campaigns": rows}
+
+
+@app.get("/findings/open")
+def findings_open(project: str, limit: int = 10, authorization: str | None = Header(default=None)):
+    """Findings still awaiting a conclusion, least-attempted first.
+
+    The point of the lifecycle: an UNVERIFIED finding ("the run never established
+    whether X") is a question with a definite answer, and without this queue it
+    was stored as a flat fact competing with settled knowledge — a new area
+    always looked more attractive than a half-finished one, so nothing was ever
+    concluded.
+    """
+    _check_auth(authorization)
+    with driver.session() as session:
+        rows = findings_mod.open_questions(session, project, limit=limit)
+        # The caller needs the TOTAL, not just how many fitted in `limit` — the
+        # planner's prompt says "Open questions (N)", and N being the page size
+        # would understate how much is unfinished.
+        total = session.run(
+            "MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding) "
+            "WHERE f.status = $open RETURN count(f) AS c",
+            project=project, open=findings_mod.OPEN).single()["c"]
+    return {"project": project, "count": len(rows), "total_open": total,
+            "open_questions": rows, "max_attempts": findings_mod.MAX_FINDING_ATTEMPTS}
+
+
+@app.post("/findings/attempt")
+def findings_attempt(req: RecordAttemptRequest, authorization: str | None = Header(default=None)):
+    """Record that a test was aimed at an open question; auto-close at the cap."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        out = findings_mod.record_attempt(session, req.project, req.ref, _utc_now())
+    return {"project": req.project, **out}
 
 
 @app.get("/findings/stats")

@@ -106,9 +106,44 @@ def _list_findings(project: str, args: dict) -> str:
     rows = data.get("findings") or []
     if not rows:
         return "No findings recorded yet for that filter — this is early in the campaign."
-    return _json([{"ref": f.get("ref"), "kind": f.get("kind"), "claim": f.get("claim"),
-                   "screen": f.get("screen"), "times_seen": f.get("times_seen")} for f in rows],
-                 _MAX_FINDINGS)
+    # Say how much was NOT shown, and be honest about how much actually fits:
+    # each finding serialises to ~320 chars against a 2,500-char cap, so roughly
+    # seven reach the model however many the query returned. Reporting the DB
+    # limit here would itself be a lie — the count has to be the number that
+    # survives truncation, or the model trusts a figure it never saw.
+    slim = [{"ref": f.get("ref"), "kind": f.get("kind"), "claim": f.get("claim"),
+             "screen": f.get("screen"), "times_seen": f.get("times_seen")} for f in rows]
+    shown = slim
+    while shown and len(_json(shown, _MAX_FINDINGS * 10)) > _MAX_FINDINGS:
+        shown = shown[:-1]
+    body = _json(shown or slim[:1], _MAX_FINDINGS)
+    total = data.get("total") or len(rows)
+    if total > len(shown):
+        body += (f"\n[showing {len(shown)} of {total} findings for this project — narrow with "
+                 f"screen= or group= to see the rest]")
+    return body
+
+
+def _list_open_questions(project: str, args: dict) -> str:
+    """Questions previous runs raised but never settled.
+
+    The point of the whole lifecycle: an UNVERIFIED finding ("the run never
+    established whether the list loads") has a definite answer, and closing it is
+    usually higher-value than opening a brand-new area — a half-finished
+    investigation is knowledge the campaign has already partly paid for.
+    """
+    data = rag_client.rag_get("/findings/open", {"project": project,
+                                                 "limit": int(args.get("limit") or 8)})
+    rows = data.get("open_questions") or []
+    if not rows:
+        return "No open questions — every finding so far has reached a conclusion."
+    return _json({
+        "max_attempts": data.get("max_attempts"),
+        "questions": [{"ref": q.get("ref"), "kind": q.get("kind"), "screen": q.get("screen"),
+                       "claim": q.get("claim"), "attempts": q.get("attempts"),
+                       "attempts_left": q.get("attempts_left"),
+                       "evidence": (q.get("evidence") or [])[:1]} for q in rows],
+    }, _MAX_FINDINGS)
 
 
 def _get_coverage(project: str, args: dict) -> str:
@@ -214,6 +249,23 @@ _TOOLS: dict[str, dict] = {
             "parameters": {"type": "object", "properties": {
                 "screen": {"type": "string", "description": "Optional: only findings about this screen."},
                 "group": {"type": "string", "enum": ["oracle", "defect", "agent", "ui"], "description": "Which family of findings (default 'oracle')."},
+                "limit": {"type": "integer"},
+            }, "required": []},
+        },
+    },
+    "list_open_questions": {
+        "source": "",
+        "impl": _list_open_questions,
+        "schema": {
+            "description": (
+                "Questions earlier runs raised but never settled — things the app might be "
+                "doing wrong, or that a run set out to check and never actually checked. "
+                "Closing one of these is usually worth more than opening a brand-new area, "
+                "because the campaign has already partly paid for it. Each has an attempts "
+                "budget; once it runs out the question is closed as inconclusive for a human. "
+                "If you target one, pass its ref as 'addresses' to propose_test_case."
+            ),
+            "parameters": {"type": "object", "properties": {
                 "limit": {"type": "integer"},
             }, "required": []},
         },
