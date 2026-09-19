@@ -22,8 +22,22 @@ NON_INFORMATIVE_ERRORS = {
 }
 
 
-def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict]) -> dict:
-    """Derive a coverage map from test history + known screens (purely data-driven)."""
+def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict],
+                         feature_areas: list[str] | None = None) -> dict:
+    """Derive a coverage map from test history + a universe of known areas.
+
+    The area universe used to come only from Figma screen purposes, which made
+    the whole map collapse on a project with no design file: `coverage_pct`
+    reported 0 and `uncovered_purposes` came back empty. Both were wrong in a
+    way that read as true — 0% looks like "nothing covered" rather than "no
+    basis to measure", and an empty uncovered list silently removed the
+    planner's only "go somewhere new" signal.
+
+    `feature_areas` (the SRS's own feature areas) is the fallback when no design
+    file exists, which is the normal case for a generic app. The reported
+    `area_source` says which universe was used, so a 0 can never again be
+    mistaken for a measurement.
+    """
     # Exclude not-yet-executed ("planned") tests so coverage reflects real runs only.
     executed = [t for t in recent_tests if str(t.get("verdict", "")).lower() != "planned"]
     area_stats: dict[str, dict] = {}
@@ -46,6 +60,16 @@ def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict]) ->
         p = str(s.get("purpose", "")).lower().strip()
         if p and p != "other":
             screen_purposes.add(p)
+    area_source = "figma" if screen_purposes else "none"
+
+    # No design file: the SRS's feature areas are the real universe of things
+    # this app is meant to do, and they are already extracted per requirement.
+    if not screen_purposes and feature_areas:
+        for f in feature_areas:
+            a = re.sub(r"\s+", "_", str(f).lower().strip())
+            if a and a != "other":
+                screen_purposes.add(a)
+        area_source = "requirements" if screen_purposes else "none"
 
     tested_areas = set(area_stats.keys()) - {"general"}
     uncovered_purposes = sorted(screen_purposes - tested_areas)
@@ -72,6 +96,9 @@ def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict]) ->
         "total_areas_tested": len(tested_areas),
         "total_areas_available": len(screen_purposes),
         "coverage_pct": cov_pct,
+        # Which universe the percentage is measured against — "none" means there
+        # is no basis to measure, NOT that nothing is covered.
+        "area_source": area_source,
     }
 
 

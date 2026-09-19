@@ -25,7 +25,7 @@ import json
 
 import settings as _settings
 
-from . import coverage as coverage_mod, rag_client
+from . import context_builders as _ctx, coverage as coverage_mod, rag_client
 from .sources import registry as sources_registry
 
 # Per-tool result ceilings (characters). Sized so a full loop of ~12 calls stays
@@ -175,10 +175,12 @@ def _get_coverage(project: str, args: dict) -> str:
     brief = rag_client.get_brief_context(project)
     recent = brief.get("recent_tests", []) if isinstance(brief, dict) else []
     screens = brief.get("screen_index", []) if isinstance(brief, dict) else []
-    cmap = coverage_mod.compute_coverage_map(recent, screens)
+    cmap = coverage_mod.compute_coverage_map(
+        recent, screens, _ctx.requirement_feature_areas(project))
     return _json({
         "tests_executed": cmap.get("total_tests"),
         "area_coverage_pct": cmap.get("coverage_pct"),
+        "areas_measured_against": cmap.get("area_source"),
         "hot_spots_repeated_app_failures": cmap.get("hot_spots"),
         "dead_ends_we_cannot_reach": cmap.get("dead_ends"),
         "exhausted_areas_stop_testing": cmap.get("exhausted_areas"),
@@ -195,12 +197,19 @@ def _list_untested_requirements(project: str, args: dict) -> str:
     feature = str(args.get("feature") or "").strip().lower()
     if feature:
         rows = [r for r in rows if feature in str(r.get("feature", "")).lower()]
+    # Never-covered first. A requirement covered in an EARLIER campaign is a
+    # re-test, not new ground — the COVERS edge died with that campaign's tests,
+    # so without this flag the planner cannot tell the two apart and keeps
+    # re-suggesting work it has already done.
     return _json({
         "total_requirements": data.get("total_requirements"),
-        "covered": data.get("covered_requirements"),
-        "coverage_pct": data.get("coverage_pct"),
+        "covered_this_campaign": data.get("covered_requirements"),
+        "ever_covered": data.get("ever_covered_requirements"),
         "uncovered": [{"id": r.get("ref_id"), "feature": r.get("feature"),
-                       "text": r.get("text")} for r in rows[:20]],
+                       "text": r.get("text"),
+                       **({"note": f"covered in an earlier campaign ({r.get('covered_count')}x) — "
+                                   f"a re-test, not new ground"} if r.get("ever_covered") else {})}
+                      for r in rows[:20]],
     }, _MAX_REQUIREMENTS)
 
 

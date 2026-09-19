@@ -315,6 +315,35 @@ def main():
               all(q["attempts"] == 0 for q in only_fresh), True)
         _wipe(s)
 
+        print("\nrequirement coverage outlives the campaign that produced it")
+        # COVERS edges die with their TestCase when CLEAN_SLATE wipes a campaign,
+        # so coverage reset to zero every run and the planner kept re-suggesting
+        # requirements it had already exercised. Whether a requirement has EVER
+        # been exercised belongs on the requirement, which survives the wipe.
+        s.run("""MERGE (pr:Project {name:$p})
+                 MERGE (r:Requirement {id:$p+'::req::FR-COV'})
+                   SET r.project=$p, r.ref_id='FR-COV', r.covered_count=1
+                 MERGE (pr)-[:HAS_REQUIREMENT]->(r)
+                 MERGE (t:TestCase {id:$p+'::tc::cov'}) SET t.project=$p
+                 MERGE (pr)-[:HAS_TEST]->(t)
+                 MERGE (t)-[:COVERS]->(r)""", p=PROJECT)
+
+        def _edges():
+            return s.run("MATCH (:TestCase)-[c:COVERS]->(:Requirement {project:$p}) "
+                         "RETURN count(c) AS c", p=PROJECT).single()["c"]
+
+        def _ever():
+            return s.run("MATCH (r:Requirement {project:$p}) WHERE coalesce(r.covered_count,0)>0 "
+                         "RETURN count(r) AS c", p=PROJECT).single()["c"]
+
+        check("a covered requirement has both an edge and its own count", (_edges(), _ever()), (1, 1))
+        # exactly what CLEAN_SLATE does to tests
+        s.run("MATCH (pr:Project {name:$p})-[:HAS_TEST]->(t:TestCase) "
+              "OPTIONAL MATCH (t)-[:HAS_RUN]->(rn:TestRun) DETACH DELETE t, rn", p=PROJECT)
+        check("the wipe destroys the COVERS edge, as before", _edges(), 0)
+        check("but the requirement remembers it was covered", _ever(), 1)
+        s.run("MATCH (r:Requirement {project:$p}) DETACH DELETE r", p=PROJECT)
+
         print("\ncampaign snapshots survive the reset that destroys everything else")
         # The balance test above wiped the project, so seed one finding: the
         # snapshot is meant to capture what existed at wipe time.

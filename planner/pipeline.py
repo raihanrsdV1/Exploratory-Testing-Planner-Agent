@@ -335,7 +335,8 @@ def agent_coverage(project: str, authorization: str | None) -> dict:
     figma_screens = brief.get("screen_index", []) if isinstance(brief, dict) else []
     figma_overview = rag_client.get_figma_overview(project)
 
-    coverage_map = coverage.compute_coverage_map(recent_tests, figma_screens)
+    coverage_map = coverage.compute_coverage_map(
+        recent_tests, figma_screens, context_builders.requirement_feature_areas(project))
     directive = coverage.build_exploration_directive(coverage_map, recent_tests)
 
     try:
@@ -350,6 +351,7 @@ def agent_coverage(project: str, authorization: str | None) -> dict:
             "coverage_pct": coverage_map["coverage_pct"],
             "areas_tested": coverage_map["total_areas_tested"],
             "areas_available": coverage_map["total_areas_available"],
+            "area_source": coverage_map.get("area_source", "none"),
         },
         "area_breakdown": coverage_map["area_stats"],
         "uncovered_areas": coverage_map["uncovered_purposes"],

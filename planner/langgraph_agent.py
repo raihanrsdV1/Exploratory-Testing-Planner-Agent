@@ -132,7 +132,8 @@ def bootstrap_context(state: AgentState) -> AgentState:
     figma_screens = (brief.get("screen_index", []) if isinstance(brief, dict) else []) if _figma_on else []
     figma_overview = rag_client.get_figma_overview(project) if _figma_on else []
     fallback_screens = context_builders.pick_relevant_screens(figma_screens, done_areas, recent_tests)
-    coverage_map = coverage.compute_coverage_map(recent_tests, figma_screens)
+    coverage_map = coverage.compute_coverage_map(
+        recent_tests, figma_screens, context_builders.requirement_feature_areas(project))
 
     # Graceful degradation: advertise only sources that actually have data for this project.
     available_sources = [

@@ -384,3 +384,14 @@ def build_requirements_context(project: str, limit_rules: int = 40) -> str:
                 lines.append(f"- [{ref}] {rule[:200]}")
                 shown += 1
     return "\n".join(lines)
+
+def requirement_feature_areas(project: str) -> list[str]:
+    """Feature areas the SRS defines, used as the coverage universe when no
+    design file exists. Best-effort: an empty list simply means coverage has no
+    basis to measure against, which compute_coverage_map reports honestly."""
+    try:
+        data = rag_client.get_requirement_coverage(project)
+    except Exception:
+        return []
+    return [str(r.get("feature", "")).strip()
+            for r in (data.get("per_feature") or []) if r.get("feature")]

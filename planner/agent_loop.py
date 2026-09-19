@@ -282,7 +282,8 @@ def run_agent_tools(req_args: dict) -> dict:
     recent_tests = brief.get("recent_tests", []) if isinstance(brief, dict) else []
     done_titles = [str(t.get("title", "")).strip() for t in recent_tests if t.get("title")]
     screens = brief.get("screen_index", []) if isinstance(brief, dict) else []
-    coverage_map = coverage_mod.compute_coverage_map(recent_tests, screens)
+    coverage_map = coverage_mod.compute_coverage_map(
+        recent_tests, screens, context_builders.requirement_feature_areas(project))
 
     available = tools.available(brief if isinstance(brief, dict) else {})
     try:

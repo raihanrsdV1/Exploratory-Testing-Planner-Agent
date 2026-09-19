@@ -1592,11 +1592,22 @@ def log_test(req: LogTestRequest, authorization: str | None = Header(default=Non
                    OR toLower(replace(replace(coalesce(r.ref_id,''), 'FR-', ''), 'NFR-', ''))
                       = toLower(replace(replace($ref, 'FR-', ''), 'NFR-', ''))
                 MERGE (t)-[:COVERS]->(r)
+                // Also mark the requirement itself. COVERS edges die with their
+                // TestCase when CLEAN_SLATE wipes a campaign, so coverage reset to
+                // zero every run: the planner then re-suggested requirements it had
+                // already exercised in an earlier campaign, and the frontier never
+                // actually advanced. Whether a requirement has EVER been exercised
+                // is a property of the requirement, not of the test that proved it,
+                // and Requirement nodes survive the wipe.
+                SET r.first_covered_at = coalesce(r.first_covered_at, $now),
+                    r.last_covered_at  = $now,
+                    r.covered_count    = coalesce(r.covered_count, 0) + 1
                 RETURN count(r) AS c
                 """,
                 internal_test_id=internal_test_id,
                 project=req.project,
                 ref=ref,
+                now=_utc_now(),
                 req_uid=f"{req.project}::req::{ref}",
             ).single()
             n = res["c"] if res else 0
@@ -1696,8 +1707,13 @@ def coverage_requirements(project: str, authorization: str | None = Header(defau
                 """
                 MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(req:Requirement)
                 WHERE NOT (req)<-[:COVERS]-(:TestCase)
-                RETURN req.ref_id AS ref_id, req.feature AS feature, req.text AS text
-                ORDER BY req.ref_id ASC
+                RETURN req.ref_id AS ref_id, req.feature AS feature, req.text AS text,
+                       // Covered in an EARLIER campaign, whose tests have since been
+                       // wiped. Genuinely untouched requirements should be tried
+                       // first; these are re-tests, which is a different decision.
+                       coalesce(req.covered_count, 0) > 0 AS ever_covered,
+                       coalesce(req.covered_count, 0) AS covered_count
+                ORDER BY coalesce(req.covered_count, 0) ASC, req.ref_id ASC
                 LIMIT 100
                 """,
                 project=project,
@@ -1707,12 +1723,23 @@ def coverage_requirements(project: str, authorization: str | None = Header(defau
     total = (totals["total"] if totals else 0) or 0
     covered = (totals["covered"] if totals else 0) or 0
     failing = (totals["failing"] if totals else 0) or 0
+    with driver.session() as session:
+        ever = session.run(
+            "MATCH (p:Project {name:$project})-[:HAS_REQUIREMENT]->(r:Requirement) "
+            "WHERE coalesce(r.covered_count,0) > 0 RETURN count(r) AS c",
+            project=project).single()["c"]
+
     return {
         "project": project,
         "total_requirements": total,
+        # This campaign only — resets with CLEAN_SLATE, which is correct for
+        # measuring one campaign's own contribution.
         "covered_requirements": covered,
         "failing_requirements": failing,
         "coverage_pct": round(100 * covered / total) if total else 0,
+        # Across every campaign ever run — survives CLEAN_SLATE.
+        "ever_covered_requirements": ever,
+        "ever_coverage_pct": round(100 * ever / total) if total else 0,
         "per_feature": per_feature,
         "uncovered_requirements": uncovered,
     }

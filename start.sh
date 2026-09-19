@@ -39,13 +39,31 @@ PROJECT="${PROJECT:-contacts-app}"
 SRS_PATH="${SRS_PATH:-./data/inputs/Sample-Contacts-App-SRS.txt}"
 FIGMA_PATH="${FIGMA_PATH:-./data/inputs/GENERATED_JSON.json}"
 
-# Local Neo4j Desktop-managed instance (the "test" DBMS).
-NEO4J_DBMS_DIR="${NEO4J_DBMS_DIR:-$HOME/Library/Application Support/neo4j-desktop/Application/Data/dbmss/dbms-15751e0d-b9e8-437e-8199-e0fb4c954865}"
+# Local Neo4j Desktop-managed instance. Auto-detected rather than hardcoded: a
+# DBMS id is generated per install, so a pinned one silently stops matching the
+# moment the DBMS is recreated — and the failure looks like "Neo4j won't start"
+# rather than "this path is stale". .env still wins if it sets NEO4J_DBMS_DIR.
+NEO4J_DBMS_ROOT="$HOME/Library/Application Support/neo4j-desktop/Application/Data/dbmss"
+if [[ -z "${NEO4J_DBMS_DIR:-}" ]]; then
+  _dbms_found=()
+  while IFS= read -r _d; do [[ -d "$_d" ]] && _dbms_found+=("${_d%/}"); done \
+    < <(ls -d "$NEO4J_DBMS_ROOT"/dbms-*/ 2>/dev/null)
+  if [[ ${#_dbms_found[@]} -eq 1 ]]; then
+    NEO4J_DBMS_DIR="${_dbms_found[0]}"
+  elif [[ ${#_dbms_found[@]} -gt 1 ]]; then
+    # Ambiguous: picking one at random would start the wrong database.
+    echo "[!!]  Several Neo4j DBMS directories found; set NEO4J_DBMS_DIR in .env to choose:"
+    printf '        %s\n' "${_dbms_found[@]}"
+  fi
+fi
 NEO4J_JAVA_HOME="${NEO4J_JAVA_HOME:-$(ls -d "$HOME/Library/Application Support/neo4j-desktop/Application/Cache/runtime/"zulu*jre* 2>/dev/null | head -1)}"
 
-# Android emulator.
+# Android emulator. The AVD name is whatever the SDK reports rather than a guess,
+# for the same reason: a wrong default fails as "the emulator won't boot".
 ANDROID_EMULATOR="${ANDROID_EMULATOR:-$HOME/Library/Android/sdk/emulator/emulator}"
-EMULATOR_AVD="${EMULATOR_AVD:-MyEmulator}"
+if [[ -z "${EMULATOR_AVD:-}" && -x "$ANDROID_EMULATOR" ]]; then
+  EMULATOR_AVD="$("$ANDROID_EMULATOR" -list-avds 2>/dev/null | head -1)"
+fi
 PORTAL_A11Y="com.mobilerun.portal/com.mobilerun.portal.service.MobilerunAccessibilityService"
 
 # ── Flags ────────────────────────────────────────────────────────────────────

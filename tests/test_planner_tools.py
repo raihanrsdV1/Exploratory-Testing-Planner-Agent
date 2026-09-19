@@ -210,6 +210,33 @@ def main():
     check("the objective field asks for ONE behaviour",
           "ONE behaviour" in prop["parameters"]["properties"]["objective"]["description"], True)
 
+    print("\ncoverage measures against something real, and says what")
+    # The area universe used to come only from Figma. With no design file the
+    # map collapsed: 0% and an empty uncovered list, both of which read as true
+    # rather than as "no basis to measure" — and the empty list silently removed
+    # the planner's only breadth signal.
+    from planner import coverage as _cov
+    runs = [{"area": "animal_record", "verdict": "pass"},
+            {"area": "chat", "verdict": "failed", "error_type": "ASSERTION_FAILURE"}]
+    feats = ["animal_record", "chat", "location", "seller_reviews", "notifications"]
+
+    none_ = _cov.compute_coverage_map(runs, [], [])
+    check("with no basis at all, the source says so", none_["area_source"], "none")
+    check("and the percentage is 0 because it is unmeasurable", none_["coverage_pct"], 0)
+
+    reqs = _cov.compute_coverage_map(runs, [], feats)
+    check("requirement features become the universe", reqs["area_source"], "requirements")
+    check("the percentage is real", reqs["coverage_pct"], 40)
+    check("and the breadth signal comes back to life",
+          reqs["uncovered_purposes"], ["location", "notifications", "seller_reviews"])
+
+    figma = _cov.compute_coverage_map(runs, [{"purpose": "contacts"}, {"purpose": "settings"}], feats)
+    check("a design file still takes precedence", figma["area_source"], "figma")
+    check("features do not leak in when Figma exists", figma["total_areas_available"], 2)
+
+    check("hot spots and dead ends are unaffected by the fallback",
+          (reqs["hot_spots"], reqs["dead_ends"]), (none_["hot_spots"], none_["dead_ends"]))
+
     print("\ncold start: an empty app model has nothing to validate against")
     # On a brand-new project ANY screen name is a guess, and there is no map to
     # catch it — the worst case, on the run where the agent knows least. Opt-in
