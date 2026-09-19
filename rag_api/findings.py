@@ -526,7 +526,19 @@ def record_attempt(session, project, ref: str, now: str) -> dict:
 
 
 def stats(session, project) -> dict:
-    """Counts per kind — for the dashboard and for run-to-run 'is it learning?'."""
+    """Counts per kind, per status, and per screen — the whole graph in one view.
+
+    This is the answer to a scaling problem that is already live: a finding
+    serialises to ~320 characters against a 2,500-character tool cap, so roughly
+    eight reach the planner however many exist (8 of 28 today, 8 of 300 later).
+    A rollup is bounded by screen x kind x status combinations rather than by
+    finding count, so it stays roughly constant as the graph grows — 100%
+    coverage in fewer characters than a truncated list of individual claims.
+
+    It also answers a question the list form cannot: "which screen has the most
+    unresolved defects?" A list ordered by times_seen shows the eight
+    most-confirmed findings, which says nothing about where the open work is.
+    """
     rows = session.run(
         """
         MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)
@@ -540,5 +552,19 @@ def stats(session, project) -> dict:
         WHERE coalesce(f.status,'') <> ''
         RETURN f.status AS status, count(f) AS n ORDER BY n DESC
         """, project=project)]
+    # Per screen: total, still-open, and how many are candidate defects. These
+    # three are what an area choice actually turns on.
+    by_screen = [dict(r) for r in session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)
+        WITH coalesce(f.screen_label,'(unknown)') AS screen,
+             count(f) AS total,
+             sum(CASE WHEN f.status = $open THEN 1 ELSE 0 END) AS open,
+             sum(CASE WHEN f.kind IN $defect_kinds THEN 1 ELSE 0 END) AS defects,
+             sum(CASE WHEN f.kind = 'AGENT_DIFFICULTY' THEN 1 ELSE 0 END) AS agent_trouble
+        RETURN screen, total, open, defects, agent_trouble
+        ORDER BY open DESC, defects DESC, total DESC
+        """, project=project, open=OPEN, defect_kinds=sorted(DEFECT_KINDS))]
+
     return {"by_kind": by_kind, "total": sum(r["n"] for r in by_kind),
-            "by_status": life}
+            "by_status": life, "by_screen": by_screen}

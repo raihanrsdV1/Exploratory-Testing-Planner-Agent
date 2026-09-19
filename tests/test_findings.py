@@ -215,6 +215,21 @@ def main():
         check("batch truncated to the per-run guard",
               r3["created"] + r3["reinforced"], F._MAX_FINDINGS_PER_RUN)
 
+        print("\nthe rollup covers everything a truncated list cannot")
+        st = F.stats(s, PROJECT)
+        check("stats reports a per-screen breakdown", "by_screen" in st, True)
+        check("the rollup accounts for every finding",
+              sum(r["total"] for r in st["by_screen"]), st["total"])
+        screens = {r["screen"]: r for r in st["by_screen"]}
+        check("it counts open work per screen", screens["Chats"]["open"] >= 1, True)
+        check("it separates candidate defects from other kinds",
+              screens["My Products"]["defects"], 1)
+        check("agent difficulties are counted but NOT as defects",
+              (screens["Chats"]["agent_trouble"], screens["Chats"]["defects"]), (1, 0))
+        check("screens are ordered by where the open work is",
+              [r["open"] for r in st["by_screen"]] ==
+              sorted([r["open"] for r in st["by_screen"]], reverse=True), True)
+
         print("\nthe open queue balances started questions against fresh ones")
         # Neither sort alone works. attempts ASC starves started questions (each
         # run mints new ones, so a half-investigated question is never shown

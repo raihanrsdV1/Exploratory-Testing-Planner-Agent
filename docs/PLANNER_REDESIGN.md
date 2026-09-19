@@ -5,7 +5,7 @@
 
 This is the design record: why the old planner was structurally limited, what was built instead,
 and what actually happened versus what was predicted. For what the two planners *are*, see
-[System_Architecture.md](System_Architecture.md) §3–5. For the investigator that feeds them,
+[System_Architecture.md](start/System_Architecture.md) §3–5. For the investigator that feeds them,
 [INVESTIGATOR.md](INVESTIGATOR.md). For what's next, [ROADMAP.md](ROADMAP.md).
 
 ---

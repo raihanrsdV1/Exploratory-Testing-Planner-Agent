@@ -56,13 +56,16 @@ _PROPOSE_TOOL = {
             "be one the app has actually been observed to have, requirement ids must exist, the "
             "test must not duplicate an executed one, and it must not require an out-of-scope "
             "area. If validation fails you will be told exactly what to fix and may call this "
-            "again. Call it only once you have investigated with the other tools."
+            "again. Call it only once you have investigated with the other tools.\n"
+            "SCOPE: the executor gets a limited number of device actions and has to spend some "
+            "of them navigating first. A test it cannot finish is cut off and yields NOTHING — "
+            "so one behaviour verified beats three attempted."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "title": {"type": "string", "description": "Short, specific name for the test."},
-                "objective": {"type": "string", "description": "WHAT to verify, in plain language — the behaviour or rule under test. NEVER a numbered sequence of taps: you cannot see the live app, and the executor decides HOW."},
+                "objective": {"type": "string", "description": "WHAT to verify, in plain language — the behaviour or rule under test. Verify ONE behaviour: if it contains 'and then', or lists several things to check, split it and keep the highest-value part. The executor has a limited step budget and a test that does not fit is cut off with no verdict at all. NEVER a numbered sequence of taps: you cannot see the live app, and the executor decides HOW."},
                 "expected_result": {"type": "string", "description": "What must be true if the app behaves correctly."},
                 "screen_hint": {"type": "string", "description": "A screen you CONFIRMED with get_screen, or 'unknown' to let the executor explore."},
                 "area": {"type": "string", "description": "Feature area slug, aligned with the exploration directive."},
@@ -104,9 +107,102 @@ _SYSTEM = (
 )
 
 
+DETAILED_RUNS = 2     # how many recent runs get the full interpretation
+RUN_WINDOW = 5        # how many appear at all; the rest are one-liners
+
+
+def _interpret(verdict: str, err: str, steps: int, max_steps: int) -> str:
+    """What an outcome implies for the NEXT test.
+
+    A raw error_type is a label. "Produced NO evidence about the app" is
+    something a planner can act on, which is the whole reason this block exists.
+    """
+    if err == "STEP_LIMIT_EXCEEDED" or steps >= max_steps:
+        return ("The executor ran out of budget before reaching a verdict, so this test "
+                "produced NO evidence about the app. That is what an over-scoped test looks "
+                "like. Write a narrower one — verify a single behaviour, and skip setup the "
+                "account already has.")
+    if err in ("NAVIGATION_FAILURE", "ELEMENT_NOT_FOUND"):
+        return ("The executor could not reach what the test needed. Either the screen was named "
+                "wrongly, or that route is not reachable for this role. Confirm the screen with "
+                "get_screen before naming it again.")
+    if verdict == "failed":
+        return ("The executor reached a conclusion and the app misbehaved — that is a real "
+                "result, not a waste. A narrower follow-up probing the same behaviour is often "
+                "the highest-value next test.")
+    if verdict == "pass":
+        return ("That behaviour is confirmed working. Do not re-verify it; an adjacent or harder "
+                "case on the same screen may still be untested.")
+    return ""
+
+
+def _recent_runs_block(project: str, max_steps: int) -> str:
+    """The executor's own recent history, most recent first.
+
+    The planner otherwise hears about a run only through the investigator's
+    findings, which distil WHAT was established and drop HOW it went. "The
+    objective was never verified" and "it burned 50 of 50 steps" are different
+    facts, and only the second says the test was scoped too large.
+
+    Two runs get the full interpretation because one is a sample of one: a
+    pattern across runs ("two of the last three ran out of budget") is a far
+    stronger corrective than a single outcome, and it is a conclusion the model
+    should not have to derive by eye. The rest are one-liners — they exist to
+    make the pattern visible, not to be continued.
+
+    Empty at the start of a campaign, when CLEAN_SLATE has wiped the logs and
+    there genuinely is no history.
+    """
+    try:
+        data = rag_client.rag_get("/execution/logs", {"project": project, "limit": RUN_WINDOW})
+    except Exception:
+        return ""
+    logs = data.get("logs") or []
+    if not logs:
+        return ""
+    total = data.get("total") or len(logs)
+
+    def row(l):
+        err = str(l.get("error_type") or "")
+        return (f"{l.get('test_case_id', '?'):8} {str(l.get('verdict') or '?'):6} "
+                f"{int(l.get('device_steps') or 0):>2}/{max_steps} steps"
+                + (f"  {err}" if err else ""))
+
+    lines = [f"## Your last {len(logs)} run(s) — of {total} executed this campaign",
+             *(row(l) for l in logs), ""]
+
+    for l in logs[:DETAILED_RUNS]:
+        steps = int(l.get("device_steps") or 0)
+        note = _interpret(str(l.get("verdict") or ""), str(l.get("error_type") or ""),
+                          steps, max_steps)
+        lines.append(f'{l.get("test_case_id", "?")}: "{str(l.get("title") or "")[:130]}"')
+        if note:
+            lines.append(f"  {note}")
+
+    # Patterns worth stating outright. Only fires on real repetition, so a normal
+    # run adds nothing here.
+    exhausted = sum(1 for l in logs
+                    if str(l.get("error_type") or "") == "STEP_LIMIT_EXCEEDED"
+                    or int(l.get("device_steps") or 0) >= max_steps)
+    if exhausted >= 2:
+        lines.append(f"WARNING: {exhausted} of the last {len(logs)} runs exhausted the step "
+                     f"budget. Your tests are consistently too large — scope the next one down "
+                     f"sharply.")
+    errs = [str(l.get("error_type") or "") for l in logs if l.get("error_type")]
+    repeated = {e for e in errs if errs.count(e) >= 2 and e != "STEP_LIMIT_EXCEEDED"}
+    for e in sorted(repeated):
+        lines.append(f"WARNING: {errs.count(e)} of the last {len(logs)} runs failed with {e} — "
+                     f"treat that as a property of this app or this role, not bad luck.")
+
+    lines.append("Continue any of these threads if it is the most valuable thing to do, or move "
+                 "on — this is information, not an instruction.")
+    return "\n".join(lines)
+
+
 def _seed_user_message(project: str, objective: str, coverage_map: dict,
                        recent_tests: list, available: list[str],
-                       open_questions: list | None = None, total_open: int = 0) -> str:
+                       open_questions: list | None = None, total_open: int = 0,
+                       last_run: str = "") -> str:
     """Small orientation message. Everything else the model fetches itself.
 
     Contrast with the old design, where ~15 blocks were assembled and
@@ -126,6 +222,9 @@ def _seed_user_message(project: str, objective: str, coverage_map: dict,
                          f"outside the agent's control (an SMS code, an identity document, an admin "
                          f"approval). Treat them as already satisfied and test what they unlock.")
         parts.append("")
+
+    if last_run:
+        parts += [last_run, ""]
 
     parts += [
         "Exploration directive to follow:",
@@ -159,6 +258,13 @@ def _seed_user_message(project: str, objective: str, coverage_map: dict,
         ]
 
     parts += [
+        f"## Execution budget — the test you write has to fit in it",
+        f"The executor gets {_settings.EXECUTOR_MAX_STEPS} device actions and "
+        f"{_settings.EXECUTOR_TIMEOUT} seconds for this test, and it must spend some of that "
+        f"navigating to the right screen first. A test that needs more is cut off mid-way and "
+        f"produces NO verdict at all — so an over-scoped test is worse than a narrow one, not "
+        f"more thorough. Verify ONE behaviour.",
+        "",
         f"Tests executed so far: {coverage_map.get('total_tests', 0)}. "
         f"Tools available: {', '.join(available)}.",
         "",
@@ -187,13 +293,14 @@ def run_agent_tools(req_args: dict) -> dict:
         total_open = int(_oq.get("total_open") or len(open_questions))
     except Exception:
         open_questions, total_open = [], 0
+    last_run = _recent_runs_block(project, _settings.EXECUTOR_MAX_STEPS)
     tool_schemas = tools.schemas(available) + [_PROPOSE_TOOL]
 
     messages = [
         {"role": "system", "content": _SYSTEM.format(app_name=app_name)},
         {"role": "user", "content": _seed_user_message(project, objective, coverage_map,
                                                        recent_tests, available, open_questions,
-                                                       total_open)},
+                                                       total_open, last_run)},
     ]
 
     call_log: list[dict] = []

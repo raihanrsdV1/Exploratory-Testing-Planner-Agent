@@ -124,6 +124,31 @@ def _list_findings(project: str, args: dict) -> str:
     return body
 
 
+def _findings_summary(project: str, args: dict) -> str:
+    """The whole finding graph in one bounded view, instead of a truncated list.
+
+    A finding costs ~320 characters, so a list shows about eight however many
+    exist — 8 of 28 today, 8 of 300 after one full campaign. This rollup is
+    bounded by screen x kind x status combinations rather than by finding count,
+    so it stays roughly the same size as the graph grows while covering all of
+    it. Use it to choose WHERE to look; use list_findings(screen=...) to read
+    the actual claims once you have chosen.
+    """
+    d = rag_client.rag_get("/findings/stats", {"project": project})
+    if not d.get("total"):
+        return "No findings recorded yet — this is the start of the campaign."
+    screens = d.get("by_screen") or []
+    return _json({
+        "total_findings": d.get("total"),
+        "by_status": {r["status"]: r["n"] for r in (d.get("by_status") or [])},
+        "by_kind": {r["kind"]: r["n"] for r in (d.get("by_kind") or [])},
+        "by_screen": [{"screen": r["screen"], "total": r["total"], "open": r["open"],
+                       "defects": r["defects"], "agent_trouble": r["agent_trouble"]}
+                      for r in screens[:15]],
+        "screens_shown": min(len(screens), 15), "screens_total": len(screens),
+    }, _MAX_FINDINGS)
+
+
 def _list_open_questions(project: str, args: dict) -> str:
     """Questions previous runs raised but never settled.
 
@@ -251,6 +276,21 @@ _TOOLS: dict[str, dict] = {
                 "group": {"type": "string", "enum": ["oracle", "defect", "agent", "ui"], "description": "Which family of findings (default 'oracle')."},
                 "limit": {"type": "integer"},
             }, "required": []},
+        },
+    },
+    "findings_summary": {
+        "source": "",
+        "impl": _findings_summary,
+        "schema": {
+            "description": (
+                "A count-only overview of everything previous runs established: totals by kind "
+                "and status, and per screen how many findings are open, how many are candidate "
+                "defects, and how often OUR OWN agent struggled there. Covers every finding, "
+                "unlike list_findings which shows only about eight before its output is capped. "
+                "Use this first to decide WHICH screen or area is worth attention, then "
+                "list_findings(screen=...) to read the actual claims there."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     "list_open_questions": {

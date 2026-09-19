@@ -68,9 +68,22 @@ def validate(project: str, proposal: dict, done_titles: list[str] | None = None)
     # ── screen_hint must name a screen that actually exists ──────────────────
     hint = str(proposal.get("screen_hint") or "").strip()
     observed = _observed_screens(project)
-    if observed and hint.lower() not in _UNKNOWN_SCREEN:
-        if not any(hint.lower() == s.lower() or hint.lower() in s.lower() or s.lower() in hint.lower()
-                   for s in observed):
+    if hint.lower() not in _UNKNOWN_SCREEN:
+        if not observed:
+            # Cold start: nothing has been observed, so ANY screen name is a
+            # guess and there is nothing to check it against. Opt-in
+            # (settings.REQUIRE_GROUNDED_SCREEN_HINT) because it changes planner
+            # behaviour on a fresh project; when off, this is exactly the
+            # unvalidated path that existed before.
+            if _settings.REQUIRE_GROUNDED_SCREEN_HINT:
+                errors.append(
+                    "No screens have been observed on this app yet, so any screen name is a "
+                    "guess and the executor would spend its step budget hunting for it. Set "
+                    "screen_hint to 'unknown' and write the objective so the executor can find "
+                    "the screen itself — the map fills in after the first run."
+                )
+        elif not any(hint.lower() == s.lower() or hint.lower() in s.lower() or s.lower() in hint.lower()
+                     for s in observed):
             errors.append(
                 f"screen_hint '{hint}' is not a screen this app has been observed to have. "
                 f"Call get_screen to check, then use one of: {observed[:12]} — "

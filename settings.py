@@ -209,6 +209,21 @@ PLANNER_MODE = _str("PLANNER_MODE", "pipeline").lower()
 # on a reasoning model the time goes to reasoning tokens, and a tool loop pays
 # that cost once per turn rather than once per test case. Empty = provider default.
 PLANNER_REASONING_EFFORT = _str("PLANNER_REASONING_EFFORT", "low")
+
+# Cold-start screen grounding. With an EMPTY app model (a brand-new project, or
+# one where CLEAN_SLATE_APPMODEL wiped the map) there is nothing to validate a
+# screen_hint against, so validation silently skips and the planner may name a
+# screen that does not exist — the executor then spends its whole step budget
+# hunting for it, on exactly the run where the agent knows least.
+#
+# Turning this ON requires screen_hint='unknown' until the app model has at
+# least one observed screen, which tells the executor to explore instead.
+#
+# OFF by default: it changes planner behaviour on a fresh project, and that is
+# an opt-in decision rather than something that should start happening silently.
+# The warm-state check (a named screen that contradicts a NON-empty app model)
+# is separate and always on.
+REQUIRE_GROUNDED_SCREEN_HINT = _bool("REQUIRE_GROUNDED_SCREEN_HINT", False)
 # Generation token ceiling. Reasoning models spend 3-7k tokens on their scratchpad
 # before the JSON answer; too low a cap truncates it and the response fails to parse.
 GENERATION_MAX_TOKENS = _int("GENERATION_MAX_TOKENS", 12000)

@@ -434,6 +434,6 @@ docs/             This guide, architecture diagrams, and the implementation plan
 start.sh/stop.sh  Bring up / tear down the whole local stack (Neo4j, emulator, services)
 ```
 
-For architecture and the work-package history, see [NEXTGEN_IMPLEMENTATION_PLAN.md](NEXTGEN_IMPLEMENTATION_PLAN.md)
-and [WORKFLOW.md](WORKFLOW.md). For exactly what the planner sends the model on each call, see
-[PLANNER_PROMPT_ANATOMY.md](PLANNER_PROMPT_ANATOMY.md) or run `scripts/dump_prompt.py`.
+For architecture and the work-package history, see [NEXTGEN_IMPLEMENTATION_PLAN.md](../sus/NEXTGEN_IMPLEMENTATION_PLAN.md)
+and [WORKFLOW.md](../WORKFLOW.md). For exactly what the planner sends the model on each call, see
+[PLANNER_PROMPT_ANATOMY.md](../sus/PLANNER_PROMPT_ANATOMY.md) or run `scripts/dump_prompt.py`.

@@ -1,8 +1,8 @@
 # The Investigator — turning a device trajectory into durable knowledge
 
 What happens between the executor finishing a run and the planner knowing something new.
-For the planner's own generation call see [PLANNER_PROMPT_ANATOMY.md](PLANNER_PROMPT_ANATOMY.md);
-for the state machine that produces test cases see [System_Architecture.md](System_Architecture.md).
+For the planner's own generation call see [PLANNER_PROMPT_ANATOMY.md](sus/PLANNER_PROMPT_ANATOMY.md);
+for the state machine that produces test cases see [System_Architecture.md](start/System_Architecture.md).
 
 The investigator is the **third LLM role** in the system, alongside the planner
 (`qwen/qwen3.7-flash`) and the executor (`qwen/qwen3.7-flash`). It runs as

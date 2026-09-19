@@ -12,7 +12,7 @@ The loop:
 3. Log the verdict (`pass` / `failed`).
 4. Generate the next, informed by SRS rules, UI elements, coverage gaps, and failure history.
 
-> **New here? Start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** — a tested,
+> **New here? Start with [docs/start/GETTING_STARTED.md](docs/start/GETTING_STARTED.md)** — a tested,
 > end-to-end setup walkthrough (including the on-device portal setup that the sections below
 > predate) plus a troubleshooting table. The rest of this README is reference material.
 

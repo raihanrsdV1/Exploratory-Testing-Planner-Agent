@@ -69,12 +69,24 @@ under the pipeline planner. The tool planner reads them naturally via `list_find
 
 ## 3. Next work, in priority order
 
-### 3.1 Cold-start screen grounding *(~20 min)* — **highest value per effort**
-`proposal.validate` skips the screen check when the app model is empty (`if observed and …`), so
-on a brand-new project the planner can invent a screen name and the executor burns 50 steps on
-it. Zero protection on exactly the run where the agent knows least. Fix: when no screens are
-observed, require `screen_hint: "unknown"`, gated by a `REQUIRE_GROUNDED_SCREEN_HINT` setting so
-it can be switched off.
+### 3.1 Cold-start screen grounding ✅ **BUILT (20 Sep 2026) — opt-in, default OFF**
+
+With an **empty** app model — a brand-new project, or one where `CLEAN_SLATE_APPMODEL` wiped the
+map — `proposal.validate` had nothing to check a `screen_hint` against, so it silently skipped the
+check entirely. An invented screen reached the device unchallenged on exactly the run where the
+agent knows least, and the executor spent its whole step budget hunting for it.
+
+`REQUIRE_GROUNDED_SCREEN_HINT` (`.env`, default `0`) now requires `screen_hint='unknown'` until at
+least one screen has been observed; the executor explores instead and the map fills in after the
+first run. The warm-state check — a named screen contradicting a **non-empty** app model — is
+separate and always on.
+
+**Default OFF by decision:** it changes planner behaviour on a fresh project, so enabling it is a
+deliberate choice rather than something that starts happening silently mid-measurement.
+
+> ⚠️ **While it is off, the bug it fixes is still live.** On a fresh app the planner can name a
+> screen that does not exist and nothing will stop it. Turn it on before any campaign on a new
+> app, or before the app-agnostic claim is tested — that is precisely the scenario it protects.
 
 ### 3.2 Finding lifecycle — make the agent *conclude* things ✅ **DONE (7 Sep 2026)**
 Findings are flat facts. Nothing marks one as an **open question that must be closed**. If the
@@ -106,27 +118,75 @@ immediately before the wipe (`GET /campaigns`).
 **Still open:** aggregates only. Per-test comparison across campaigns would need campaign-scoped
 ids (Option B) — worth doing only if the aggregates turn out to be too coarse.
 
-### 3.4 Coverage reporting *(~15 min)*
+### 3.4 Scaling the finding graph — rollup ✅ **DONE (20 Sep 2026)**, scoping deferred
+
+**The problem, measured.** A finding serialises to ~320 characters against `list_findings`'
+2,500-character cap, so roughly **eight reach the planner however many exist** — 8 of 28 today,
+and 8 of 300 after one full 25-round campaign (the rate is ~3 findings per evaluated test). Worse,
+it arrived silently: the response said `count: 7` with no hint that 21 others existed.
+
+**Built:**
+
+- `findings_summary()` — a rollup bounded by *screen x kind x status* rather than by finding
+  count, so it stays roughly constant as the graph grows. **1,210 chars covering all 28 findings,
+  against 2,477 chars covering 8.** It also answers a question the list form structurally cannot:
+  *which screen has the most unresolved defects?*
+- Visible truncation — `[showing 8 of 28 findings … narrow with screen= or group= to see the rest]`,
+  reporting the count that actually survives the character cap, not the database limit.
+- Balanced open-question slots (see 3.2).
+
+**Deferred — "scope after choosing" (a tool-description change).** Push the planner toward
+`list_findings(screen=…)` once it knows which screen matters. Would cut the survey from ~8,700 to
+~2,500 characters with better coverage.
+
+Held back deliberately, for one reason worth remembering:
+
+> **Scoping hides cross-screen patterns.** The strongest finding in this campaign —
+> *"pressing BACK exits the app"* — was recognised because it appeared independently on
+> **Seller Tester** and on **Disease List**. A planner scoped to one screen sees a local quirk,
+> not a systemic navigation defect. The rollup mitigates this with per-screen defect counts, but
+> counts are not claims, and the textual similarity that makes such a pattern obvious is only
+> visible unscoped.
+
+Two further notes: the change is a behavioural nudge, not a guarantee (a count of open questions
+in the seed changed nothing; moving the list inline changed everything — description changes are
+the weakest lever available), and it must never be applied to the broad survey phase, only after
+an area is chosen. **Revisit when the planner is observed making bad area choices** — that is the
+signal it would fix. Until then the ~6,000 characters it saves are not a constraint being hit.
+
+### 3.5 Coverage reporting *(~15 min)*
 `coverage_pct` is computed from **Figma** screen purposes. With no Figma it reports `0%` while
 requirement coverage says 11% — misleading in the dashboard and in any write-up. Report
 requirement coverage when no design file exists.
 
-### 3.5 Finding decay and retirement
+### 3.6 Finding decay and retirement — **premature, revisit after several campaigns**
 UIStates decay (90-day half-life) and strategies decay; findings never do. A fixed defect stays
-in the oracle forever and the planner keeps steering around a bug that no longer exists. The
-`FOUND_BY` edges give the raw material: a finding not re-observed across N recent runs touching
-its screen is a retirement candidate.
+in the oracle forever and the planner keeps steering around a bug that no longer exists. Real and
+compounding, but two things measured on 20 Sep 2026 say it cannot be built usefully yet:
 
-### 3.6 Typical step cost per area
+- **There is no time signal.** Every finding and every screen currently carries the same
+  `last_seen` date — all the data came from two days of runs — so nothing can be distinguished as
+  stale. Decay needs campaigns spaced over time before it has anything to act on.
+- **`FOUND_BY` edges do not survive.** An earlier version of this section proposed using "not
+  re-observed across N recent runs", but `CLEAN_SLATE`'s `DETACH DELETE` destroys those edges —
+  **0 findings currently link to any run**. The workable signal is `Finding.last_seen` versus its
+  screen's `UIState.last_seen`: a screen visited far more recently than its finding was
+  re-observed is the retirement candidate.
+
+Build it as **soft decay** — mark stale and deprioritise, never delete. "Not re-observed" can
+simply mean "not re-tested", and silently dropping a real defect is much worse than carrying a
+fixed one.
+
+### 3.7 Typical step cost per area
 The planner has no sense that "this kind of flow needs 35+ steps" and can write a test that
 structurally cannot fit in `EXECUTOR_MAX_STEPS`. Same `ExecutionLog` data as the agent-difficulty
 signal.
 
-### 3.7 Proven interaction steps, not just control names
+### 3.8 Proven interaction steps, not just control names
 The planner sees real control names for a screen but not *actions that provably worked*. Requires
 matching trajectory steps to screens — a bigger lift, worth it after 3.1–3.3 land.
 
-### 3.8 Vision captioning for thin screens
+### 3.9 Vision captioning for thin screens
 Screens with no usable accessibility tree (pure Compose/Flutter) are invisible beyond a control
 count. Screenshots are already captured in `data/appmodel/<project>/`. Direct vision at
 generation time is already implemented; the remaining gap is **cached captions** for screens with
@@ -186,7 +246,7 @@ the "gets smarter" claim. `PLANNER_MODE` makes the planner arm a flag flip.
 ## 6. Where the requirement ids come from
 
 `WP1`–`WP9` and `ETA-REQ-301`–`308` appear ~160 times across the code. They are Samsung's
-roadmap, and [NEXTGEN_IMPLEMENTATION_PLAN.md](NEXTGEN_IMPLEMENTATION_PLAN.md) is the decoder —
+roadmap, and [NEXTGEN_IMPLEMENTATION_PLAN.md](sus/NEXTGEN_IMPLEMENTATION_PLAN.md) is the decoder —
 keep that file even though it is historical, or those references become unreadable.
 Thesis-level framing and the eval-harness argument live in
-[research-agentic-exploration.md](research-agentic-exploration.md).
+[research-agentic-exploration.md](sus/research-agentic-exploration.md).

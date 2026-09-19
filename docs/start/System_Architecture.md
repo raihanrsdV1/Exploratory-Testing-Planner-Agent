@@ -2,10 +2,10 @@
 
 The technical reference: what the components are, how a test case flows through them, and where
 the code lives. For the narrative version and how to run it, read
-[WORKFLOW.md](WORKFLOW.md) first. Deep dives:
-[PLANNER_REDESIGN.md](PLANNER_REDESIGN.md) (tool planner) ·
-[PLANNER_PROMPT_ANATOMY.md](PLANNER_PROMPT_ANATOMY.md) (the pipeline planner's prompt) ·
-[INVESTIGATOR.md](INVESTIGATOR.md) (trajectory → findings) · [ROADMAP.md](ROADMAP.md) (what's next).
+[WORKFLOW.md](../WORKFLOW.md) first. Deep dives:
+[PLANNER_REDESIGN.md](../PLANNER_REDESIGN.md) (tool planner) ·
+[PLANNER_PROMPT_ANATOMY.md](../sus/PLANNER_PROMPT_ANATOMY.md) (the pipeline planner's prompt) ·
+[INVESTIGATOR.md](../INVESTIGATOR.md) (trajectory → findings) · [ROADMAP.md](../ROADMAP.md) (what's next).
 
 ---
 
@@ -182,7 +182,7 @@ After `/execution/log`, the executor calls `/execution/evaluate` with the exact 
 The investigator reads the trajectory (≤50 steps), the screens it touched, and the findings
 already known **for those screens**, then emits atomic findings in 8 kinds. Repeats reinforce an
 existing finding by ref (`times_seen++`) rather than duplicating. Full detail:
-[INVESTIGATOR.md](INVESTIGATOR.md).
+[INVESTIGATOR.md](../INVESTIGATOR.md).
 
 Kinds route to different consumers, defined once in `rag_api/findings.py`:
 `oracle` (bug evidence) · `ui` (discovered controls) · `agent` (our own difficulties — never
@@ -226,7 +226,7 @@ executor-side degradation invisible to the dashboard. Occurrences are counted an
 ## 10. Known gaps
 
 - The tool planner is **not the default** — it has not yet been proven better over a campaign
-  ([ROADMAP.md](ROADMAP.md) §4).
+  ([ROADMAP.md](../ROADMAP.md) §4).
 - `proposal.validate` skips the screen check when the app model is **empty**, so a cold-start run
   has no grounding at all (ROADMAP.md §3.1).
 - Findings never decay or retire; a fixed defect stays in the oracle forever (ROADMAP.md §3.4).

@@ -2389,7 +2389,10 @@ def execution_logs(project: str, limit: int = 20, authorization: str | None = He
             project=project, limit=max(1, min(limit, 100)),
         )
         logs = [dict(r) for r in rows]
-    return {"project": project, "logs": logs}
+        total = session.run(
+            "MATCH (p:Project {name:$project})-[:HAS_EXECUTION_LOG]->(e:ExecutionLog) "
+            "RETURN count(e) AS c", project=project).single()["c"]
+    return {"project": project, "count": len(logs), "total": total, "logs": logs}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

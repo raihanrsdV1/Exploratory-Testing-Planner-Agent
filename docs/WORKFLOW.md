@@ -3,10 +3,10 @@
 The one document to read first. What the three agents are, how a test case goes from an idea to
 a finding in the graph, and what to run.
 
-Deeper references: [System_Architecture.md](System_Architecture.md) (technical reference for all
+Deeper references: [System_Architecture.md](start/System_Architecture.md) (technical reference for all
 three agents) · [PLANNER_REDESIGN.md](PLANNER_REDESIGN.md) (why the tool planner exists) ·
 [INVESTIGATOR.md](INVESTIGATOR.md) (trajectory → findings) ·
-[GETTING_STARTED.md](GETTING_STARTED.md) (first-time setup) · [ROADMAP.md](ROADMAP.md) (what's next).
+[GETTING_STARTED.md](start/GETTING_STARTED.md) (first-time setup) · [ROADMAP.md](ROADMAP.md) (what's next).
 
 ---
 
@@ -56,7 +56,7 @@ graph, which has grown. That is what "learning" means here — see §6.
 Two implementations, chosen by `PLANNER_MODE`:
 
 - **`pipeline`** (default) — a LangGraph state machine: bootstrap context → decide what to
-  retrieve → retrieve → generate → duplicate-check. See [System_Architecture.md](System_Architecture.md).
+  retrieve → retrieve → generate → duplicate-check. See [System_Architecture.md](start/System_Architecture.md).
 - **`tools`** — a tool-calling agent with 7 tools over the graph
   (`search_requirements`, `list_untested_requirements`, `get_screen`, `list_screens`,
   `list_findings`, `get_coverage`, `get_nav_path`), terminating in a **validated**

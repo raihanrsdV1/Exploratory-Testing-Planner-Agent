@@ -130,6 +130,111 @@ def main():
         check("get_screen with no name asks for one",
               tools.call("get_screen", project, {}).startswith("Provide"), True)
 
+    print("\nrecent runs come back as evidence, interpreted")
+    # A raw error_type means nothing to a planner deciding what to write next.
+    # What it needs is what that outcome implies about the test IT wrote — above
+    # all, that a budget-exhausted run produced no evidence at all.
+    from planner import agent_loop as _al
+    from planner import rag_client as _rc
+
+    def _with_logs(logs, total=None):
+        orig = _rc.rag_get
+        _rc.rag_get = lambda ep, params=None, **kw: {"logs": logs, "total": total or len(logs)}
+        try:
+            return _al._recent_runs_block("p", 50)
+        finally:
+            _rc.rag_get = orig
+
+    def _run(tc, verdict, steps, err=""):
+        return {"test_case_id": tc, "title": f"title for {tc}", "verdict": verdict,
+                "device_steps": steps, "error_type": err}
+
+    blk = _with_logs([_run("TC-9", "failed", 50, "STEP_LIMIT_EXCEEDED")])
+    check("budget exhaustion is reported as producing NO evidence", "NO evidence" in blk, True)
+    check("and it names over-scoping as the cause", "over-scoped" in blk, True)
+    check("steps are shown against the budget", "50/50" in blk, True)
+
+    check("an unreachable target points back at get_screen",
+          "get_screen" in _with_logs([_run("TC-8", "failed", 34, "NAVIGATION_FAILURE")]), True)
+    check("a real app failure is framed as a result, not a waste",
+          "not a waste" in _with_logs([_run("TC-7", "failed", 21, "ASSERTION_FAILURE")]), True)
+    blk_pass = _with_logs([_run("TC-6", "pass", 12)])
+    check("a pass says do not re-verify", "re-verify" in blk_pass, True)
+    check("every outcome leaves the choice open, not commanded",
+          "not an instruction" in blk_pass, True)
+    check("no history yields no block at all (campaign start)", _with_logs([]), "")
+
+    print("\ntwo runs get reasoning; the rest exist to make a pattern visible")
+    many = [_run("TC-5", "failed", 50, "STEP_LIMIT_EXCEEDED"),
+            _run("TC-4", "failed", 50, "STEP_LIMIT_EXCEEDED"),
+            _run("TC-3", "pass", 9), _run("TC-2", "pass", 11)]
+    blk = _with_logs(many, total=12)
+    check("only the newest two are interpreted",
+          blk.count("produced NO evidence"), 2)
+    check("but every run in the window is listed",
+          all(t in blk for t in ("TC-5", "TC-4", "TC-3", "TC-2")), True)
+    check("the campaign total is shown, not just the window", "of 12 executed" in blk, True)
+
+    print("\npatterns are stated outright, not left to be inferred")
+    check("repeated budget exhaustion is called out",
+          "consistently too large" in blk, True)
+    nav = _with_logs([_run("TC-1", "failed", 31, "NAVIGATION_FAILURE"),
+                      _run("TC-0", "failed", 28, "NAVIGATION_FAILURE"),
+                      _run("TC-x", "pass", 11)])
+    check("a repeated error type is called out as a property, not bad luck",
+          "not bad luck" in nav, True)
+    quiet = _with_logs([_run("TC-a", "pass", 12), _run("TC-b", "failed", 20, "ASSERTION_FAILURE")])
+    check("no warning fires when there is no pattern", "WARNING" in quiet, False)
+
+    print("\nthe step budget is stated where the decision is made")
+    prop = _al._PROPOSE_TOOL["function"]
+    check("the proposal tool warns about scope", "yields NOTHING" in prop["description"], True)
+    check("the objective field asks for ONE behaviour",
+          "ONE behaviour" in prop["parameters"]["properties"]["objective"]["description"], True)
+
+    print("\ncold start: an empty app model has nothing to validate against")
+    # On a brand-new project ANY screen name is a guess, and there is no map to
+    # catch it — the worst case, on the run where the agent knows least. Opt-in
+    # via REQUIRE_GROUNDED_SCREEN_HINT, default OFF, so enabling it is a
+    # deliberate decision rather than a silent behaviour change.
+    import importlib
+    import planner.proposal as _P
+
+    def _validate_cold(flag, hint, title):
+        os.environ["REQUIRE_GROUNDED_SCREEN_HINT"] = flag
+        for m in ("settings", "planner.proposal"):
+            sys.modules.pop(m, None)
+        import settings as _s  # noqa: F401
+        import planner.proposal as _p
+        importlib.reload(_p)
+        return _p.validate("__cold_start_selftest__",
+                           {"title": title, "objective": "o", "expected_result": "e",
+                            "screen_hint": hint}, [])[1]
+
+    _orig = os.environ.get("REQUIRE_GROUNDED_SCREEN_HINT", "")
+    try:
+        off = _validate_cold("0", "Animal Registration Multi-step Flow",
+                             "cold start check with the flag off")
+        check("OFF: an unverifiable screen still passes (previous behaviour)",
+              any("guess" in e for e in off), False)
+
+        on = _validate_cold("1", "Animal Registration Multi-step Flow",
+                            "cold start check with the flag on")
+        check("ON: an unverifiable screen is rejected", any("guess" in e for e in on), True)
+        check("ON: the rejection tells the model what to do instead",
+              any("'unknown'" in e for e in on), True)
+
+        unk = _validate_cold("1", "unknown", "cold start check using unknown")
+        check("ON: 'unknown' is always accepted — honest beats a guess",
+              any("guess" in e for e in unk), False)
+    finally:
+        if _orig:
+            os.environ["REQUIRE_GROUNDED_SCREEN_HINT"] = _orig
+        else:
+            os.environ.pop("REQUIRE_GROUNDED_SCREEN_HINT", None)
+        for m in ("settings", "planner.proposal"):
+            sys.modules.pop(m, None)
+
     print("\na disabled knowledge source is not callable at all")
     names = tools.available({"appmodel_state_count": 5, "srs_summary": "x",
                              "defect_count": 0, "navtree_node_count": 0})
