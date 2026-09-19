@@ -15,6 +15,7 @@ Read in this order.
 | doc | covers |
 |---|---|
 | [System_Architecture.md](start/System_Architecture.md) | The **pipeline** planner's LangGraph state machine (`PLANNER_MODE=pipeline`, the default) |
+| **[PLANNER.md](PLANNER.md)** | **How the planner works in detail** — the tool loop, the 9 tools, the validating proposal gate, open questions, and the pipeline planner it replaces |
 | [PLANNER_REDESIGN.md](PLANNER_REDESIGN.md) | The **tool-calling** planner (`PLANNER_MODE=tools`) — why the old retrieval loop was blind, and the validating proposal gate |
 | [PLANNER_PROMPT_ANATOMY.md](sus/PLANNER_PROMPT_ANATOMY.md) | What the pipeline planner actually sends to the LLM, block by block, with measurements |
 | [INVESTIGATOR.md](INVESTIGATOR.md) | How a device trajectory becomes durable findings: the taxonomy, dedup, config traps |
@@ -26,7 +27,7 @@ Moved here as *suspected redundant or outdated*. Assessed 20 Sep 2026:
 | doc | verdict |
 |---|---|
 | [NEXTGEN_IMPLEMENTATION_PLAN.md](sus/NEXTGEN_IMPLEMENTATION_PLAN.md) | **Keep — not redundant.** `WP1`–`WP9` and `REQ-301`–`308` appear **160 times** in the code (`REQ-303` ×20, `WP6` ×19, `REQ-301` ×19 …). This is the only decoder for them; delete it and those comments become unreadable. Historical as a *plan*, load-bearing as a *glossary*. |
-| [PLANNER_PROMPT_ANATOMY.md](sus/PLANNER_PROMPT_ANATOMY.md) | **Partly outdated.** Describes `PLANNER_MODE=pipeline`, which is still the default, so it is not dead — but its measurements are from the `contacts-app` project, and it predates findings and the tool planner. Re-measure with `scripts/dump_prompt.py` or retire it when `pipeline` goes. |
+| [PLANNER_PROMPT_ANATOMY.md](sus/PLANNER_PROMPT_ANATOMY.md) | **Updated 20 Sep 2026 — no longer stale.** Now covers both planner modes with live measurements from this project. Companion to [PLANNER.md](PLANNER.md). |
 | [research-agentic-exploration.md](sus/research-agentic-exploration.md) | **Keep.** Thesis positioning, and §3 is the offline eval-harness argument — the measurement gap in [ROADMAP.md](ROADMAP.md) §4, which is the biggest outstanding item on the project. Still the "why" behind the work. |
 
 ## Setup and architecture — `docs/start/`
@@ -34,7 +35,7 @@ Moved here as *suspected redundant or outdated*. Assessed 20 Sep 2026:
 | doc | covers |
 |---|---|
 | [GETTING_STARTED.md](start/GETTING_STARTED.md) | First-time setup: Neo4j, emulator, on-device portal, `.env`, troubleshooting |
-| [System_Architecture.md](start/System_Architecture.md) | Technical reference for all three agents: components, both planners, the graph schema |
+| [System_Architecture.md](start/System_Architecture.md) | Technical reference: **how the planner, executor and investigator work together**, components, both planners, the graph schema |
 | [neo4j_setup.md](start/neo4j_setup.md) | Neo4j install options and connection settings |
 
 ## Reports (deliverables, not maintained docs)

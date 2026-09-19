@@ -425,6 +425,13 @@ def dashboard_data(project: str) -> dict:
         "rules": _get("/business-logic/rules", key="rules", default=[]),
         "requirement_coverage": _get("/coverage/requirements", default={}),
         "navtree": _get("/navtree/stats", default={}),
+        # The knowledge layer. Everything above describes runs; these describe
+        # what the runs established — which is the agent's actual product and
+        # was previously only reachable by curl.
+        "findings": _get("/findings", {"project": project, "limit": 60}, key="findings", default=[]),
+        "findings_stats": _get("/findings/stats", default={}),
+        "open_questions": _get("/findings/open", {"project": project, "limit": 20}, default={}),
+        "campaigns": _get("/campaigns", {"project": project, "limit": 12}, key="campaigns", default=[]),
         "nav_failed": _get("/navtree/failed-paths", {"project": project, "limit": 8}, key="failed_paths", default=[]),
         # Read-only: the agent loop (build_learned_context) triggers detection; the
         # dashboard just reads the current alert set — no write-on-poll side effects.

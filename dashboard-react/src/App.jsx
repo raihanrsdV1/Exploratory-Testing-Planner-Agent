@@ -4,6 +4,7 @@ import LogsPanel from './LogsPanel.jsx'
 import Intelligence from './Intelligence.jsx'
 import PlannerTrace from './PlannerTrace.jsx'
 import RunSteps from './RunSteps.jsx'
+import { Findings, OpenQuestions, Campaigns } from './Knowledge.jsx'
 
 const REFRESH_MS = 4000
 const num = (n) => (n == null || isNaN(n) ? '—' : Number(n).toLocaleString())
@@ -72,6 +73,13 @@ export default function App() {
   const am = d.appmodel || {}
   const rules = d.rules || []
   const uncoveredReqs = (d.requirement_coverage || {}).uncovered_requirements || []
+  const findings = d.findings || []
+  const fstats = d.findings_stats || {}
+  const openQ = d.open_questions || {}
+  const campaigns = d.campaigns || []
+  const reqCov = d.requirement_coverage || {}
+  const answered = findings.filter(f => f.resolution).length
+  const defects = findings.filter(f => f.kind === 'SPEC_VIOLATION' || f.kind === 'SUSPECTED_DEFECT').length
   const nodeLabel = Object.fromEntries((am.nodes || []).map(n => [n.id, n.label]))
   // Resolve a run's path to current state labels and collapse consecutive repeats
   // into the actual navigation route.
@@ -125,18 +133,50 @@ export default function App() {
           <Tile label="Total Tests" value={num(s.test_case_count)} sub={planned.length ? `${s.test_run_count || 0} runs · ${planned.length} planned` : `${s.test_run_count || 0} runs`} />
           <Tile label="Pass Rate" value={passRate + '%'} sub={`${passed.length}/${executedCount} executed`} cls="pass" />
           <Tile label="Bugs Found" value={num(failed.length)} sub="failed verdicts" cls="fail" />
-          <Tile label="Coverage" value={(cov.coverage_pct ?? 0) + '%'} sub={`${cov.areas_tested || 0}/${cov.areas_available || 0} areas`} />
+          <Tile label="Area Coverage" value={(cov.coverage_pct ?? 0) + '%'}
+                sub={`${cov.areas_tested || 0}/${cov.areas_available || 0} · vs ${cov.area_source || 'none'}`} />
           <Tile label="Business Policies" value={num(s.validation_rule_count)} sub="validation rules (SRS)" cls="accent" />
           <Tile label="Requirements" value={num(s.requirement_count)} sub={`${num(s.covered_requirement_count)} covered`} />
           <Tile label="App States" value={num(am.state_count)} sub={`${(am.edges || []).length} transitions`} cls="accent" />
           <Tile label="Screens" value={num(s.figma_screen_count)} sub={`${num(s.figma_element_count)} UI elements`} />
         </section>
 
-        <div className="situation">
-          {recent.length
-            ? <>Overall: <b>{num(s.test_case_count)}</b> test cases, <b>{failed.length}</b> bug(s) across <b>{cov.areas_tested || 0}</b>/<b>{cov.areas_available || 0}</b> UI areas. The agent evaluated <b>{num(s.requirement_count)}</b> requirements and <b>{num(s.validation_rule_count)}</b> business policies from the SRS, and has mapped <b>{num(am.state_count)}</b> live app states.</>
-            : <>No tests executed yet for <b>{d.project || project}</b>. Start the executor loop to begin exploration.</>}
+        <div className="strip">
+          <div className="cell info"><div className="k">Knowledge</div>
+            <div className="v">{num(fstats.total || findings.length)}</div>
+            <div className="s">findings recorded</div></div>
+          <div className="cell bad"><div className="k">Candidate defects</div>
+            <div className="v">{num(defects)}</div>
+            <div className="s">unvalidated — needs review</div></div>
+          <div className="cell"><div className="k">Open questions</div>
+            <div className="v">{num(openQ.total_open || 0)}</div>
+            <div className="s">{answered} answered so far</div></div>
+          <div className="cell good"><div className="k">Pass rate</div>
+            <div className="v">{passRate}%</div>
+            <div className="s">{passed.length}/{executedCount} executed</div></div>
+          <div className="cell"><div className="k">Requirements</div>
+            <div className="v">{num(reqCov.ever_covered_requirements ?? cov.areas_tested ?? 0)}
+              <span style={{ fontSize: 14, color: 'var(--muted)' }}>/{num(reqCov.total_requirements || s.requirement_count)}</span></div>
+            <div className="s">ever covered · {reqCov.covered_requirements ?? 0} this campaign</div></div>
+          <div className="cell info"><div className="k">App map</div>
+            <div className="v">{num(am.state_count)}</div>
+            <div className="s">{(am.edges || []).length} transitions</div></div>
         </div>
+
+        {cov.area_source === 'none' ? (
+          <div className="situation">
+            Area coverage has no basis to measure against — no design file and no requirement
+            features. The percentage below is not a measurement.
+          </div>
+        ) : null}
+
+        <div className="groupline"><span>What the agent has learned</span></div>
+
+        <Findings findings={findings} stats={fstats} />
+        <OpenQuestions open={openQ} findings={findings} />
+        <Campaigns campaigns={campaigns} />
+
+        <div className="groupline"><span>How it explored</span></div>
 
         <div className="panel">
           <h2>🗺️ Live App Model <span className="count">{am.state_count ? `(${am.state_count} states · ${(am.edges || []).length} transitions)` : ''}</span></h2>

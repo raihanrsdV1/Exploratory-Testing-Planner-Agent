@@ -3,8 +3,9 @@
 The one document to read first. What the three agents are, how a test case goes from an idea to
 a finding in the graph, and what to run.
 
-Deeper references: [System_Architecture.md](start/System_Architecture.md) (technical reference for all
-three agents) · [PLANNER_REDESIGN.md](PLANNER_REDESIGN.md) (why the tool planner exists) ·
+Deeper references: [System_Architecture.md](start/System_Architecture.md) (how the three agents
+work together) · [PLANNER.md](PLANNER.md) (how the planner works) ·
+[PLANNER_REDESIGN.md](PLANNER_REDESIGN.md) (why the tool planner exists) ·
 [INVESTIGATOR.md](INVESTIGATOR.md) (trajectory → findings) ·
 [GETTING_STARTED.md](start/GETTING_STARTED.md) (first-time setup) · [ROADMAP.md](ROADMAP.md) (what's next).
 
@@ -57,10 +58,11 @@ Two implementations, chosen by `PLANNER_MODE`:
 
 - **`pipeline`** (default) — a LangGraph state machine: bootstrap context → decide what to
   retrieve → retrieve → generate → duplicate-check. See [System_Architecture.md](start/System_Architecture.md).
-- **`tools`** — a tool-calling agent with 7 tools over the graph
+- **`tools`** — a tool-calling agent with 9 tools over the graph
   (`search_requirements`, `list_untested_requirements`, `get_screen`, `list_screens`,
-  `list_findings`, `get_coverage`, `get_nav_path`), terminating in a **validated**
-  `propose_test_case`. See [PLANNER_REDESIGN.md](PLANNER_REDESIGN.md).
+  `findings_summary`, `list_findings`, `list_open_questions`, `get_coverage`,
+  `get_nav_path`), terminating in a **validated** `propose_test_case`.
+  See [PLANNER.md](PLANNER.md) for how it works.
 
 The validation gate is the important part: a `screen_hint` naming a screen the app has never
 been observed to have, an invented requirement id, a semantic duplicate, or an out-of-scope area
@@ -157,7 +159,7 @@ curl "http://127.0.0.1:9010/findings?project=$PROJECT&group=agent&limit=10"  | p
 curl "http://127.0.0.1:9010/appmodel/graph?project=$PROJECT" | python3 -m json.tool
 ```
 
-Tests — 6 modules, 104 checks, non-zero exit on failure. Graph-backed modules skip cleanly with
+Tests — 6 modules, non-zero exit on failure. Graph-backed modules skip cleanly with
 no Neo4j:
 
 ```bash

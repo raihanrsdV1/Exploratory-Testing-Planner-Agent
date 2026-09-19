@@ -1,180 +1,162 @@
 # Planner Prompt Anatomy
 
-What the planner actually sends to the LLM on each generation call, which parts are constant,
-which parts grow as testing proceeds, and where the ceilings are.
+Exactly what the planner sends to the model, byte by byte, in both planner modes. For *how* the
+planner works, read [PLANNER.md](../PLANNER.md) first — this file is the measurement companion
+to it.
 
-Measured on `contacts-app` after 22 executed tests (16 failures) and 15 observed app states:
+Measured 20 Sep 2026 against the live `shobarkhamar` campaign (49 findings, 14 open questions,
+52 observed screens, 106 requirements).
 
-> **23,081 characters ≈ 5,770 tokens** — about **0.6%** of the model's 1,000,000-token window.
-
-Every LLM call is **stateless**. There is no conversation history: the prompt below is rebuilt
-from the Neo4j graph from scratch, every single call. "Learning" means the graph grew, so the
-next prompt is assembled from better facts — not that the model remembers anything.
-
-To regenerate this measurement for your own project, dump the live prompt:
-
-```bash
-# writes logs/planner_prompt_preview.txt and prints a per-block size table
-./venv/bin/python scripts/dump_prompt.py      # see "Reproducing" at the bottom
-```
+Every LLM call is **stateless**. Nothing is remembered between planning rounds; the prompt is
+rebuilt from the Neo4j graph each time. "Learning" means the graph grew, so the next prompt is
+assembled from better facts — not that the model recalls anything.
 
 ---
 
-## How the prompt is assembled
+## The two modes have completely different anatomies
 
-```mermaid
-flowchart LR
-    subgraph SRC["Sources (Neo4j + live device)"]
-        SRS["SRS chunks<br/>+ requirements"]
-        FIG["Figma screens<br/>+ elements"]
-        LIVE["Live App Model<br/>UIStates + controls"]
-        DEF["Defect history"]
-        HIST["TestCase + TestRun<br/>verdicts + notes"]
-        EXEC["ExecutionLog<br/>paths + error types"]
-        LEARN["Derived: NavTree, ErrorPattern,<br/>StrategyMemory, Risk, Anomalies"]
-    end
+| | `pipeline` (default) | `tools` |
+|---|---|---|
+| shape | one large assembled prompt | small seed + tool results in a conversation |
+| model reads retrieved content | **no** — only one-line notes per round | yes, in full |
+| size driver | ~15 blocks fitted to a token budget | what the model chooses to fetch |
+| calls per test case | 4 (3 small + 1 large) | 7–8 turns, 12–18 tool calls |
 
-    subgraph BUILD["Assembly (per call)"]
-        RET["retrieval rounds<br/>(2-3 LLM calls)"]
-        COV["coverage.py<br/>coverage map + directive"]
-        CB["context_builders.py<br/>learned + failure context"]
-    end
-
-    subgraph PROMPT["Generation prompt (~5.8k tokens)"]
-        FIXED["FIXED ~3.2k chars<br/>role, mindset, heuristics,<br/>policy, output contract"]
-        BOUND["BOUNDED ~7.8k chars<br/>rules, screens, controls,<br/>defects, risk, anomalies"]
-        GROW["GROWS ~10.2k chars<br/>executed titles,<br/>proven findings"]
-    end
-
-    SRS --> RET --> BOUND
-    FIG --> RET
-    LIVE --> RET
-    DEF --> CB --> BOUND
-    LEARN --> CB
-    HIST --> COV --> BOUND
-    HIST --> GROW
-    EXEC --> CB --> GROW
-    FIXED -.->|never changes| PROMPT
-```
+`PLANNER_MODE` selects which runs.
 
 ---
 
-## Block-by-block
+# Part 1 — `tools` mode
 
-Legend — **FIXED**: identical on every call. **BOUNDED**: content changes, size capped by a hard
-limit. **GROWS**: size scales with how much testing has happened, up to a cap.
+## What is fixed, per round
 
-| # | Block | Chars | Class | Grows with | Ceiling |
-|---|---|---:|---|---|---|
-| 1 | Role + session objective | 188 | FIXED | — | — |
-| 2 | `## Exploratory testing mindset` | 718 | FIXED | — | — |
-| 3 | `## Live Coverage State` | 280 | GROWS | number of feature **areas** tested | ~1 line per area |
-| 4 | `## Exploration Directive` | 423 | BOUNDED | — | 3 hot spots, 5 uncovered areas |
-| 5 | `## Business Rules & Requirements (from SRS)` | 1,397 | BOUNDED | retrieved SRS chunks | 8,000 chars |
-| 6 | `## App Screens & UI Structure` | 1,271 | BOUNDED | Figma screen count | 4 buttons / 4 inputs per screen |
-| 7 | `## Interactive Elements on Relevant Screens` | 3,904 | BOUNDED | screens + observed states | 2 Figma screens, 12 live states × 8 controls |
-| 8 | `## Defect History Context` | 583 | BOUNDED | ingested defects | 2,000 chars |
-| 9 | `## Known Failed Navigation Paths` | 553 | BOUNDED | nav-tree avoid nodes | 8 entries |
-| 10 | `## Regression Risk Assessment` | 532 | BOUNDED | scored areas | 6 areas |
-| 11 | `## Emerging Anomalies` | 491 | BOUNDED | detected alerts | 5 alerts |
-| 12 | `## Strategy Suggestions` | 226 | BOUNDED | strategy memory | 4 strategies |
-| 13 | `## Executed Tests` (dedup list) | 2,903 | **GROWS** | **every test generated** | **120 titles** |
-| 14 | `## What Previous Tests Already Proved` | 7,273 | **GROWS** | **every test that failed** | **25 findings × 300 chars + 5 patterns** |
-| 15 | `## Exploratory Testing Heuristics` | 718 | FIXED | — | — |
-| 16 | `## Strict Decision Policy` | 1,191 | FIXED | — | — |
-| 17 | `## Output — STRICT JSON only` | 414 | FIXED | — | — |
+| Component | Chars | Notes |
+|---|---:|---|
+| System prompt | 1,696 | role, the rules that matter most, tool-use discipline |
+| 9 tool schemas | 4,295 | names, descriptions, parameter shapes |
+| of which `propose_test_case` | 2,598 | the validated terminal tool, largest by far |
+| **Seed message** | **4,564** | see below |
+| **Fixed total** | **~10,555** | ≈ 2,600 tokens before a single tool is called |
 
-**Totals:** FIXED ≈ 3,229 chars (14%) · BOUNDED ≈ 9,657 (42%) · GROWS ≈ 10,456 (45%).
+## The seed message, block by block
 
-Not shown above: the **retrieval-planning** calls that precede generation (2–3 smaller prompts,
-~1.6–2.7k tokens each) which decide *which* SRS queries and screens to pull. Those are what you
-see as the smaller entries in the OpenRouter usage log.
+```
+   71 ch  Session objective
+  999 ch  Session constraints (role, account state, OUT_OF_SCOPE)
+  998 ch  ## Your last 3 run(s) — of 3 executed this campaign
+  196 ch  Exploration directive
+ 1696 ch  ## Open questions (5 shown of 14)
+  605 ch  ## Execution budget
+-------
+ 4564 ch  TOTAL
+```
+
+Two of these blocks exist because **placement beat wording** in testing:
+
+- **Open questions (1,696 ch, the largest block).** With only a *count* here and the list behind
+  `list_open_questions`, the planner called the tool on turn 1 and still opened a brand-new area.
+  Moving the list inline changed the behaviour immediately. Shows 5 of 14 — the rest are a tool
+  call away, and the header says so.
+- **Recent runs (998 ch).** Two runs get a full interpretation; the rest are one-liners so a
+  *pattern* is visible (`2 of the last 3 runs exhausted the step budget`) rather than left to be
+  inferred from one sample.
+
+## Tool results — measured live
+
+| Tool | Chars | Cap |
+|---|---:|---|
+| `search_requirements` | 2,993 | 3,000 |
+| `list_untested_requirements` | 2,693 | 3,000 |
+| `list_open_questions` | 2,493 | 2,500 |
+| `list_findings` | 2,267 | 2,500 |
+| `findings_summary` | 1,574 | 2,500 |
+| `list_screens` | 1,455 | 2,000 |
+| `get_coverage` | 1,343 | 2,000 |
+| `get_screen` | 151 | 1,200 |
+
+**There is no global prompt budget in this mode.** Each tool caps its own output, because the
+model pulls rather than being pushed everything that fits. A typical round of 12–18 calls adds
+roughly 15–25k characters of *content the model actually asked for*.
+
+### The one that scales differently
+
+`findings_summary` is bounded by **screen × kind × status combinations**, not by finding count —
+so it stays roughly flat as the graph grows:
+
+| findings in graph | `list_findings` shows | `findings_summary` shows |
+|---:|---|---|
+| 28 | 8 (29%) in 2,477 ch | all 28 in ~1,210 ch |
+| 300 | 8 (2.7%) | all 300 in ~2,000 ch |
+
+That is why the rollup exists. `list_findings` also appends
+`[showing 8 of 49 … narrow with screen= or group=]` so truncation is never silent.
+
+## Total per planning round
+
+```
+fixed        ~10,555 ch   (system + schemas + seed)
+tool results ~15,000–25,000 ch  across 12–18 calls
+------
+             ~25,000–36,000 ch ≈ 6–9k tokens, spread over 7–8 calls
+```
+
+Against a 1,000,000-token window this is under 1%. The system is **cap-limited, not
+context-limited**, and deliberately so.
 
 ---
 
-## What actually grows, and how fast
+# Part 2 — `pipeline` mode (still the default)
 
-Only two blocks scale with session length.
+One large prompt assembled from ~15 candidate blocks, fitted highest-priority-first into
+`PROMPT_BUDGET_TOKENS` (50,000) by `planner/budget.py`.
 
-**Block 13 — Executed Tests.** One line per test ever generated, used to forbid duplicates.
-At ~90 chars per title that is roughly **90 chars per test**, hard-capped at 120 titles
-(~11k chars). Past 120, the oldest tests stop being duplicate-blocked.
+| priority | blocks | dropped first? |
+|---|---|---|
+| 0 | requirements, SRS context, UI context | never |
+| 1 | what previous runs established, executed titles | third |
+| 2 | defect history, risk, anomalies, nav path, failed nav, strategy | second |
+| 3 | UI overview, transitions, failed titles | first |
 
-**Block 14 — What Previous Tests Already Proved.** One entry per *failed* test: title plus the
-real failure reason, trimmed to 300 chars. Roughly **400 chars per failure**, capped at 25
-entries (~10k chars) plus 5 mined error patterns. Past 25, older findings drop out.
+Measured generation prompts on this project ranged **15,530 → 51,002 chars**. The largest was
+51,002, of which **35,233 (69%) was the "what previous runs established" block** when it still
+inlined the investigator's prose reports. That block is now built from **findings** and sits at
+roughly 2,000 chars — the single biggest reduction in this design.
+
+### What still grows here
+
+Only two blocks scale with session length, both capped:
 
 ```
-prompt size ≈ 3,200 (fixed)
-            + ~9,700 (bounded blocks, roughly flat)
-            + 90 × min(tests, 120)
-            + 400 × min(failures, 25)
+prompt ≈ fixed + bounded + 90 × min(tests, 120) + (findings block, ~2,000)
 ```
 
-| Session length | Approx. prompt | % of 1M window |
-|---|---:|---:|
-| 0 tests (cold start) | ~9,000 chars ≈ 2.3k tokens | 0.2% |
-| 22 tests / 16 failures *(measured)* | 23,081 chars ≈ 5.8k tokens | 0.6% |
-| 60 tests / 40 failures | ~28,300 chars ≈ 7.1k tokens | 0.7% |
-| 120+ tests / 25+ failures **(saturated)** | ~30,900 chars ≈ 7.7k tokens | 0.8% |
-
-**The prompt cannot grow past roughly 8k tokens.** Every unbounded input has a cap, so the
-prompt plateaus — it never approaches the context window. That is the important thing to
-understand: the system is not context-limited, it is **cap-limited**, and the caps were chosen
-conservatively.
-
-### The consequence of saturating
-
-When a cap is hit, the excess is **dropped, not summarised**. Concretely, past 120 tests the
-planner can regenerate an old test because it is no longer in the dedup list; past 25 findings
-it can re-discover an old defect because the finding is no longer in its context. Aggregates
-(coverage percentages, risk scores, strategy effectiveness, error patterns) are computed over
-the **whole** history in the database, so the *shape* of history survives — only the
+When a cap binds the excess is **dropped, not summarised**: past 120 tests the planner can
+regenerate an old test because it left the dedup list. Aggregates (coverage, risk, strategy,
+error patterns) are computed over the whole database, so the *shape* of history survives — only
 per-test detail is lost.
 
-Raising the caps is nearly free at current sizes. The principled fix once they genuinely bind
-is a summariser pass that compresses old findings into a short "what we know about this app"
-memo instead of discarding them.
+---
+
+## Reproducing these numbers
+
+```bash
+# pipeline mode: dump the assembled prompt and a per-block table
+./venv/bin/python scripts/dump_prompt.py
+
+# tools mode: every LLM call of one generation, input and output, in order
+less logs/planner/TC-001.txt
+```
+
+Note `logs/planner/*.txt` truncates each logged message at 4,000 chars, so for exact seed sizes
+rebuild it with `agent_loop._seed_user_message(...)` rather than reading the log.
 
 ---
 
-## Where each block comes from
-
-| Block | Built by | Data source |
-|---|---|---|
-| 3, 4 | `planner/coverage.py` | `TestCase.last_verdict` + `area`, Figma screen purposes |
-| 5 | `POST /retrieve` | SRS `Chunk` embeddings + keyword, defect-weighted |
-| 6, 7 | `planner/context_builders.py`, `sources/figma_ui.py`, `sources/liveui.py` | `FigmaScreen`/`UIElement`, `UIState.key_set` |
-| 8 | `sources/defects.py`, `GET /defects/context` | `Defect` nodes |
-| 9 | `GET /navtree/failed-paths` | `NavTreeNode.avoid` |
-| 10 | `GET /risk/scores` | `FeatureArea.regression_risk_score` |
-| 11 | `GET /anomalies` | `AnomalyAlert` |
-| 12 | `GET /strategy/memory` | `StrategyMemory` (decay-weighted) |
-| 13 | `POST /context/brief` | `TestCase.title` |
-| 14 | `context_builders.build_failure_context` | `TestCase.last_notes` + `GET /execution/error-patterns` |
-| 1, 2, 15–17 | `planner/prompts.py` | hardcoded |
-
----
-
-## Known gaps — data in the graph that is *not* in the prompt
+## Gaps — data in the graph that still never reaches a prompt
 
 | Available | Why it matters |
 |---|---|
-| **16 extracted `ValidationRule` nodes** (with `FR-` ids, confidence, provenance) | Block 5 sends raw SRS chunk text instead, containing **no `FR-` identifiers** — yet the output contract asks the model to cite requirement ids. |
-| **Uncovered requirements** (`GET /coverage/requirements`) | Coverage is communicated per *area* only. The planner is never told which specific requirements have no test. |
-| **Per-step device actions** (`logs/trajectories/*/trajectory.json`) | Only the final failure reason is fed back, not which interactions provably worked. |
-| **Screenshots** (`data/appmodel/<project>/*.png`) | Never sent. Pure-Compose screens expose zero control names structurally, so those screens are effectively invisible in text. |
-| **35 `Entity` nodes**, defect `root_cause_category`, per-test effectiveness | Computed and stored; unused in generation. |
-
----
-
-## Reproducing this
-
-The generation prompt is also retrievable at runtime — pass `debug_trace: true` to
-`POST /agent/next-testcase` and read `debug_trace.final_prompt` (this costs a real generation).
-
-For a zero-cost dump, rebuild the prompt from the graph with the same builders the agent uses
-(`rag_client.get_brief_context` → `coverage.compute_coverage_map` →
-`context_builders.build_learned_context` / `build_failure_context` →
-`prompts.build_testcase_prompt`) and write it to a file. The per-block table above was produced
-by splitting that output on `\n## `.
+| Screenshots (`data/appmodel/<project>/*.png`) | `get_screen` returns text only. Pure-Compose screens expose no control names structurally, so they are effectively invisible. Pipeline mode *does* attach one screenshot at generation. |
+| Per-step device actions (`logs/trajectories/*/trajectory.json`) | The investigator reads them; the planner never sees which interactions provably worked. |
+| `Entity` nodes, defect `root_cause_category`, per-test effectiveness | Computed and stored, unused in generation. |
+| Role of the observer | Nothing records which role saw a screen or finding — see [ROADMAP.md](../ROADMAP.md). |

@@ -97,22 +97,50 @@ reported 100% autonomy when it was 67%.
 
 ## 4. What the investigator is given
 
+In order, and the order matters:
+
+| Block | Source | Why |
+|---|---|---|
+| **The mission** *(when there is one)* | `addresses` on the evaluate request | the open question this run was commissioned to answer |
+| Objective / expected result / screen assumption | the test case | what it set out to do |
+| Screens the run actually visited | `path_labels` from the execution log | |
+| Structural facts about those screens | `/appmodel/graph` | so known controls are not re-reported as discoveries |
+| Findings already recorded **for those screens** | `GET /findings` | open ones flagged `**OPEN QUESTION**` |
+| The trajectory | `trajectory.json`, ≤50 steps, untruncated | thought + action + result per step |
+| Final outcome | the agent's own success/reason | |
+
+### The mission block
+
+When the planner targeted an open question, the prompt **opens** with it:
+
 ```
-1. objective / expected result / assumed screen      the test's own intent
-2. screens this run actually visited                 ExecutionLog.path_labels
-3. structural facts about those screens              /appmodel/graph controls   (~0.1-1.2k ch)
-4. findings ALREADY RECORDED for those screens       /findings?screens=…        (~1.3k ch, capped at 12)
-5. the trajectory                                    thought + action per step  (capped at 50 steps)
-6. the agent's own final outcome                     success + reason
-7. the output contract                               fixed, ~3.0k ch
+THIS RUN WAS COMMISSIONED TO ANSWER AN OPEN QUESTION.
+  [F-2d7aaddb] (UNVERIFIED, attempt 3 of 3) The test objective (update farm name,
+  verify explicit feedback and persistence) was never attempted…
+  Why it is still open: Steps 13, 20, 27, 36 reached the farm profile update screen
+  but the agent only read the current value and immediately clicked…
+Your first job is to say whether the steps below settle it. If they do, emit a
+finding whose claim IS the answer and set `resolves` to F-2d7aaddb. If they do not,
+say so plainly and leave it open — failing to settle a question is a legitimate
+outcome, and guessing is worse than leaving it open.
 ```
 
-Block 4 is the load-bearing change. It replaced two blocks that had no ceiling — an app-model
-dump and *every previous evaluation's full report* — with a bounded list of one-liners, each
-carrying a short ref, scoped to the screens **this run touched** rather than the whole campaign.
-Before the redesign, five prior findings cost 86,008 characters; the same five now cost 1,333.
+This block exists because of a measured failure. Across a whole campaign the model emitted
+`resolves` on **every** finding and left it empty **every** time:
 
----
+```
+TC-001: 4 findings | 'resolves' key present on 4 | NON-EMPTY: 0
+TC-002: 6 findings | 'resolves' key present on 6 | NON-EMPTY: 0
+```
+
+It was not refusing. `addresses` was dropped in transit — the planner recorded which question a
+test was for, the executor received it, and then omitted it from the evaluate call. The
+investigator saw a *generic* list of open questions for whatever screens the run happened to
+touch, with nothing linking the trajectory to any of them, and correctly declined to claim an
+answer. Carrying the field end to end fixed it on the next run.
+
+The prior evidence (*"why it is still open"*) is included so the evaluator can distinguish a real
+answer from a repeat of the same non-attempt.
 
 ## 5. Deduplication is model-led, not embedding-led
 
@@ -269,28 +297,35 @@ Every path is best-effort — a failure here costs one learning opportunity, nev
 
 ## 9. Measured before / after
 
-**Single replay** — same test, same trajectory, same model, old prompt vs new:
+The prose design re-fed every previous report into both its own next prompt and the planner's:
 
-| | before | after |
-|---|---|---|
-| Latency | 600 s client timeout | **22.1 s** |
-| Prior knowledge in prompt | 86,008 ch (5 reports) | **1,333 ch** (5 one-liners) |
-| Planner's observations block | 35,233 ch (69% of prompt) | **2,010 ch** |
-| Output | 20,093 ch prose | 2,784 ch structured |
-| Format stability | JSON 7/14, prose 7/14 | one contract |
+| | prose reports | atomic findings |
+|---|---:|---:|
+| evaluator input, mean | 32,751 ch | **17,063 ch** |
+| evaluator output, mean | 11,673 ch | **3,286 ch** |
+| prior-knowledge block at 5 findings | 86,008 ch (88% of the prompt) | **1,333 ch** |
+| latency | 600s timeouts | **22–96s** |
+| planner's "what previous runs established" | 35,233 ch (69% of one prompt) | **~2,000 ch** |
 
-**Live 3-round campaign** (6 Sep 2026, `shobarkhamar`, 21 min, 2 pass / 1 fail):
+The direction reversed, which is the point. Across one campaign the evaluator's prompt **shrank**
+— 20,466 → 19,010 → 15,291 → 10,959 chars — because later runs cite prior findings instead of
+re-deriving them. The same sequence under the prose design grew 28,344 → 97,796.
 
-| | old design (n=14) | new design (n=5) |
-|---|---|---|
-| Mean evaluator input | 32,751 ch | **17,063 ch** |
-| Mean evaluator output | 11,673 ch | **3,286 ch** |
+### The resolve loop, verified
 
-Four evaluations produced 19 findings, **3 of them reinforcing an existing finding by ref**
-rather than restating it. The direction of travel is the point: the prompt got *smaller* as the
-campaign went on — 20,466 → 19,010 → 15,291 → 10,959 characters — because later runs cite prior
-findings instead of re-deriving them. Under the prose design the same sequence grew from 28,344
-to 97,796.
+The check that returned **0** before the fix, on a real 2-round campaign afterwards:
+
+```
+Q: "The test objective (update farm name, verify explicit feedback and persistence)
+    was never attempted: the agent made no edit, no save, and no restart check."
+A: "The farm name edit objective (edit field, save, success toast, persistence after
+    navigating away and back) was fully attempted and completed in this run,
+    resolving the open question."
+status=resolved  attempts=3
+```
+
+Note the question had already exhausted its budget and been closed as `inconclusive`; the answer
+**upgraded it to resolved**. Giving up is provisional; an answer overrides it.
 
 ## 10. Inspecting a run
 

@@ -9,7 +9,7 @@ Written 6 Sep 2026. If you are new here, read [WORKFLOW.md](WORKFLOW.md) first.
 
 **Working end to end.** A campaign plans a test, runs it on a real Android emulator, evaluates
 the trajectory, writes findings into Neo4j, and plans the next test from the grown graph.
-6 test modules / 104 checks pass (`./venv/bin/python tests/run_all.py`).
+6 test modules pass (`./venv/bin/python tests/run_all.py`).
 
 Two planners exist side by side, selected by `PLANNER_MODE`:
 

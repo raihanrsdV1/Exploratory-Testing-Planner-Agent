@@ -38,13 +38,97 @@ exhausts its retries it is skipped for `_RATE_LIMIT_COOLDOWN_S` (180s) rather th
 2+4+8s backoff on every subsequent call — that backoff was measured at ~112s of a 115s planning
 round during a rate-limit storm.
 
-## 2. Code map
+## 2. How the three agents work together
+
+Each agent answers one question, and each is deliberately bad at the other two.
+
+| Agent | Question | What it can see | What it cannot |
+|---|---|---|---|
+| **Planner** | what should we test next? | the whole knowledge graph | the live device |
+| **Executor** | how do I do it here? | the live screen, right now | why this test matters |
+| **Investigator** | what did that establish? | the full trajectory, afterwards | the app, live |
+
+The planner cannot see the app, so it emits a **goal, not a script** — its named screen matched
+reality only ~16% of the time before validation was added. The executor has live vision but no
+idea what a run *proved*, because it is inside it. The investigator has the whole trajectory but
+only after the fact. Handing each the one thing it lacks is the entire architecture.
+
+### One round
+
+```mermaid
+sequenceDiagram
+    participant P as PLANNER
+    participant G as GRAPH
+    participant X as EXECUTOR
+    participant I as INVESTIGATOR
+
+    P->>G: what is known? (9 tools)
+    G-->>P: requirements · screens · findings · open questions · coverage
+    P->>P: propose_test_case → VALIDATED
+    Note over P: rejected → fixable reason → retry
+    P->>X: goal + screen_hint ("a LEAD, not a fact") + addresses
+    loop up to 50 steps
+        X->>X: observe screen, decide, act
+        X->>G: /liveui/observe → UIState + transition
+    end
+    X->>G: /execution/log → verdict, steps, error_type
+    X->>I: /execution/evaluate (trajectory + addresses)
+    I->>G: what is already known about these screens?
+    G-->>I: findings, open questions flagged
+    I->>G: atomic findings — created, reinforced, or resolving a question
+    G-->>P: next round reads the grown graph
+```
+
+### What each hands the next
+
+**Planner → Executor.** An objective, an optional `screen_hint`, and `addresses` if the test is
+closing an open question. Not steps: the planner cannot see the app, so a literal tap script is
+usually wrong and a wrong one is worse than a clear goal.
+
+**Executor → Graph.** Every observed UI state, deduped by structural signature, plus the
+transition that reached it. This is how the app map builds itself with no design file.
+
+**Executor → Investigator.** The exact trajectory folder, the screens walked, and the mission
+ref. That last field was dropped for a whole campaign, and the consequence was that no open
+question was ever *answered* — only abandoned when its attempts ran out.
+
+**Investigator → Graph.** Atomic findings, deduplicated on write. A repeat reinforces
+(`times_seen++`); an answer to an open question resolves it.
+
+**Graph → Planner.** The next round rebuilds from what grew. Nothing is remembered in-context;
+"learning" means the graph has better facts in it.
+
+### The three feedback loops
+
+```
+1. PERCEPTION   executor → UIState/transitions → planner names real screens
+                (the app map builds itself — no Figma file is involved)
+
+2. KNOWLEDGE    investigator → findings → planner's bug oracle
+                (what is proven, what is broken, what is unsettled)
+
+3. SELF-CORRECTION  execution log → recent-runs block → planner's next test
+                (steps against budget, error type — teaches it to scope smaller)
+```
+
+Loop 3 is the one most systems lack: the planner is told not just *what the app did* but *how its
+own last test fared*, so over-scoping has a visible consequence that returns to what caused it.
+
+### What is deliberately kept apart
+
+`AGENT_DIFFICULTY` findings — *our* agent struggling — never enter the bug oracle. A screen where
+the executor keeps getting stuck is a fact about us, and presenting it as app evidence would send
+the planner hunting defects that do not exist. Same reason `STEP_LIMIT_EXCEEDED` and
+`PRECONDITION_NOT_MET` are excluded from hot spots via `NON_INFORMATIVE_ERRORS`: a run that never
+reached the app proves nothing about it.
+
+## 3. Code map
 
 | path | role |
 |---|---|
 | `gateway/main.py` | thin FastAPI router; also hosts `/execution/evaluate` (the investigator) and the dashboard |
 | `planner/langgraph_agent.py` | pipeline planner — LangGraph state machine (§4) |
-| `planner/agent_loop.py` · `tools.py` · `proposal.py` | tool planner — agent loop, 7 tools, validation gate (§5) |
+| `planner/agent_loop.py` · `tools.py` · `proposal.py` | tool planner — agent loop, 9 tools, validation gate (§6) |
 | `planner/model_client.py` | LLM transport: `call_model` (single prompt) and `chat_tools` (tool calling), retry + fallback + cooldown |
 | `rag_api/main.py` | Neo4j knowledge graph, 57 endpoints |
 | `rag_api/findings.py` | findings storage, dedup-and-reinforce, kind taxonomy |
@@ -53,7 +137,7 @@ round during a rate-limit storm.
 | `clients/executor_runner.py` | device executor; `crawl_runner.py` maps an app without testing it |
 | `observability/` | structured logs, metrics, and the cross-process degradation sink |
 
-## 3. The planner: two implementations
+## 4. The planner: two implementations
 
 Selected by `PLANNER_MODE`; both return the identical test-case contract, so the executor,
 dashboard and reporting are unaffected either way.
@@ -67,7 +151,7 @@ dashboard and reporting are unaffected either way.
 | dedup | after generation, one blind retry | before committing, with a reason |
 | cost | 4 LLM calls | 7–8 turns / 12–15 tool calls, ~67s |
 
-## 4. Pipeline planner — the state machine
+## 5. Pipeline planner — the state machine
 
 ```mermaid
 flowchart TD
@@ -89,7 +173,7 @@ reads. A burst of 2–6 OpenRouter calls at one timestamp is one generated test 
 large call is `generate_testcase`, the small ones are `planner_step` rounds. Two large calls means
 `duplicate_check`'s retry fired.
 
-### 4.1 Knowledge sources
+### 5.1 Knowledge sources
 
 `execute_retrieval` dispatches up to 3 requests per round through `planner/sources/registry.py`,
 to sources that are **registered, enabled (`ENABLED_SOURCES`), and have data for this project**.
@@ -115,7 +199,7 @@ rather than the round doing nothing. The loop exits via `should_continue()` when
 `produce_testcase`, a round retrieves nothing new, SRS context exceeds 9,000 chars, or
 `max_retrieval_rounds` (capped at 6) is reached.
 
-### 4.2 The prompt budget
+### 5.2 The prompt budget
 
 `generate_testcase` assembles ~15 candidate blocks and hands them to `planner/budget.py`, which
 fills them **highest-priority-first** into one shared `PROMPT_BUDGET_TOKENS` ceiling (50,000).
@@ -132,11 +216,12 @@ The priority-1 "what previous runs established" block reads **findings**, not th
 prose — that block was 69% of one measured generation prompt before the change (35,233 of 51,002
 chars) and is ~2,000 chars now.
 
-## 5. Tool planner
+## 6. Tool planner
 
-A native tool-calling loop over 7 tools, each a thin wrapper on an existing endpoint:
+A native tool-calling loop over 9 tools, each a thin wrapper on an existing endpoint:
 `search_requirements`, `list_untested_requirements`, `get_screen`, `list_screens`,
-`list_findings`, `get_coverage`, `get_nav_path`. Only tools whose source is enabled and has data
+`findings_summary`, `list_findings`, `list_open_questions`, `get_coverage`, `get_nav_path`.
+Full detail in [PLANNER.md](../PLANNER.md). Only tools whose source is enabled and has data
 are registered, so a disabled source is **uncallable** rather than merely un-advertised.
 
 The loop terminates in `propose_test_case`, which is validated server-side
@@ -151,7 +236,7 @@ After `FORCE_PROPOSE_AFTER` (6) turns the model is instructed to propose and `to
 pinned to the proposal tool — left on `auto` it will investigate to the ceiling and never commit.
 Rejections are capped at 3, after which the best effort is accepted and a degradation is recorded.
 
-## 6. Executor
+## 7. Executor
 
 Receives a **goal, not a tap script** (`build_droidrun_goal`). The planner cannot see the live app,
 so `screen_hint` is passed as "a LEAD, not a fact" — measured, the planner's named screen matched a
@@ -176,7 +261,7 @@ package/activity and dialog state. Volatile text is dropped, so scrolling a list
 theme is the **same** state. Exact signature is the fast path; structural Jaccard tolerates minor
 chrome; a perceptual screenshot hash is the fallback for thin accessibility trees.
 
-## 7. Investigator
+## 8. Investigator
 
 After `/execution/log`, the executor calls `/execution/evaluate` with the exact trajectory folder.
 The investigator reads the trajectory (≤50 steps), the screens it touched, and the findings
@@ -188,7 +273,7 @@ Kinds route to different consumers, defined once in `rag_api/findings.py`:
 `oracle` (bug evidence) · `ui` (discovered controls) · `agent` (our own difficulties — never
 presented as app defects).
 
-## 8. The knowledge graph
+## 9. The knowledge graph
 
 ```
 (:Project)-[:HAS_SRS]->(:SRS)-[:HAS_CHUNK]->(:Chunk)          # + embedding
@@ -209,7 +294,7 @@ logs, nav memory, error patterns, strategies. `delete_appmodel` (`CLEAN_SLATE_AP
 **off**) wipes knowledge: the app map **and findings**. Findings sit on the knowledge side
 deliberately — they outlive the run that discovered them.
 
-## 9. Cross-cutting
+## 10. Cross-cutting
 
 **Verdict lifecycle.** A generated test is logged immediately with `verdict="planned"`. An earlier
 version logged `"pass"` here, inventing passing tests that never ran and poisoning coverage, risk
@@ -223,7 +308,7 @@ investigate failures then expand.
 state — the executor and API are separate processes, and per-process counters made every
 executor-side degradation invisible to the dashboard. Occurrences are counted and sampled.
 
-## 10. Known gaps
+## 11. Known gaps
 
 - The tool planner is **not the default** — it has not yet been proven better over a campaign
   ([ROADMAP.md](../ROADMAP.md) §4).

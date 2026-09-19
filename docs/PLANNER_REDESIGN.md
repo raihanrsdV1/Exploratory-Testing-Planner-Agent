@@ -61,8 +61,10 @@ while it is thinking.**
 
 ## 2. What was built
 
-A native tool-calling loop (`planner/agent_loop.py`) over 7 tools (`planner/tools.py`), each a
-thin wrapper on an endpoint that already existed:
+A native tool-calling loop (`planner/agent_loop.py`) over 9 tools (`planner/tools.py`), each a
+thin wrapper on an endpoint that already existed. Two — `findings_summary` and
+`list_open_questions` — were added after this document was first written; see
+[PLANNER.md](PLANNER.md) for the current set:
 
 | tool | backed by |
 |---|---|
@@ -121,7 +123,7 @@ the default: both planners run side by side so a campaign can be compared. `plan
 
 **Added:** `planner/tools.py`, `planner/proposal.py`, `planner/agent_loop.py`,
 `model_client.chat_tools`, `GET /requirements/ids`, `PLANNER_MODE` dispatch in `pipeline.py`,
-`tests/test_planner_tools.py` (23 checks).
+`tests/test_planner_tools.py`.
 
 **The `ENABLED_SOURCES` guard got stricter, as designed.** In pipeline mode a disabled source has
 to be filtered in two places because content bypassing the registry still reaches the prompt. In

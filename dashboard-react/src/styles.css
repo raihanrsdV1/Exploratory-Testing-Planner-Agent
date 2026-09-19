@@ -1,16 +1,12 @@
 :root {
-  --bg: #f6f7f9; --panel: #fff; --panel-2: #fbfcfd; --border: #e3e6ea;
-  --text: #1c2024; --muted: #6b7280; --accent: #4f46e5; --accent-soft: #eef2ff;
-  --pass: #16a34a; --pass-soft: #e7f6ec; --fail: #dc2626; --fail-soft: #fdecec;
-  --warn: #d97706; --warn-soft: #fdf3e3; --track: #eceef1;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e1116; --panel: #161b22; --panel-2: #1a2029; --border: #2a313b;
-    --text: #e6edf3; --muted: #9aa4b2; --accent: #818cf8; --accent-soft: #20263a;
-    --pass: #3fb950; --pass-soft: #16241b; --fail: #f85149; --fail-soft: #2a1719;
-    --warn: #d29922; --warn-soft: #2a2113; --track: #232a33;
-  }
+  /* White / blue / green. One theme, deliberately: a second palette doubles the
+     surface every new panel has to be checked against. */
+  --bg: #f2f7fa; --panel: #ffffff; --panel-2: #f7fbfd; --border: #d8e6ef;
+  --text: #17323f; --muted: #5d7a88; --accent: #0f7ea8; --accent-soft: #e4f2f8;
+  --pass: #0f9d76; --pass-soft: #e3f6f0; --fail: #d1495b; --fail-soft: #fcebee;
+  --warn: #c98a12; --warn-soft: #fdf4e0; --track: #e6eef4;
+  --teal: #12a5a5; --teal-soft: #e2f6f6;
+  --shadow: 0 1px 2px rgba(23,50,63,.05), 0 2px 12px rgba(23,50,63,.04);
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
@@ -182,3 +178,63 @@ pre.directive { margin: 0; padding: 12px 14px; background: var(--panel-2); borde
 .banner.warn { background: var(--signal-soft); color: var(--signal); border: 1px solid var(--signal); display: block; }
 .banner.crit { background: var(--fail-soft); color: var(--fail); border: 1px solid var(--fail); display: block; }
 .banner code { background: transparent; border: none; padding: 0; font-weight: 600; }
+
+
+/* ── Status strip ──────────────────────────────────────────────────────────
+   The whole state in one line, so the campaign is legible without scrolling. */
+.strip { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
+.strip .cell { flex: 1 1 150px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 11px 14px; box-shadow: var(--shadow); }
+.strip .cell .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.strip .cell .v { font-size: 22px; font-weight: 640; margin-top: 3px; color: var(--text); }
+.strip .cell .s { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.strip .cell.good .v { color: var(--pass); }
+.strip .cell.bad .v { color: var(--fail); }
+.strip .cell.info .v { color: var(--accent); }
+
+/* ── Findings ─────────────────────────────────────────────────────────────── */
+.kindbar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.kindbar button { font: inherit; font-size: 12px; cursor: pointer; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); padding: 5px 12px; }
+.kindbar button.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; font-weight: 600; }
+
+.finding { border: 1px solid var(--border); border-left: 3px solid var(--border);
+  border-radius: 10px; padding: 10px 13px; margin-bottom: 8px; background: var(--panel); }
+.finding.defect { border-left-color: var(--fail); }
+.finding.confirmed { border-left-color: var(--pass); }
+.finding.agent { border-left-color: var(--warn); }
+.finding.unverified { border-left-color: var(--accent); }
+.finding .claim { color: var(--text); line-height: 1.45; }
+.finding .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  margin-top: 7px; font-size: 11px; color: var(--muted); }
+.tag { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; font-weight: 650;
+  padding: 2px 8px; border-radius: 5px; background: var(--track); color: var(--muted); }
+.tag.defect { background: var(--fail-soft); color: var(--fail); }
+.tag.confirmed { background: var(--pass-soft); color: var(--pass); }
+.tag.agent { background: var(--warn-soft); color: var(--warn); }
+.tag.unverified { background: var(--accent-soft); color: var(--accent); }
+.tag.seen { background: var(--teal-soft); color: var(--teal); }
+
+/* ── Open questions ───────────────────────────────────────────────────────── */
+.q { border: 1px solid var(--border); border-radius: 10px; padding: 10px 13px;
+  margin-bottom: 8px; background: var(--panel); }
+.q.answered { background: var(--pass-soft); border-color: transparent; }
+.q .qa { margin-top: 7px; padding-left: 11px; border-left: 2px solid var(--pass); }
+.q .qa .lbl { font-size: 10px; font-weight: 700; color: var(--pass); letter-spacing: .05em; }
+.attempts { display: inline-flex; gap: 3px; vertical-align: middle; }
+.attempts i { width: 16px; height: 5px; border-radius: 3px; background: var(--track); display: block; }
+.attempts i.used { background: var(--warn); }
+
+/* ── Campaign history ─────────────────────────────────────────────────────── */
+.camp { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.camp th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.camp td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.camp tr:last-child td { border-bottom: 0; }
+.camp tr.now td { background: var(--accent-soft); }
+.camp .n { font-variant-numeric: tabular-nums; }
+
+.groupline { display: flex; align-items: center; gap: 10px; margin: 24px 0 12px; }
+.groupline span { font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--muted); font-weight: 650; white-space: nowrap; }
+.groupline::after { content: ""; flex: 1; height: 1px; background: var(--border); }

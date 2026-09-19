@@ -95,7 +95,7 @@ TARGET_APP_PACKAGE=com.example.yourapp
 # ── Run budget ──
 EXECUTOR_ROUNDS=10             # test cases per invocation
 EXECUTOR_MAX_STEPS=50          # device actions allowed per test
-EXECUTOR_TIMEOUT=420           # seconds of wall clock per test
+EXECUTOR_TIMEOUT=900           # seconds of wall clock per test
 ```
 
 Things worth knowing:

@@ -18,49 +18,46 @@ The loop:
 
 ---
 
-## Current status — ShobarKhamar campaign (29 Aug 2026)
+## Current status (20 Sep 2026)
 
-The agent is running against **ShobarKhamar** (`com.tirzokpvt.shobarkhamar`, Flutter,
-build 2.1.3), a livestock marketplace, on an Android 14 emulator. Latest 10-round
-campaign, signed in as a farmer/seller:
+Running against **ShobarKhamar** (`com.tirzokpvt.shobarkhamar`, Flutter), a livestock
+marketplace, on an Android 14 emulator, signed in as a farmer/seller. **No Figma file** — the
+agent works from the SRS plus the app map it builds itself, which is the realistic configuration
+for a generic app.
 
-| Metric | Value | Note |
-|---|---|---|
-| Pass | 3 / 10 | app behaved as expected |
-| Candidate defect | 1 | **unvalidated** — needs human confirmation |
-| Agent failure | 5 | our agent could not complete |
-| Environment | 1 | step budget |
-| **Autonomy** | **50%** | the honest weak point |
-| **Requirement coverage** | **14 / 106** | was 5/106, and 2/33 on the previous app |
-| App model | 25 states | package + activity populated on all |
-| Cost | ~1¢ per test, ~$0.02 per SRS ingestion | audited against the billing API |
+Since the August campaign the system gained a **knowledge layer**: the investigator now emits
+atomic, deduplicated findings instead of prose reports, questions it cannot settle stay open
+until answered or explicitly abandoned, and a second planner drives the graph through tools
+rather than a fixed retrieval pipeline.
 
-Artefacts per run: `logs/batch_<project>_<ts>.csv` (route, steps, verdict,
-attribution, cited requirement ids) and `logs/review_sheet.csv` (blank rubric
-columns for manual scoring).
+| | |
+|---|---|
+| Planner | `tools` (opt-in) or `pipeline` (default) — see [docs/PLANNER.md](docs/PLANNER.md) |
+| Models | planner + executor `qwen/qwen3.7-flash`, investigator `z-ai/glm-5.3-flash` |
+| Knowledge | findings with a lifecycle, a self-built app map, proven nav routes, campaign snapshots |
+| Tests | 6 modules; graph-backed ones skip without Neo4j |
 
-### What the campaign found in the app
+**What is established, and what is not.** Knowledge demonstrably accumulates without bloating —
+findings deduplicate on write, and the investigator's prompt *shrank* across a campaign
+(20,466 → 10,959 chars) where the old prose design grew (28,344 → 97,796). The planner reads that
+knowledge every round. What is **not** established is that this finds more defects: there is no
+ground truth, no seeded-defect build and no ablation. "The agent gets smarter" is a demonstrated
+mechanism, not a measured outcome. See [docs/ROADMAP.md](docs/ROADMAP.md) §4.
 
-Unvalidated — these are candidate defects pending manual review:
+### Candidate defects found (unvalidated — needs human confirmation)
 
-- **No validation feedback on an empty mandatory field.** Saving Farm Info with an
-  empty Farm Name produced no message naming the missing field (`FR-FARM-04`).
-- **No success confirmation.** A successful farm update showed no feedback (`FR-FARM-06`).
-- **No empty state on list screens.** "My Products" renders nothing when empty
-  rather than saying so, which is indistinguishable from a failed load (`FR-NAV-07`).
-- **Device registration race.** On a cold start the app POSTs
-  `/api/device/device_installations` with an empty `fcm_token`, receives
-  `400 fcm_token is required`, and shows *"Device registration failed. Check your
-  connection"* — with the network working. It succeeds ~40s later once the token
-  arrives. The error message misattributes a client sequencing bug to the network.
-- **Language selection does not apply until a full restart.**
+- **BACK exits the app** instead of navigating back — seen independently on two different screens
+- **Language dropdown only opens near the chevron**; tapping the button's text does nothing
+- **Selecting English leaves the UI in Bengali** on subsequent screens
+- **No validation feedback on an empty mandatory field** when saving farm info
+- **No empty state on list screens** — indistinguishable from a failed load
+- **Device registration race** — a client sequencing bug reported to the user as a network error
 
-The build points at `https://test.sobarkhamar.com` (staging), so writes do not
-reach production users.
+The build points at `https://test.sobarkhamar.com` (staging), so writes do not reach production.
 
 ---
 
-## Fixes made this cycle
+## History — fixes from the August cycle
 
 Every item below was a real defect found by running the system end to end, not by
 reading code. Grouped by what they broke.
@@ -140,15 +137,18 @@ Ordered by how much they limit what we can claim.
    autonomy are defensible today. Needs a seeded-defect build.
 4. **State-identity thresholds are tuned on one app's 18 states.** Evidence, not
    proof. No labelled answer for how many distinct screens the app actually has.
-5. **`135 of 169` navtree nodes marked "avoid"** — that records thrashing, not
+   Also: **nothing records which role observed a screen or finding**, so running a second
+   role would silently mix its knowledge with the first.
+5. **Many navtree nodes end up marked "avoid"** — that records thrashing, not
    learning. Should fall as the map stabilises.
-6. **Test IDs restart at TC-001 every campaign.** Fine while results are wiped;
-   breaks the moment we compare campaigns.
+6. **Test IDs restart at TC-001 every campaign**, so per-test history cannot be
+   compared across campaigns. Partly mitigated: a `CampaignSummary` is now snapshotted
+   before each reset, and requirement coverage survives it (`ever_covered`).
 7. **The graph stores only title + verdict for a test** — `steps`, `screen` and
    `expected_result` are dispatched but never persisted, so the review sheet
    cannot show what a test actually did.
-8. **Requirement citation is inconsistent** — some tests cite ids in the structured
-   field, some only in prose.
+8. **Requirement citation is inconsistent** in `PLANNER_MODE=pipeline`. Fixed in
+   `tools` mode, where the proposal gate rejects an id that does not exist in the graph.
 9. **Defect intelligence (ETA-REQ-301) has never run on real data.** Built, dormant.
 10. **Cross-application transfer (ETA-REQ-304) unvalidated** — every campaign so far
     has run against one app.
@@ -161,13 +161,17 @@ Ordered by how much they limit what we can claim.
 ./venv/bin/python tests/run_all.py     # every module, non-zero exit on failure
 ```
 
-| Module | Checks | Guards |
-|---|---|---|
-| `test_app_state.py` | 11 | structural signature, scroll/theme invariance, thin-tree fallback |
-| `test_state_identity.py` | 9 | skeleton matching, size-ratio guard, over-merge protection |
-| `test_livelock.py` | 21 | unusable-signal sentinel, cyclic periods 2–6, stuck attribution |
-| `test_observation.py` | 11 | driver-tree adapter, package/activity recovery, fallback path |
-| `test_config_guards.py` | 27 | no app-naming defaults, single taxonomy, cross-process degradations |
+| Module | Guards |
+|---|---|
+| `test_app_state.py` | structural signature, scroll/theme invariance, thin-tree fallback |
+| `test_state_identity.py` | skeleton matching, size-ratio guard, over-merge protection |
+| `test_observation.py` | driver-tree adapter, package/activity recovery, fallback path |
+| `test_config_guards.py` | no app-naming defaults, single taxonomy, cross-process degradations |
+| `test_findings.py` | finding dedup (model-led, not embedding-led), the open-question lifecycle and its attempt budget, campaign snapshots, coverage surviving a wipe |
+| `test_planner_tools.py` | the proposal gate (screen grounding, requirement ids, duplicates, scope), tool availability, the recent-runs block |
+
+`test_findings.py` and `test_planner_tools.py` need Neo4j and skip cleanly without it, so the
+suite still runs on a machine with no database.
 
 Every check corresponds to a defect that reached a real run. `test_config_guards`
 greps `settings.py` itself for app-naming defaults and asserts taxonomy **object
@@ -198,8 +202,10 @@ returning.
 - [ ] Resolve the uiautomator/portal accessibility conflict.
 - [ ] Persist `steps` / `screen` / `expected_result` to the graph.
 - [ ] Run-scoped test IDs.
-- [ ] Make requirement citation mandatory in the output contract when the
-      requirements block is non-empty.
+- [x] ~~Make requirement citation mandatory~~ — enforced by the proposal gate in
+      `PLANNER_MODE=tools`; still unenforced in `pipeline`.
+- [ ] **Tag knowledge with the role that observed it** — prerequisite for per-role
+      campaigns and the role-boundary tests below.
 
 ### C. Measurement
 
@@ -212,7 +218,18 @@ returning.
 - [ ] Ingest a real defect export to activate ETA-REQ-301.
 - [ ] Second application to validate cross-app transfer (ETA-REQ-304).
 
-### D. Reporting
+### D. Recently delivered (Sep 2026)
+
+- [x] **Findings** — the investigator emits atomic, deduplicated claims instead of prose
+      reports; prompts stopped growing and started shrinking.
+- [x] **Open-question lifecycle** — questions stay open until answered or abandoned after a
+      bounded number of attempts, so the agent reaches conclusions instead of moving on.
+- [x] **Tool-calling planner** behind `PLANNER_MODE=tools`, with a validated proposal gate.
+- [x] **Campaign snapshots** — per-campaign aggregates survive `CLEAN_SLATE`.
+- [x] **Cumulative requirement coverage** — `ever_covered` survives a wipe, so the planner
+      stops re-suggesting ground it already covered.
+
+### E. Reporting
 
 - [ ] Correct `docs/SAMSUNG_PROGRESS_REPORT.pdf`: the *"zero silent fallbacks"*
       claim read a counter that could not see the executor process, and
@@ -278,19 +295,25 @@ See `System_Architecture.md` for the multi-stage retrieval design.
 
 ```
 rag_api/                  Neo4j knowledge-graph API (ingest, retrieve, coverage, graph)
-gateway/                  Thin FastAPI router → planner.langgraph_agent
+  findings.py             Findings: taxonomy, dedup-and-reinforce, open-question lifecycle
+  learning.py             NavTree, strategy memory, decay, campaign snapshots
+gateway/                  Thin FastAPI router + the investigator (/execution/evaluate)
 observability/            Logging, metrics, and tracing middleware (outputs to logs/)
 
 planner/                  Core AI Logic
-  langgraph_agent.py      LangGraph state machine for exploration & planning
+  agent_loop.py           Tool-calling planner (PLANNER_MODE=tools): seed, loop, proposal
+  tools.py                The 9 tools over the knowledge graph, with availability gating
+  proposal.py             The validating gate: screens, requirement ids, duplicates, scope
+  langgraph_agent.py      Pipeline planner (PLANNER_MODE=pipeline, default): state machine
+  model_client.py         LLM integration — call_model, chat_tools, retry + fallback
   config.py               Configuration constants
-  model_client.py         LLM integration (OpenRouter/Gemini/etc)
   rag_client.py           RAG API client
   textutil.py             JSON parsing utilities
-  coverage.py             Coverage tracking logic
-  prompts.py              Agent prompts
+  coverage.py             Coverage map + exploration directive
+  prompts.py              Pipeline-mode prompt builders
+  budget.py               Pipeline-mode prompt token budget
   schemas.py              Data models
-  sources/                Pluggable knowledge sources (srs, figma_ui, figma_flow, live_ui)
+  sources/                Pipeline-mode knowledge sources (srs, figma_ui, figma_flow, live_ui)
 
 ingestion/                Format-agnostic ingestion pipeline
   document_loader.py      any document → text
@@ -308,12 +331,18 @@ clients/                  Execution scripts
 
 scripts/
   ingest_all.py           One-shot ingest helper (reset → SRS → Figma → stats)
+  reset_neo4j.py          Reset project slices (backs up first)
+  backup_neo4j.py         · restore_neo4j.py
+  backfill_finding_status.py          One-time: lifecycle status on pre-existing findings
+  backfill_requirement_coverage.py    One-time: coverage history on pre-existing requirements
+  dump_prompt.py          Rebuild the pipeline-mode prompt and print a per-block table
 
 start.sh                  Bring up the whole stack (Neo4j + emulator + services)
 stop.sh                   Tear it all down (services + emulator + Neo4j)
 requirements.txt          Local Python dependencies
 docs/                     Documentation — start at docs/README.md
   WORKFLOW.md             How the whole system works, end to end (read first)
+  PLANNER.md              How the planner works in detail
   ROADMAP.md              Status, findings so far, what to build next
   INVESTIGATOR.md         Trajectory -> findings: the post-execution learning loop
   PLANNER_REDESIGN.md     The tool-calling planner (PLANNER_MODE=tools)
