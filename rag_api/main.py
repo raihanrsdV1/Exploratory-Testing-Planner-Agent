@@ -2345,6 +2345,15 @@ def findings_open(project: str, limit: int = 10, authorization: str | None = Hea
             "open_questions": rows, "max_attempts": findings_mod.MAX_FINDING_ATTEMPTS}
 
 
+@app.get("/findings/one")
+def findings_one(project: str, ref: str, authorization: str | None = Header(default=None)):
+    """One finding by ref — used to state a run's mission to the evaluator."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        f = findings_mod.by_ref(session, project, ref)
+    return {"project": project, "finding": f}
+
+
 @app.post("/findings/attempt")
 def findings_attempt(req: RecordAttemptRequest, authorization: str | None = Header(default=None)):
     """Record that a test was aimed at an open question; auto-close at the cap."""

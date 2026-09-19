@@ -160,8 +160,6 @@ def main():
           "not a waste" in _with_logs([_run("TC-7", "failed", 21, "ASSERTION_FAILURE")]), True)
     blk_pass = _with_logs([_run("TC-6", "pass", 12)])
     check("a pass says do not re-verify", "re-verify" in blk_pass, True)
-    check("every outcome leaves the choice open, not commanded",
-          "not an instruction" in blk_pass, True)
     check("no history yields no block at all (campaign start)", _with_logs([]), "")
 
     print("\ntwo runs get reasoning; the rest exist to make a pattern visible")
@@ -185,6 +183,26 @@ def main():
           "not bad luck" in nav, True)
     quiet = _with_logs([_run("TC-a", "pass", 12), _run("TC-b", "failed", 20, "ASSERTION_FAILURE")])
     check("no warning fires when there is no pattern", "WARNING" in quiet, False)
+
+    print("\nthe recent-runs block ends on guidance, not a hedge")
+    blk = _with_logs([_run("TC-1", "failed", 50, "STEP_LIMIT_EXCEEDED")])
+    check("no trailing 'information, not an instruction' hedge",
+          "not an instruction" in blk, False)
+    check("it still ends on something actionable", blk.rstrip().endswith("sharply.")
+          or "narrower" in blk.rstrip().split("\n")[-1] or "scope" in blk.rstrip().lower(), True)
+
+    print("\nthe evaluator is told when a run had a mission")
+    import gateway.main as _gw
+    check("the contract allows leaving a question open",
+          "legitimate outcome" in _gw._EVALUATOR_CONTRACT or
+          "genuinely do not settle it" in _gw._EVALUATOR_CONTRACT, True)
+    check("and forbids guessing a resolution",
+          "Do not guess" in _gw._EVALUATOR_CONTRACT, True)
+    from planner.schemas import ExecutionEvaluateRequest as _R
+    check("the evaluate request carries the mission ref",
+          "addresses" in _R.model_fields, True)
+    check("and it defaults to empty for ordinary runs",
+          _R.model_fields["addresses"].default, "")
 
     print("\nthe step budget is stated where the decision is made")
     prop = _al._PROPOSE_TOOL["function"]

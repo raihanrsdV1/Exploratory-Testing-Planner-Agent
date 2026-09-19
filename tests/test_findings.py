@@ -215,6 +215,25 @@ def main():
         check("batch truncated to the per-run guard",
               r3["created"] + r3["reinforced"], F._MAX_FINDINGS_PER_RUN)
 
+        print("\na question can be looked up by the ref a test names")
+        # The chain planner -> executor -> investigator carries only a ref, so
+        # the ref has to resolve back to the question on its own.
+        r = F.record(s, PROJECT, [
+            {"claim": "Whether the order receipt can be exported as a PDF was never determined",
+             "kind": "UNVERIFIED", "screen": "Orders", "evidence": "steps 4-9: never reached"}],
+            log_id="", test_case_id="TC-REF", embed_texts=_embed, now=NOW)
+        ref = r["findings"][0]["ref"]
+        got = F.by_ref(s, PROJECT, ref)
+        check("a short ref resolves to its finding", got["ref"], ref)
+        check("it carries the remaining attempt budget",
+              got["attempts_left"], F.MAX_FINDING_ATTEMPTS)
+        check("it carries the evidence that explains why it is open",
+              bool(got["evidence"]), True)
+        check("the full id resolves too", F.by_ref(s, PROJECT, got["id"])["ref"], ref)
+        check("an unknown ref returns nothing rather than a wrong finding",
+              F.by_ref(s, PROJECT, "F-deadbeef"), None)
+        check("an empty ref returns nothing", F.by_ref(s, PROJECT, ""), None)
+
         print("\nthe rollup covers everything a truncated list cannot")
         st = F.stats(s, PROJECT)
         check("stats reports a per-screen breakdown", "by_screen" in st, True)

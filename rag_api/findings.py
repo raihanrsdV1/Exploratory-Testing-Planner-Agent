@@ -386,6 +386,26 @@ def record(session, project, findings, *, log_id, test_case_id, embed_texts, now
     return {"created": created, "reinforced": reinforced, "findings": results}
 
 
+def by_ref(session, project, ref: str) -> dict | None:
+    """One finding by its short ref ('F-1a2b3c4d') or full id."""
+    ref = str(ref or "").strip()
+    if not ref:
+        return None
+    for r in session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)
+        RETURN f.id AS id, f.claim AS claim, f.kind AS kind, f.screen_label AS screen,
+               f.evidence AS evidence, coalesce(f.status,'') AS status,
+               coalesce(f.attempts,0) AS attempts, f.times_seen AS times_seen
+        """, project=project):
+        d = dict(r)
+        if short_ref(d["id"]) == ref or d["id"] == ref:
+            d["ref"] = short_ref(d["id"])
+            d["attempts_left"] = max(0, MAX_FINDING_ATTEMPTS - int(d.get("attempts") or 0))
+            return d
+    return None
+
+
 def query(session, project, *, screens=None, kinds=None, limit: int = 20,
           exclude_log_id: str = "", status: str = "") -> list[dict]:
     """Findings for this project, optionally narrowed to screens and/or kinds.

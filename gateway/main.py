@@ -511,8 +511,11 @@ Any finding above marked **OPEN QUESTION** is something an earlier run raised bu
 never settled. If THIS run's steps answer one, say so: emit a finding whose claim
 IS the answer and set `resolves` to that question's ref. An answer is a real
 result whichever way it goes - "the control does not exist anywhere in this flow"
-closes a question just as well as "it exists and works". Only resolve what your
-steps actually show; leave it open otherwise.
+closes a question just as well as "it exists and works", and so does "the field
+rejects the input with a named error". A question stays open only when the steps
+genuinely do not settle it; in that case report what the run DID establish and
+leave `resolves` empty. Do not guess, and do not resolve a question the steps
+never touched.
 
 An empty `findings` list is a valid and useful answer when the run established
 nothing new. Do not invent findings to fill space.
@@ -615,6 +618,34 @@ def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None 
             pass
         known_findings_text = "\n".join(known_lines) or "none yet — this is early in the campaign"
 
+        # The question this run was COMMISSIONED to answer, if the planner named
+        # one. Without this the evaluator sees only a generic list of open
+        # questions for the screens the run happened to touch, with nothing
+        # linking the trajectory to any of them — so it correctly declines to
+        # claim an answer, and a question can only ever close by exhausting its
+        # attempt budget. Measured: 10 findings emitted `resolves` as an empty
+        # string across a whole campaign, never once filled in.
+        mission_text = ""
+        if req.addresses:
+            try:
+                f = rag_client.rag_get("/findings/one", {
+                    "project": req.project, "ref": req.addresses}).get("finding")
+                if f:
+                    ev = (f.get("evidence") or [""])[0]
+                    mission_text = (
+                        f"THIS RUN WAS COMMISSIONED TO ANSWER AN OPEN QUESTION.\n"
+                        f"  [{f.get('ref')}] ({f.get('kind')}, attempt "
+                        f"{f.get('attempts')} of {f.get('attempts') + f.get('attempts_left')}) "
+                        f"{f.get('claim')}\n"
+                        f"  Why it is still open: {ev}\n"
+                        f"Your first job is to say whether the steps below settle it. If they do, "
+                        f"emit a finding whose claim IS the answer and set `resolves` to "
+                        f"{f.get('ref')}. If they do not, say so plainly and leave it open — "
+                        f"failing to settle a question is a legitimate outcome, and guessing is "
+                        f"worse than leaving it open.\n\n")
+            except Exception:
+                pass
+
         # Structural facts about those screens (control names the app model
         # already stores). Kept because it is small and stops the evaluator
         # re-reporting controls as discoveries.
@@ -640,7 +671,8 @@ def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None 
         trajectory_text = "\n".join(step_lines)
 
         prompt = (
-            f"This test's objective was: {req.objective or '(not stated)'}\n"
+            mission_text
+            + f"This test's objective was: {req.objective or '(not stated)'}\n"
             f"Expected result: {req.expected_result or '(not stated)'}\n"
             f"It assumed the relevant screen was: {req.screen_hint or '(not stated)'}\n"
             f"Screens this run actually visited: {', '.join(touched) or '(none recorded)'}\n\n"

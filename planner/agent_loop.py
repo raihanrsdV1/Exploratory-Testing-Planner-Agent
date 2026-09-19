@@ -194,8 +194,6 @@ def _recent_runs_block(project: str, max_steps: int) -> str:
         lines.append(f"WARNING: {errs.count(e)} of the last {len(logs)} runs failed with {e} — "
                      f"treat that as a property of this app or this role, not bad luck.")
 
-    lines.append("Continue any of these threads if it is the most valuable thing to do, or move "
-                 "on — this is information, not an instruction.")
     return "\n".join(lines)
 
 

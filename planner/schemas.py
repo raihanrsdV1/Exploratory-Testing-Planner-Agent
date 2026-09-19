@@ -111,6 +111,12 @@ class ExecutionEvaluateRequest(BaseModel):
     expected_result: str = ""
     path_labels: list[str] = Field(default_factory=list, description="Real screen labels this run actually visited.")
     trajectory_folder: str = Field(..., min_length=1, description="Exact logs/trajectories/<folder> name for this run.")
+    # Ref of the open question this test was written to close, if any. Without
+    # it the evaluator sees a generic list of open questions for the screens the
+    # run touched and has no reason to believe THIS run was an attempt at any of
+    # them — so it correctly declines to claim an answer, and the question can
+    # only ever close by exhausting its attempt budget.
+    addresses: str = Field(default="", description="Finding ref this test set out to answer.")
 
 
 class IngestSRSRequest(BaseModel):

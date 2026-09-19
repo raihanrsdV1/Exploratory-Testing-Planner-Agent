@@ -929,6 +929,8 @@ def _evaluate_run(tc: dict, log_id: str, exec_path: list, traj_before: set | Non
             "expected_result": tc.get("expected_result", ""),
             "path_labels": [s.get("label", "") for s in exec_path],
             "trajectory_folder": folder,
+            # The open question this test was commissioned to answer, if any.
+            "addresses": tc.get("addresses", ""),
         }, timeout=600)
         resp.raise_for_status()
     except Exception as e:
