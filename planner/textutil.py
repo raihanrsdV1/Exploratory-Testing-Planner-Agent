@@ -190,7 +190,11 @@ def parse_evaluation(raw: str):
     # evaluation with nothing to report.
     if not isinstance(findings, list) and not isinstance(verdict, dict):
         return None
-    return {
+    out = {
         "run_verdict": verdict if isinstance(verdict, dict) else {},
         "findings": [f for f in (findings or []) if isinstance(f, dict)],
     }
+    gen = obj.get("generalise")
+    if isinstance(gen, dict):
+        out["generalise"] = gen
+    return out

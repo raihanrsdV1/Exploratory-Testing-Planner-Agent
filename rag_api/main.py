@@ -2390,6 +2390,26 @@ def findings_attempt(req: RecordAttemptRequest, authorization: str | None = Head
     return {"project": req.project, **out}
 
 
+@app.get("/findings/clusters")
+def findings_clusters(project: str, min_size: int = 3, authorization: str | None = Header(default=None)):
+    """Findings on one screen that look like one defect stated several ways."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        cs = findings_mod.clusters(session, project, min_size=min_size)
+    return {"project": project, "count": len(cs), "clusters": cs}
+
+
+@app.post("/findings/generalise")
+def findings_generalise(req: GeneraliseRequest, authorization: str | None = Header(default=None)):
+    """Replace a cluster with one general finding; members keep their detail."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        out = findings_mod.generalise(
+            session, req.project, req.members, req.claim, req.kind, req.screen,
+            req.evidence, _embed_texts, _utc_now())
+    return {"project": req.project, **out}
+
+
 @app.get("/findings/stats")
 def findings_stats(project: str, authorization: str | None = Header(default=None)):
     """Finding counts per kind — dashboard, and the 'is it still learning?' signal."""

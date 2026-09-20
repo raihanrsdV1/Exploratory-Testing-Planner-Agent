@@ -127,9 +127,15 @@ def _interpret(verdict: str, err: str, steps: int, max_steps: int) -> str:
                 "wrongly, or that route is not reachable for this role. Confirm the screen with "
                 "get_screen before naming it again.")
     if verdict == "failed":
+        # Deliberately NOT "probe the same behaviour again", which this line used
+        # to say. Repeated after every failure it became a third voice — with the
+        # hot-spot directive and the open-question queue — all pointing at the
+        # same screen, and the planner spent 9 of 13 tests on one text field.
         return ("The executor reached a conclusion and the app misbehaved — that is a real "
-                "result, not a waste. A narrower follow-up probing the same behaviour is often "
-                "the highest-value next test.")
+                "result, not a waste, and the defect is now recorded. Check get_coverage or "
+                "findings_summary before following up here: if this area has already had "
+                "several tests, another variant of the same input adds little, and a "
+                "different area is worth more.")
     if verdict == "pass":
         return ("That behaviour is confirmed working. Do not re-verify it; an adjacent or harder "
                 "case on the same screen may still be untested.")

@@ -417,16 +417,19 @@ def query(session, project, *, screens=None, kinds=None, limit: int = 20,
     kinds = sorted({normalize_kind(k) for k in (kinds or [])}) or None
     screens = [s for s in {str(x or "").strip() for x in (screens or [])} if s] or None
 
-    cypher = [
-        "MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)",
-    ]
+    cypher = ["MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)"]
     if screens:
         cypher.append("OPTIONAL MATCH (f)-[:ABOUT_SCREEN]->(s:UIState)")
         # WITH detaches the filter below from the OPTIONAL MATCH. Without it the
         # WHERE is read as part of the optional pattern, every finding survives
         # with s=null, and narrowing by screen quietly returns everything.
         cypher.append("WITH f, s")
-    cypher.append("WHERE 1=1")
+    # Every filter hangs off ONE WHERE, placed after the WITH when there is one —
+    # a WHERE before it cannot be continued with AND afterwards.
+    # Absorbed into a general finding: still in the graph and reachable from it,
+    # but no longer listed separately, or the planner reads five statements of
+    # one defect and goes looking for a sixth input.
+    cypher.append("WHERE coalesce(f.generalised_by,'') = ''")
     if kinds:
         cypher.append("AND f.kind IN $kinds")
     if screens:
@@ -478,7 +481,7 @@ def open_questions(session, project, limit: int = 10) -> list[dict]:
     rows = [dict(r) for r in session.run(
         """
         MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)
-        WHERE f.status = $open
+        WHERE f.status = $open AND coalesce(f.generalised_by,'') = ''
         RETURN f.id AS id, f.claim AS claim, f.kind AS kind, f.screen_label AS screen,
                f.evidence AS evidence, coalesce(f.attempts,0) AS attempts,
                f.times_seen AS times_seen, f.severity AS severity
@@ -545,6 +548,124 @@ def record_attempt(session, project, ref: str, now: str) -> dict:
             "attempts_left": max(0, MAX_FINDING_ATTEMPTS - attempts)}
 
 
+# A cluster this size on one screen is worth generalising. Below it, separate
+# findings are still the clearer record.
+CLUSTER_MIN = 3
+# Loose on purpose: these claims are NOT duplicates — "accepts emoji" and
+# "accepts 150 characters" are different observations that happen to share a
+# cause. Dedup's own threshold (0.90) is far too strict to see that, which is
+# exactly why nine tests on one field all produced "new" findings and no
+# information-yield check would ever have fired.
+CLUSTER_THRESHOLD = 0.72
+
+
+def clusters(session, project, min_size: int = CLUSTER_MIN,
+             threshold: float = CLUSTER_THRESHOLD) -> list[dict]:
+    """Groups of findings on one screen that look like one defect stated N ways.
+
+    The gap this closes: nothing in the system represented a DEFECT CLASS. The
+    planner reasoned about individual inputs, so "empty name accepted" and
+    "emoji name accepted" looked like separate questions when they are the same
+    answer — the field has no validation at all. Measured: 20 of 74 findings
+    described a single text field, and the agent kept testing a sixth input
+    because the fifth had produced a technically-new finding.
+
+    Grouping is per screen and per merge-group, so a defect never clusters with
+    the confirmation that would contradict it. Returns candidates only — nothing
+    is merged here; consolidation is the evaluator's judgement (see the gateway).
+    """
+    rows = [dict(r) for r in session.run(
+        """
+        MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)
+        WHERE f.embedding IS NOT NULL AND coalesce(f.generalised_by,'') = ''
+        RETURN f.id AS id, f.claim AS claim, f.kind AS kind,
+               coalesce(f.screen_label,'') AS screen, f.embedding AS embedding,
+               coalesce(f.times_seen,1) AS times_seen
+        """, project=project)]
+
+    out: list[dict] = []
+    by_screen: dict[str, list[dict]] = {}
+    for r in rows:
+        by_screen.setdefault((r["screen"], merge_group(r["kind"])), []).append(r)
+
+    for (screen, group), items in by_screen.items():
+        if len(items) < min_size:
+            continue
+        used: set[str] = set()
+        for seed in items:
+            if seed["id"] in used:
+                continue
+            members = [seed]
+            for other in items:
+                if other["id"] == seed["id"] or other["id"] in used:
+                    continue
+                if _cosine(seed["embedding"], other["embedding"]) >= threshold:
+                    members.append(other)
+            if len(members) >= min_size:
+                for m in members:
+                    used.add(m["id"])
+                out.append({
+                    "screen": screen, "group": group, "size": len(members),
+                    "members": [{"ref": short_ref(m["id"]), "id": m["id"],
+                                 "kind": m["kind"], "claim": m["claim"]} for m in members],
+                })
+    out.sort(key=lambda c: -c["size"])
+    return out
+
+
+def generalise(session, project, member_refs, claim, kind, screen, evidence,
+               embed_texts, now) -> dict:
+    """Replace a cluster with one general finding, keeping the specifics as evidence.
+
+    The members are NOT deleted. A developer needs "rejects nothing, including a
+    150-character value", not just "has no validation" — so each member keeps its
+    claim and gains `generalised_by`, which removes it from the planner's view
+    while leaving the detail in the graph and on the general finding's evidence.
+    """
+    member_refs = [str(r).strip() for r in (member_refs or []) if str(r).strip()]
+    if len(member_refs) < 2 or not str(claim or "").strip():
+        return {"generalised": False, "reason": "need a claim and at least two members"}
+
+    ids, specifics = [], []
+    for ref in member_refs:
+        f = by_ref(session, project, ref)
+        if f:
+            ids.append(f["id"])
+            specifics.append(f["claim"])
+    if len(ids) < 2:
+        return {"generalised": False, "reason": "members did not resolve"}
+
+    claim = _clean(claim, CLAIM_MAX)
+    kind = normalize_kind(kind)
+    gid = _finding_id(project, kind, claim)
+    vec = (embed_texts([claim]) or [None])[0]
+
+    session.run(
+        """
+        MERGE (p:Project {name:$project})
+        MERGE (f:Finding {id:$id})
+        ON CREATE SET f.first_seen = $now, f.times_seen = 0
+        SET f.project=$project, f.claim=$claim, f.kind=$kind, f.screen_label=$screen,
+            f.severity='high', f.confidence='high', f.last_seen=$now,
+            f.status=$status, f.attempts=0, f.generalises=$n,
+            f.times_seen = coalesce(f.times_seen,0) + 1,
+            f.evidence = [e IN ([$evidence] + $specifics) WHERE e <> ''][0..$keep]
+        """ + ("SET f.embedding = $embedding\n" if vec else "") + "MERGE (p)-[:HAS_FINDING]->(f)",
+        project=project, id=gid, now=now, claim=claim, kind=kind, screen=screen,
+        status=initial_status(kind), n=len(ids), evidence=_clean(evidence, EVIDENCE_MAX),
+        specifics=[_clean(x, EVIDENCE_MAX) for x in specifics], keep=_MAX_EVIDENCE_KEPT + 4,
+        embedding=vec,
+    )
+    session.run(
+        """
+        MATCH (f:Finding) WHERE f.id IN $ids
+        MATCH (g:Finding {id:$gid})
+        SET f.generalised_by = $gid
+        MERGE (f)-[:GENERALISED_BY]->(g)
+        """, ids=ids, gid=gid)
+    return {"generalised": True, "ref": short_ref(gid), "absorbed": len(ids)}
+
+
 def stats(session, project) -> dict:
     """Counts per kind, per status, and per screen — the whole graph in one view.
 
@@ -562,6 +683,7 @@ def stats(session, project) -> dict:
     rows = session.run(
         """
         MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)
+        WHERE coalesce(f.generalised_by,'') = ''
         RETURN f.kind AS kind, count(f) AS n, sum(f.times_seen) AS observations
         ORDER BY n DESC
         """, project=project)
@@ -577,6 +699,7 @@ def stats(session, project) -> dict:
     by_screen = [dict(r) for r in session.run(
         """
         MATCH (p:Project {name:$project})-[:HAS_FINDING]->(f:Finding)
+        WHERE coalesce(f.generalised_by,'') = ''
         WITH coalesce(f.screen_label,'(unknown)') AS screen,
              count(f) AS total,
              sum(CASE WHEN f.status = $open THEN 1 ELSE 0 END) AS open,

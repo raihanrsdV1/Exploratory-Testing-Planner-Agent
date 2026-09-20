@@ -210,6 +210,40 @@ def main():
     check("the objective field asks for ONE behaviour",
           "ONE behaviour" in prop["parameters"]["properties"]["objective"]["description"], True)
 
+    print("\na failing area must be able to saturate — it was a one-way door")
+    # hot_spots promoted an area on failures; the only exit required failed == 0,
+    # which a failing area can never reach. Measured: 9 of 13 tests landed on one
+    # screen, and 20 of 74 findings described a single text field.
+    from planner import coverage as _c
+    fail = {"area": "farm_management", "verdict": "failed", "error_type": "ASSERTION_FAILURE"}
+    few = _c.compute_coverage_map([fail] * 2, [], ["farm_management", "chat", "orders"])
+    check("a freshly-failing area IS a hot spot", few["hot_spots"], ["farm_management"])
+    check("and is not yet saturated", few["saturated_areas"], [])
+
+    many = _c.compute_coverage_map([fail] * _c.AREA_SATURATION, [], ["farm_management", "chat", "orders"])
+    check("past the spend cap it saturates", many["saturated_areas"], ["farm_management"])
+    check("and stops being promoted as a hot spot", many["hot_spots"], [])
+    check("even though it is still failing",
+          many["area_stats"]["farm_management"]["failed"] >= 2, True)
+
+    d = _c.build_exploration_directive(many, [fail] * _c.AREA_SATURATION)
+    check("the directive says the area is spent, with a reason", "[SPENT]" in d, True)
+    check("and untested areas are now priority 1",
+          d.index("[EXPAND]") < d.index("[SPENT]"), True)
+
+    mixed = _c.compute_coverage_map([fail] * _c.AREA_SATURATION +
+                                    [{"area": "chat", "verdict": "failed", "error_type": "ASSERTION_FAILURE"}] * 2,
+                                    [], ["farm_management", "chat", "orders"])
+    check("a different failing area is still promoted", mixed["hot_spots"], ["chat"])
+
+    print("\nthe recent-runs note no longer pushes the same behaviour")
+    from planner import agent_loop as _al2
+    note = _al2._interpret("failed", "ASSERTION_FAILURE", 37, 50)
+    check("it no longer says to probe the same behaviour",
+          "same behaviour" in note, False)
+    check("it points at the coverage tools instead",
+          "get_coverage" in note or "findings_summary" in note, True)
+
     print("\ncoverage measures against something real, and says what")
     # The area universe used to come only from Figma. With no design file the
     # map collapsed: 0% and an empty uncovered list, both of which read as true
