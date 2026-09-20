@@ -4,39 +4,597 @@
 
 \section{Functional Design and Sub-problem Partitioning}
 \label{sec:architecture}
+
+\Cref{sec:alternatives} selected a knowledge-graph-backed multi-role agent. This
+section sets out how that architecture is partitioned, what each part is
+responsible for, and why the boundaries fall where they do.
+
+\subsection{The six sub-problems}
+
+The loop of \Cref{sec:problem-statement} decomposes into six responsibilities.
+The partitioning rule throughout is that \emph{a component owns one decision},
+so that a change to how that decision is made touches one place.
+
+\begin{enumerate}[label=\textbf{S\arabic*.},leftmargin=3.0em]
+  \item \textbf{Knowledge acquisition.} Turn whatever documents exist into
+    queryable, individually identified requirements with provenance back to the
+    text they came from. Owner: the ingestion pipeline.
+  \item \textbf{Test selection.} Decide what is worth testing next, given
+    everything currently known. Owner: the planner. This is the exploratory
+    problem of \Cref{subsec:primary} and it is where the system's quality is
+    bounded.
+  \item \textbf{Execution.} Drive a real application toward a stated objective
+    and record what happened. Owner: the executor, one per platform.
+  \item \textbf{Evidence reduction.} Turn a trajectory into durable,
+    deduplicated claims, and decide what the run proved. Owner: the
+    investigator.
+  \item \textbf{Persistence and retrieval.} Hold the knowledge and answer
+    questions about it. Owner: the RAG service, which is the sole writer to the
+    database.
+  \item \textbf{Operation.} Let a person watch a campaign, understand a verdict
+    and take the result away. Owner: the gateway and the dashboard.
+\end{enumerate}
+
+\Cref{fig:architecture} shows how these map onto processes. Four run
+concurrently: the agent gateway on port 9100, which is the only entry point and
+holds the planner; the RAG service on port 9010, which is the only process that
+opens a connection to the graph database; the executor, which is a campaign
+driver rather than a server; and Neo4j itself on port 7687.
+
+\begin{sidewaysfigure}
+  \centering
+  \includegraphics[width=0.96\textheight]{01-system-architecture.png}
+  \caption[System architecture]{System architecture. Amber is an input, green is
+  knowledge, blue is a service, purple is one of the three agent roles, red is a
+  language-model call and grey is the device. Every input is optional: the
+  system degrades to whatever sources exist rather than failing without them.}
+  \label{fig:architecture}
+\end{sidewaysfigure}
+
+\subsection{Three decisions that fix the shape}
+
+\paragraph{The graph is the only channel between roles.} The planner, the
+executor and the investigator never call one another. Each is a stateless
+language-model call that reads from and writes to the same graph, so the
+system's memory is entirely in one inspectable place and no conversational state
+is carried between rounds. This is what makes ``learning'' a property that can
+be examined, rather than an emergent property of a long conversation: the graph
+either grew or it did not.
+
+\paragraph{One writer.} Only the RAG service opens a Neo4j connection. The
+executor and the gateway reach the graph exclusively through its HTTP interface.
+The alternative, letting each process hold a driver, would have distributed the
+schema across three codebases and made a constraint change a three-way
+migration.
+
+\paragraph{The planner never writes steps.} Its output is an objective in plain
+language, not a tap sequence, because it cannot see the live screen. A wrong tap
+script is worse than a clear objective, since the executor can recover from an
+imprecise goal but not from instructions that do not match the screen in front
+of it.
+
+\subsection{The knowledge model}
+
+\Cref{fig:schema} is the schema all six sub-problems share. Its organising idea
+is that two graphs coexist in one store: an \emph{a priori} graph of what the
+application should do, built from documents, and an \emph{a posteriori} graph of
+what it actually does, built from observation. Requirements, chunks and
+validation rules belong to the first. UI states, transitions, navigation paths
+and execution logs belong to the second. Test cases and findings span them, and
+that span is the project's central idea: exploration is steered by the gap
+between the two.
+
+\begin{sidewaysfigure}
+  \centering
+  \includegraphics[width=0.96\textheight]{03-knowledge-graph-schema.png}
+  \caption[Knowledge graph schema]{The knowledge graph. Specification-derived
+  nodes and observation-derived nodes share one store, joined by the test cases
+  and findings that span them.}
+  \label{fig:schema}
+\end{sidewaysfigure}
+
+\Cref{fig:ingestion} shows S1 in detail, because it is the step that decides
+what the rest of the system can ever know. A document is chunked, embedded, and
+reduced to individually identified requirements and validation rules, each
+linked back to the chunk it was derived from so that any later claim can be
+traced to the sentence that justified it. Re-ingesting a changed specification
+produces a new version and a drift report rather than overwriting the old one.
+
 \begin{figure}[htbp]
   \centering
-  \figplaceholder{Architecture diagram}
-  \caption{System architecture}
-  \label{fig:architecture}
+  \includegraphics[width=\textwidth]{11-ingestion-document-to-queryable-requirements.png}
+  \caption[Ingestion: document to queryable requirements]{Sub-problem S1.
+  Prose becomes atomic, identified requirements with provenance back to their
+  source chunk, which is what makes requirement coverage reportable at all.}
+  \label{fig:ingestion}
 \end{figure}
-\guidance{Partition the problem into sub-problems or modules; explain each one's
-responsibility and how they interact. Show where the standards and codes of
-practice from \Cref{sec:standards} and any health, safety, or environmental
-considerations shaped the design.}
+
+\subsection{Where the standards shaped the partitioning}
+
+Three of the instruments in \Cref{sec:standards} changed the design rather than
+merely being satisfied by it.
+
+\emph{Prompt injection (OWASP LLM01).} The application's own on-screen text
+reaches a model that also decides the next action. The response is structural:
+observed content is labelled as untrusted data in every prompt that carries it,
+and the rule appears in the executor, the investigator and the evidence
+reviewer rather than in one shared place, because each assembles its own prompt.
+
+\emph{Credential handling (OWASP LLM06).} The test-account secret is passed only
+to the executor, which has to type it. The planner receives the account
+\emph{role} and nothing else (NFR-D6). This costs a little grounding quality and
+removes an entire class of leak, since a secret that never enters the planner's
+context cannot appear in a planner trace, a prompt log or the dashboard.
+
+\emph{Accessibility APIs.} Controls are addressed by accessible role, name and
+content description rather than by pixel coordinates. That constrains the
+executor to what the accessibility layer exposes, and it is what makes the
+agent's element-location failures meaningful as an accessibility signal
+(\Cref{sec:society}).
 
 \section{Design Refinement and Simulation}
 \label{sec:detailed-design}
-\guidance{Present the detailed design using the views that fit the project (ERD,
-class, sequence, DFD, API, wireframes, circuit, model). Include any design
-calculations or estimates made (e.g. expected load or storage), the
-analyses, prototypes, or simulations used to verify the design against the
-requirements, and how the design was refined to facilitate implementation.}
+
+\subsection{One round, end to end}
+
+\Cref{fig:round} is the control flow of a single test, and it is the view to
+read first: it shows every component, every artefact and the point at which the
+graph grows.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.96\textwidth]{02-one-test-round-end-to-end.png}
+  \caption[One test round, end to end]{One test round. The planner reads the
+  graph, proposes, and is validated before anything reaches a device. The
+  executor drives up to 50 steps. The investigator reduces the trajectory to
+  findings, and is given the findings already known for those screens so that a
+  repeat observation reinforces an existing finding instead of creating a
+  duplicate. The next round starts from the larger graph.}
+  \label{fig:round}
+\end{figure}
+
+\subsection{The refinement that mattered most: retrieval to investigation}
+
+The planner was built twice, and the second design exists because the first had
+a structural defect rather than a tuning problem.
+
+In the original \emph{pipeline} planner each knowledge source returned a block
+carrying both a body of text and a one-line note. The text went into a bucket
+that was not read again until generation; only the note reached the next
+retrieval decision. The planner therefore chose what to fetch next
+\emph{without having read what it had just fetched}, and everything was
+concatenated into a single prompt of roughly 19{,}000 characters at the end.
+\Cref{fig:tools-vs-sources} contrasts the two.
+\Cref{fig:pipeline} is the pipeline planner itself: a five-node state machine of
+which only three nodes call a model.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[height=0.70\textheight,keepaspectratio]{05-planner-pipeline-mode-default.png}
+  \caption[The pipeline planner]{The pipeline planner, still the default. The
+  defect is not in any single node but in the edge between \texttt{planner\_step}
+  and \texttt{execute\_retrieval}: only a one-line note returns, so the next
+  retrieval decision is taken without having read the previous result.}
+  \label{fig:pipeline}
+\end{figure}
+
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[height=0.72\textheight,keepaspectratio]{13-why-tools-replaced-retrieval-sources.png}
+  \caption[Retrieval sources versus tools]{Why tools replaced retrieval sources.
+  Above, the model sees no content until the single generation call. Below, each
+  result enters the conversation, so the second question can depend on the answer
+  to the first.}
+  \label{fig:tools-vs-sources}
+\end{figure}
+
+Three symptoms followed from that one cause, and each had been patched
+separately before the cause was identified: screen names that did not exist,
+duplicate detection that could only run after generation, and requirement
+identifiers the model had invented. All three are the same missing capability,
+namely that the planner could not check a claim against the graph while forming
+it.
+
+The refinement was to give the planner tools instead of sources.
+\Cref{fig:nine-tools} groups the nine tools by the question each answers, and
+the grouping is the architecture in miniature: what \emph{should} exist, what
+the application \emph{actually} has, what is \emph{already known}, and therefore
+where the gap is.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[height=0.74\textheight,keepaspectratio]{14-the-nine-tools-as-an-investigation.png}
+  \caption[The nine planner tools]{The nine tools as an investigation. A tool
+  whose knowledge source is disabled or empty is never registered, so an absent
+  source cannot mislead the model with a blank answer.}
+  \label{fig:nine-tools}
+\end{figure}
+
+\paragraph{Measured effect.} Under the pipeline planner, the screen a proposal
+named matched a screen the executor had actually observed about 16\% of the
+time, and the goal text had to hedge by calling the name a lead rather than a
+fact while the executor spent its budget searching for screens that did not
+exist. Under the tool-calling planner, across eight test cases there was one
+rejection in total, corrected on the following turn. Both planners remain
+selectable by one setting, \texttt{PLANNER\_MODE}, and produce the same output
+contract, so a campaign can be run on each and compared without touching the
+executor. The default remains \texttt{pipeline} until that comparison has been
+made over a full campaign.
+
+\subsection{Design calculations and budgets}
+
+Every bound in the system is explicit, because an exploratory agent has no
+natural stopping point (difficulty D2) and will otherwise consume whatever it is
+given. \Cref{tab:budgets} lists them.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.80\hsize}Y>{\hsize=0.44\hsize}Y>{\hsize=1.76\hsize}Y@{}}
+  \caption{Explicit bounds in the design, and the reasoning behind each}
+  \label{tab:budgets}\\
+  \toprule
+  Bound & Value & Why it exists \\
+  \midrule
+  \endfirsthead
+  \caption[]{Explicit bounds in the design \emph{(continued)}}\\
+  \toprule
+  Bound & Value & Why it exists \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  Device actions per test & 50 & The executor's interaction budget. Exhausting it yields no evidence about the application, so the planner is told the number and is warned when recent tests repeatedly hit it. \\
+  \addlinespace
+  Wall clock per test & 900\,s & Bounds a single execution including model latency and recovery. \\
+  \addlinespace
+  Planner turns & 12 & Ceiling on the tool loop. \\
+  \addlinespace
+  Forced proposal after & 6 turns & From this turn the model is told to propose and the tool choice is pinned, because a model left free will investigate to the ceiling and never commit. Observed on the first live run: ten turns of tool calls and no proposal. \\
+  \addlinespace
+  Proposal rejections & 3 & After three, the best effort is accepted and a degradation is recorded, so a planning round never returns nothing. \\
+  \addlinespace
+  Tool result caps & 3000 / 2500 / 1200 / 2000 characters & Requirements, findings, one screen, and any other result. There is no global prompt budget in the tool planner; each tool is responsible for not flooding the context on its own. \\
+  \addlinespace
+  Finding attempts & 3 & After three probes an open question auto-closes as inconclusive, which is a result for a human rather than an endless retry. \\
+  \addlinespace
+  Knowledge half-life & 90 days & Decays the weight of stale observations in retrieval so the agent adapts when the application changes. \\
+  \bottomrule
+\end{xltabular}
+\endgroup
+
+\subsection{State identity: the analytical core}
+
+The single most consequential calculation in the system is not a budget but a
+similarity decision. Every observation must be classified as a screen already in
+the application model or as a new one. Merging too eagerly collapses the map;
+splitting too eagerly destroys it. One wizard, whose form fields carried their
+current values in the same attribute that carries a button's label, produced
+nine distinct states before the cascade in \Cref{fig:state-identity} was
+designed.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[height=0.82\textheight,keepaspectratio]{17-state-identity-is-this-a-screen-we-have-seen.png}
+  \caption[State identity cascade]{The five-stage state-identity cascade,
+  cheapest test first. Each stage was added in response to a specific way the
+  previous one failed, and every threshold is a configurable setting.}
+  \label{fig:state-identity}
+\end{figure}
+
+The stages are ordered by cost. An exact signature match is a string comparison.
+Structural Jaccard tolerates dynamic chrome such as counters and timestamps.
+Containment recognises a screen captured before its late-painting chrome, which
+is a strict subset of the same screen fully rendered and which Jaccard therefore
+scores as different; it is guarded by a minimum control count and a maximum size
+ratio, because a one-control blank screen is contained in everything. Skeleton
+containment compares only resource identifier and class, asking whether the same
+widgets are present regardless of their values, with a floor on full containment
+so that two genuinely different screens built from similar widget types stay
+apart. The perceptual hash is the last resort and the only signal available when
+the accessibility tree is too thin to describe the screen at all.
+
+\subsection{Attribution: keeping three kinds of failure apart}
+
+A run that does not pass is ambiguous, and conflating the three explanations
+inflates the reported defect count, which is the most expensive error this
+system can make. \Cref{fig:attribution} shows the classification.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{09-failure-attribution.png}
+  \caption[Failure attribution]{Failure attribution. The three sets have exactly
+  one definition in the source tree. Only the first is evidence about the
+  application.}
+  \label{fig:attribution}
+\end{figure}
+
+The design decision worth noting is that the taxonomy is defined once, as three
+frozen sets in the settings module, and imported everywhere it is needed. An
+earlier version defined it in two places, and the two drifted: autonomy was
+reported as 100\% when it was 67\%.
+
+\subsection{Simulation and verification of the design}
+
+Three mechanisms verify the design without consuming a device or a model budget.
+A \emph{simulator runner} exercises the full planning and logging loop with a
+stubbed executor, so the graph writes, the coverage calculation and the
+attribution path can be tested without a handset. A set of \emph{configuration
+guards} asserts the invariants that the design depends on, including that the
+attribution sets are disjoint and that no application-specific vocabulary has
+entered the code. And the \emph{state-identity} and \emph{observation} modules
+are pure functions over recorded inputs, so the cascade above is tested on fixed
+key sets rather than on a live device.
 
 \section{Application of Tools}
 \label{sec:tools}
-\guidance{Justify the selection of the important tools and technologies and
-state their relevant limitations.}
+
+\Cref{fig:topology} is the deployment view of the same system: four processes on
+one host, one device over the Android Debug Bridge, and exactly one external
+dependency.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{12-runtime-topology.png}
+  \caption[Runtime topology]{Runtime topology. The model provider is the only
+  component outside the developer's machine.}
+  \label{fig:topology}
+\end{figure}
+
+\Cref{tab:tools} states why each significant tool was chosen and what it costs.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.54\hsize}Y>{\hsize=1.18\hsize}Y>{\hsize=1.28\hsize}Y@{}}
+  \caption{Tool selection and the limitations accepted with each}
+  \label{tab:tools}\\
+  \toprule
+  Tool & Why it was selected & Limitation accepted \\
+  \midrule
+  \endfirsthead
+  \caption[]{Tool selection and limitations \emph{(continued)}}\\
+  \toprule
+  Tool & Why it was selected & Limitation accepted \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  Neo4j & The payload is the relationships: a test covers a requirement, a log belongs to a test, a navigation node leads to a UI state, a defect concentrates in an area. These are traversals, and a property graph answers them directly while also hosting the vector indexes dense retrieval needs. &
+  A second service to run and back up. Cypher is another language for the team to learn, and the community edition is GPL-licensed, which constrains redistribution. \\
+  \addlinespace
+  mobilerun 0.6.8 & Drives Android through the accessibility service with a companion on-device application that also supplies an input method, which is what makes text entry into multi-field forms reliable. Exposes an event stream the executor subscribes to for observed states. &
+  A young dependency whose API shape has changed between versions. Its accessibility client conflicts with \texttt{uiautomator} if both are registered. \\
+  \addlinespace
+  Playwright & The web counterpart: an accessibility-annotated snapshot rather than raw DOM, which lets the same planner address controls by role and name on both platforms. &
+  Browser automation cannot see native dialogs outside the page, and file-chooser handling is an explicit special case. \\
+  \addlinespace
+  LangGraph & Expresses the pipeline planner as an explicit state machine rather than a chain of calls, so each node is separately testable and the flow is inspectable. &
+  Adds a framework dependency for what is, in the tool planner, a loop that could be written directly. \\
+  \addlinespace
+  OpenRouter & One interface to several model providers, which made the tier downgrades of \Cref{sec:economics} a configuration change rather than an integration. &
+  The same model is served by different providers with order-of-magnitude differences in latency and token usage, which adds noise to any cost or timing measurement. \\
+  \addlinespace
+  fastembed with \modpath{BAAI/bge-small-en-v1.5} & Runs embeddings locally through ONNX with no heavyweight tensor framework and no per-call charge, at 384 dimensions. &
+  An English-centric model used partly on Bengali interface text, which is a known weakness of the retrieval path rather than a solved problem. \\
+  \addlinespace
+  FastAPI and Uvicorn & Typed request and response schemas that double as the interface documentation, with the validation the graph writes depend on. &
+  None material at this scale. \\
+  \addlinespace
+  React with Vite & The operator surface builds to a single self-contained file the gateway serves directly, with no separate deployment. &
+  A JavaScript toolchain in an otherwise Python project. \\
+  \bottomrule
+\end{xltabular}
+\endgroup
 
 \section{Implementation}
 \label{sec:implementation}
-\guidance{Describe how the key modules were implemented and the development
-process followed (repository, version control, code review, CI/CD).}
+
+\subsection{The executor in detail}
+
+\Cref{fig:executor} is the most operationally dense part of the system: how a
+goal becomes device actions, what is observed, and every artefact the run leaves
+behind.
+
+\begin{sidewaysfigure}
+  \centering
+  \includegraphics[width=0.96\textheight]{16-the-executor-in-detail.png}
+  \caption[The executor in detail]{The executor. Note the two feedback paths to
+  the operator: the device agent's log is teed to disk and streamed live, and
+  the per-step trajectory is replayed on demand after the run.}
+  \label{fig:executor}
+\end{sidewaysfigure}
+
+Two implementation decisions are worth stating because neither is obvious from
+the architecture.
+
+\paragraph{Observation is retried, and its failure is recorded.} The
+accessibility tree is not always available at the instant it is requested,
+particularly while a screen is still painting. The observation helper retries
+three times before giving up, and a give-up is written to the degradation
+register rather than being silently tolerated, because an observation that
+quietly returned nothing would produce a state map with holes in it and no
+indication that holes existed.
+
+\paragraph{There is no in-loop livelock detector on Android.} An earlier version
+had one. It was removed because cancelling an agent mid-run left that agent
+executing alongside the next test, which corrupted both. The capability was
+therefore moved rather than restored: over-scoping now surfaces as a step-limit
+failure, and the \emph{planner} corrects it from the recent-runs block, which
+tells it when consecutive tests have exhausted their budget. The web executor,
+whose cancellation is a browser close and therefore safe, does keep two in-loop
+guards. This asymmetry is deliberate and is the clearest example in the project
+of a capability being relocated to where it can be implemented safely.
+
+\subsection{The investigator}
+
+\Cref{fig:investigator} is sub-problem S4: how a trajectory of device steps
+becomes knowledge that survives the run. The design decision that matters is
+that the investigator is given the findings already recorded for the screens the
+run touched. A repeated observation therefore increments an existing finding's
+independent-observation count instead of creating a near-duplicate, which is
+what allows a claim seen three times across three separate evaluations to be
+distinguished from a claim asserted once.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{06-investigator-trajectory-to-knowledge.png}
+  \caption[The investigator]{Sub-problem S4. A trajectory becomes typed,
+  deduplicated findings, and the verdict is separated from the findings so that
+  a failed run can still contribute knowledge.}
+  \label{fig:investigator}
+\end{figure}
+
+\subsection{The operator surface}
+
+\Cref{fig:dash-logs} shows the two live log panes the executor feeds: the device
+agent's own reasoning on the left, streamed from the teed log file, and the
+planner's node-by-node trace on the right. They stream independently, so a stall
+is immediately attributable to one side or the other.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{dashboard-live-logs.jpg}
+  \caption[Dashboard: live logs]{The dashboard during a campaign. Device and
+  planner logs stream independently, with the generated test cases and the
+  findings so far below.}
+  \label{fig:dash-logs}
+\end{figure}
+
+\Cref{fig:dash-model} shows the application model the agent has built for
+itself, as a navigable graph of screens and transitions with the screenshot of
+any selected state.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{dashboard-app-model.jpg}
+  \caption[Dashboard: the live application model]{The Live App Model panel. Each
+  node is a UI state the agent reached, deduplicated by the cascade of
+  \Cref{fig:state-identity}; each edge is a transition it took.}
+  \label{fig:dash-model}
+\end{figure}
+
+\guidance{TODO (team): these two captures are from an earlier campaign against a
+contacts application and are included here as evidence that the operator surface
+exists, which is what this section claims. Do not reuse them in
+\Cref{ch:evaluation}: their totals are from a different application and would
+contradict the campaign reported there. Take fresh captures during a current run
+if \Cref{ch:evaluation} needs a live-run figure.}
+
+\subsection{Code organisation}
+
+\Cref{tab:modules} maps each sub-problem of \Cref{sec:architecture} to the code
+that implements it.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.50\hsize}Y>{\hsize=0.96\hsize}Y>{\hsize=1.54\hsize}Y@{}}
+  \caption{Sub-problems and the modules that implement them}
+  \label{tab:modules}\\
+  \toprule
+  Sub-problem & Module & Responsibility \\
+  \midrule
+  \endfirsthead
+  \caption[]{Sub-problems and modules \emph{(continued)}}\\
+  \toprule
+  Sub-problem & Module & Responsibility \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  S1 Knowledge acquisition & \modpath{ingestion/} & Document loading, multi-sample extraction with a judge model, and the canonical UI representation shared by both platforms. \\
+  \addlinespace
+  S2 Test selection & \modpath{planner/} & Both planner modes (\modpath{agent_loop.py} and \modpath{langgraph_agent.py}), the nine tools, the validating proposal gate, coverage and the exploration directive, and the pluggable source registry. \\
+  \addlinespace
+  S3 Execution & \modpath{clients/executor_runner.py}, \modpath{web_player/} & Android and web execution, each with its own observation, action and failure-classification code, sharing one attribution vocabulary. \\
+  \addlinespace
+  S4 Evidence reduction & \modpath{rag_api/findings.py} & Trajectory to typed, deduplicated findings with an independent-observation count and a lifecycle. \\
+  \addlinespace
+  S5 Persistence and retrieval & \modpath{rag_api/} & The sole database owner: schema, constraints, vector indexes, retrieval, the state-identity cascade, learning, risk, metrics and anomalies. \\
+  \addlinespace
+  S6 Operation & \modpath{gateway/}, \modpath{dashboard-react/}, \modpath{targets/} & The single entry point, the operator dashboard, the exportable run report, and the validated target profiles that make a new application a configuration change. \\
+  \bottomrule
+\end{xltabular}
+\endgroup
+
+\subsection{Development process}
+
+Work was distributed by subsystem, each member holding a branch and integrating
+through the shared default branch. The repository carries an automated test
+suite of six modules run by a single entry point; at the time of writing 124
+checks pass without any external service, with the findings module additionally
+requiring a live database. The suite is deliberately weighted toward the parts
+of the system that are pure functions over recorded inputs, namely state
+identity, observation normalisation and the configuration invariants, because
+those are the parts where a regression would be silent.
+
+Two practices were adopted after they proved necessary rather than in advance.
+Every degradation is recorded and readable across process boundaries, so a
+component that falls back cannot do so quietly. And application-agnosticism is
+checked by an automated sweep of the source tree rather than by review, after a
+manual audit declared the system generic while application-specific vocabulary
+was still embedded in the executor and in prompt templates.
+
+\guidance{TODO (team): add the repository URL, the branch and review convention
+actually used, and whether any continuous-integration workflow runs the test
+suite on push. Keep this consistent with \Cref{sec:participation}.}
 
 \section{Deployment}
 \label{sec:deployment}
-\guidance{Describe how the system is deployed and operated: the target
-environment and infrastructure, configuration and release process,
-monitoring and backup, and who operates and maintains it. State the
-computing resources the deployment consumes; their environmental impact is
-assessed in \Cref{sec:sustainability}.}
+
+\subsection{Target environment}
+
+The system is deployed as four processes on a single developer machine, as
+\Cref{fig:topology} shows. A launch script starts the RAG service and the
+gateway under Uvicorn, waits for both health endpoints, and optionally starts the
+executor campaign loop. Neo4j runs locally. The Android device is a physical
+handset or an emulator attached over the Android Debug Bridge, carrying the
+companion application that provides the accessibility service and the input
+method. Model inference is the only component reached over the network.
+
+\subsection{Configuration and release}
+
+Configuration is layered deliberately. Process-wide defaults live in a settings
+module read once at import, which is why a campaign is launched as a subprocess
+rather than in-process: the settings object is global, so running a second
+target inside a live server would leak that target's configuration into every
+other request. Per-application configuration is a validated JSON target profile,
+which the dashboard can list, validate, save, ingest and run, so adding an
+application is a data change rather than a code change. Secrets live only in an
+environment file that is excluded from version control.
+
+\subsection{Operation and monitoring}
+
+A campaign is operated from the dashboard: the live session, the growing
+application model, both log streams and the planner trace are visible while it
+runs, and a run report exports as a PDF afterwards. Three artefact streams are
+written to disk for after the fact: structured application logs, one trajectory
+per execution, and the degradation register. The graph itself is the durable
+record and is the thing that must be backed up; snapshots are held outside
+version control, under the same controls as the test credentials, for the
+reasons given in \Cref{sec:sustainability}.
+
+\subsection{Scope of the deployment claim}
+
+This is a local, developer-operated deployment on a trusted host, which is
+constraint C7 and is stated as a boundary rather than discovered as a defect.
+The services bind to a host-local interface by default and support key-based
+authentication; deploying beyond a single trusted host would require uniform
+authentication across every diagnostic handler and containment checks on
+ingestion paths, which is identified in \Cref{sec:standards} as a prerequisite
+and was not in scope. The computing resources this deployment consumes, and
+their environmental cost, are assessed in \Cref{sec:sustainability}.

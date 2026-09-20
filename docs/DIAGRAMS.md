@@ -359,17 +359,13 @@ flowchart TD
     V{"verdict"} -->|pass| OK["the app did what<br/>the test expected"]
     V -->|failed| ET{"error_type"}
 
-    ET --> AF["ASSERTION_FAILURE"]
-    ET --> SL["STEP_LIMIT_EXCEEDED"]
-    ET --> NF["NAVIGATION_FAILURE"]
-    ET --> CR["CRASH"]
-    ET --> PN["PRECONDITION_NOT_MET"]
+    ET --> AF["ASSERTION_FAILURE · CRASH<br/>APP_UNRESPONSIVE"]
+    ET --> NF["NAVIGATION_FAILURE · TIMEOUT<br/>ELEMENT_NOT_FOUND · NAVIGATION_LIVELOCK"]
+    ET --> PN["PRECONDITION_NOT_MET · PERMISSION_DENIED<br/>STEP_LIMIT_EXCEEDED"]
 
-    AF --> APP["APP EVIDENCE<br/><i>the agent reached its checkpoint<br/>and the app misbehaved.<br/>This is the real finding count.</i>"]
-    CR --> APP
-    SL --> OURS["OUR CEILING<br/><i>the executor ran out of budget<br/>or could not navigate.<br/>Says nothing about the app.</i>"]
-    NF --> OURS
-    PN --> ENV["ENVIRONMENT<br/><i>the precondition was unavailable</i>"]
+    AF --> APP["APP_FAULT<br/><i>the agent reached its checkpoint<br/>and the app misbehaved.<br/>This is the real finding count.</i>"]
+    NF --> OURS["AGENT_FAULT<br/><i>the executor could not drive the app.<br/>Says nothing about its quality.</i>"]
+    PN --> ENV["ENV_FAULT<br/><i>the run was refused, or the budget ran out<br/>before any evidence was produced.</i>"]
 
     classDef ok fill:#D3F9D8,stroke:#2F9E44,stroke-width:2px,color:#1B5E27
     classDef bad fill:#FFE3E3,stroke:#E03131,stroke-width:2px,color:#8B1A1A
@@ -382,6 +378,11 @@ flowchart TD
     class ENV env
     class V,ET decide
 ```
+
+> The three sets have exactly one definition, `APP_FAULT`, `AGENT_FAULT` and
+> `ENV_FAULT` in `settings.py`. Note where `STEP_LIMIT_EXCEEDED` sits: exhausting
+> the budget is an environment fault, not an agent fault, because the run was
+> bounded before it began.
 
 ---
 
