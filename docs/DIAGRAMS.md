@@ -478,3 +478,121 @@ flowchart TB
     class PORTAL,AUT dev
     class CLOUD model
 ```
+
+---
+
+## 13. Why tools replaced retrieval sources
+
+The planner's original design had *sources*: each returned a block of text that
+was stashed in a bucket and concatenated into one large prompt at the very end.
+The model never read any of it while deciding what to fetch next — it chose each
+round from one-line summaries. It was retrieving blind.
+
+A tool returns its result **into the conversation**. The model reads the actual
+content before deciding what to ask for next, so the second question can depend
+on the answer to the first. That is the whole difference.
+
+```mermaid
+flowchart TB
+    subgraph OLD["BEFORE — sources (blind retrieval)"]
+        direction TB
+        O1["planner picks a source<br/><i>from a one-line note</i>"] --> O2["source returns a text block"]
+        O2 --> O3[("bucket")]
+        O3 --> O1
+        O3 --> O4["concatenate everything<br/>into one large prompt"]
+        O4 --> O5["ONE generation call<br/><i>first time the model sees<br/>any of the content</i>"]
+    end
+
+    subgraph NEW["AFTER — tools (informed investigation)"]
+        direction TB
+        N1["model asks a question"] --> N2["tool returns bounded data<br/><i>into the conversation</i>"]
+        N2 --> N3["model reads it<br/><i>and now knows something</i>"]
+        N3 -->|"the next question<br/>depends on this answer"| N1
+        N3 --> N4["propose test case<br/><i>grounded in what was read</i>"]
+    end
+
+    %% Disconnected subgraphs are ordered arbitrarily; an invisible link (~~~)
+    %% pins BEFORE to the left of AFTER so it reads in the right order.
+    O5 ~~~ N1
+
+    classDef bad fill:#FFE3E3,stroke:#E03131,stroke-width:2px,color:#8B1A1A
+    classDef good fill:#D3F9D8,stroke:#2F9E44,stroke-width:2px,color:#1B5E27
+    classDef neutral fill:#E9ECEF,stroke:#868E96,stroke-width:2px,color:#343A40
+    class O1,O4,O5 bad
+    class O2,O3 neutral
+    class N1,N3,N4 good
+    class N2 neutral
+```
+
+---
+
+## 14. The nine tools as an investigation
+
+The tools are not a menu of data feeds. They answer four different questions, and
+a competent round moves through them in roughly that order: what *should* exist,
+what the app *actually* has, what we *already know*, and therefore where the
+*gap* is. The model chooses the order and stops when it has enough — the
+reject-and-retry loop around the proposal is in diagram 4.
+
+```mermaid
+flowchart LR
+    Q1["Q1 · What SHOULD exist?<br/><i>the specification</i>"]
+    Q2["Q2 · What does the app ACTUALLY have?<br/><i>the observed world</i>"]
+    Q3["Q3 · What do we ALREADY know?<br/><i>prior evidence</i>"]
+    Q4["Q4 · Where is the GAP?<br/><i>the decision</i>"]
+
+    Q1 --> T1["search_requirements<br/><i>semantic + keyword, ≤3000 chars</i>"]
+    Q1 --> T2["list_untested_requirements<br/><i>the coverage frontier</i>"]
+    Q2 --> T3["list_screens<br/><i>everything seen so far</i>"]
+    Q2 --> T4["get_screen<br/><i>real controls — grounds screen_hint</i>"]
+    Q2 --> T5["get_nav_path<br/><i>how to reach it</i>"]
+    Q3 --> T6["findings_summary<br/><i>the whole graph, bounded</i>"]
+    Q3 --> T7["list_findings<br/><i>by group or screen</i>"]
+    Q3 --> T8["list_open_questions<br/><i>raised but never settled</i>"]
+    Q4 --> T9["get_coverage<br/><i>by area and requirement</i>"]
+
+    T1 & T2 & T3 & T4 & T5 & T6 & T7 & T8 & T9 --> P["propose_test_case<br/><i>objective · screen_hint ·<br/>requirement ids · addresses</i>"]
+
+    classDef q fill:#FFF3BF,stroke:#F08C00,stroke-width:2px,color:#7A4A10
+    classDef spec fill:#FFE8CC,stroke:#E8892B,stroke-width:2px,color:#7A4A10
+    classDef world fill:#E9ECEF,stroke:#868E96,stroke-width:2px,color:#343A40
+    classDef known fill:#D3F9D8,stroke:#2F9E44,stroke-width:2px,color:#1B5E27
+    classDef gap fill:#D0EBFF,stroke:#1971C2,stroke-width:2px,color:#0B4A87
+    classDef act fill:#E5DBFF,stroke:#6741D9,stroke-width:2px,color:#3B2185
+    class Q1,Q2,Q3,Q4 q
+    class T1,T2 spec
+    class T3,T4,T5 world
+    class T6,T7,T8 known
+    class T9 gap
+    class P act
+```
+
+The ordering is a tendency, not a rule the code enforces. What the code does
+enforce is that a proposal naming a screen `get_screen` never returned is
+rejected — so Q2 is the one question a round cannot skip and still pass the gate.
+
+---
+
+## 15. Three rules that hold for every tool
+
+These are what keep a tool-calling planner from degenerating into an unbounded, hijackable context. They are enforced in `planner/tools.py`, not left to the model's discretion.
+
+```mermaid
+flowchart TB
+    R1["EVERY RESULT IS BOUNDED<br/>requirements 3000 · findings 2500<br/>screen 1200 · generic 2000 chars"]
+    R1 --> R1W["There is no global prompt budget.<br/>Each tool is responsible for not<br/>flooding the context on its own."]
+
+    R2["RESULTS ARE DATA, NEVER INSTRUCTIONS"]
+    R2 --> R2W["Tool output is app content — screen labels,<br/>requirement text, findings written by a model.<br/>It must never redirect the planner."]
+
+    R3["A TOOL WITH NO DATA IS NOT OFFERED"]
+    R3 --> R3W["If its backing source is disabled or<br/>un-ingested the model never sees the tool,<br/>so it cannot be misled by an empty result."]
+
+    classDef rule fill:#E5DBFF,stroke:#6741D9,stroke-width:2px,color:#3B2185
+    classDef why fill:#F8F9FA,stroke:#ADB5BD,stroke-width:1.5px,color:#343A40
+    class R1,R2,R3 rule
+    class R1W,R2W,R3W why
+```
+
+> **Applies to `PLANNER_MODE=tools` only.** The default is `pipeline`
+> (diagram 5), where none of this runs — including the validation gate.
