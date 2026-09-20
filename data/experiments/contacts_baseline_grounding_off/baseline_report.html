@@ -1,0 +1,186 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Exploratory QA Agent — Campaign Report</title><style>
+@page { size: A4; margin: 16mm 14mm; }
+* { box-sizing: border-box; }
+body { font: 10.5pt/1.5 "Helvetica Neue", Helvetica, Arial, sans-serif; color: #17303d;
+  margin: 0; background: #fff; }
+h1 { font-size: 25pt; margin: 0 0 6px; letter-spacing: -.5px; }
+h2 { font-size: 15pt; margin: 26px 0 10px; padding-bottom: 5px;
+  border-bottom: 2px solid #0f7ea8; color: #0b5f7f; break-after: avoid; }
+h3 { font-size: 11.5pt; margin: 18px 0 7px; color: #0b5f7f; break-after: avoid; }
+p { margin: 0 0 9px; }
+table { width: 100%; border-collapse: collapse; margin: 9px 0 14px; font-size: 9pt; }
+th { background: #eef6fa; text-align: left; padding: 6px 7px; border-bottom: 2px solid #cfe3ee;
+  font-weight: 600; color: #0b5f7f; }
+td { padding: 5px 7px; border-bottom: 1px solid #e8eef2; vertical-align: top; }
+tr { break-inside: avoid; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cover { background: linear-gradient(140deg,#0b5f7f,#0f7ea8 55%,#0f9d76); color:#fff;
+  padding: 30mm 16mm 20mm; margin: -16mm -14mm 22px; }
+.cover p { opacity: .93; }
+.sub { font-size: 13pt; font-weight: 300; }
+.kpis { display: flex; gap: 9px; margin: 14px 0 18px; }
+.kpi { flex: 1; border: 1px solid #d6e6ee; border-top: 3px solid #0f7ea8; border-radius: 4px;
+  padding: 9px 11px; background: #fbfdfe; }
+.kpi b { display: block; font-size: 19pt; color: #0b5f7f; line-height: 1.15; }
+.kpi span { font-size: 8pt; color: #5b7383; text-transform: uppercase; letter-spacing: .4px; }
+.pass { color: #0f9d76; font-weight: 600; } .fail { color: #c0392b; font-weight: 600; }
+.bar { background: #eaf1f5; border-radius: 3px; height: 9px; width: 100%; overflow: hidden; }
+.bar span { display: block; height: 100%; }
+.bpass { background: #0f9d76; } .bfail { background: #d9704f; } .bneutral { background: #0f7ea8; }
+.note { background: #f4fbf8; border-left: 3px solid #0f9d76; padding: 9px 12px; margin: 12px 0;
+  font-size: 9.5pt; }
+.warn { background: #fff8f1; border-left: 3px solid #d9843f; padding: 9px 12px; margin: 12px 0;
+  font-size: 9.5pt; }
+.tag { display: inline-block; font-size: 7.5pt; padding: 1px 6px; border-radius: 9px;
+  background: #eef6fa; color: #0b5f7f; border: 1px solid #d6e6ee; white-space: nowrap; }
+.case { border: 1px solid #e0eaf0; border-left: 3px solid #0f9d76; border-radius: 4px;
+  padding: 9px 12px; margin: 0 0 9px; break-inside: avoid; }
+.case.f { border-left-color: #d9704f; }
+.case h4 { margin: 0 0 5px; font-size: 10pt; }
+.case .meta { font-size: 8pt; color: #5b7383; margin: 0 0 6px; }
+.case .why { font-size: 9pt; margin: 5px 0 0; }
+.case .why b { color: #0b5f7f; }
+.mono { font-family: "SF Mono", Menlo, monospace; font-size: 8pt; }
+footer { margin-top: 26px; padding-top: 9px; border-top: 1px solid #e8eef2;
+  font-size: 8pt; color: #7b8f9c; }
+.brk { break-before: page; }
+</style></head><body><div class="cover"><h1>Exploratory QA Test-Case Planner Agent</h1>
+<p class="sub">Autonomous Android testing campaign — full results</p>
+<p style="margin-top:20px"><b>Application under test:</b> contacts (Bengali-language
+Android livestock-management app)<br>
+<b>Campaign:</b> 2 autonomous test cases, generated and executed without human input<br>
+<b>Executed:</b> 2026-09-20 &nbsp;·&nbsp; <b>Report generated:</b>
+20 Sep 2026</p></div><h2>1 · Executive summary</h2>
+<p>An LLM-driven agent designed 2 exploratory test cases for an Android app it had
+never seen before, ran each one on a real device, and wrote what it learned into a
+knowledge graph that shaped the next test. No human wrote a test case, a selector, or a
+script.</p>
+<div class="kpis">
+<div class="kpi"><b>2</b><span>Tests executed</span></div>
+<div class="kpi"><b class="pass">1</b><span>Passed (50%)</span></div>
+<div class="kpi"><b class="fail">1</b><span>Failed (50%)</span></div>
+<div class="kpi"><b>6</b><span>Findings about the app</span></div>
+</div>
+<div class="warn"><b>Read the pass rate carefully.</b> Of the 1 failures, only
+<b>1</b> are statements about the application — cases where the agent reached its
+checkpoint and the app did something unexpected. The other <b>0</b> are our agent
+running out of its own interaction budget or failing to navigate, which says nothing about
+the app's quality. The honest headline is <b>1 app-level failures across 2
+tests</b>, not a 50% defect rate.</div>
+<p>The campaign produced <b>9 findings</b>, of which 6 describe
+the application and 2 record our own agent's difficulties.
+It covered <b>7/141 requirements</b>
+(4%) across <b>2 feature areas</b>, and mapped
+<b>6 distinct UI states</b>. Total device time was 0.2 hours, median
+324s per test.</p><h2>2 · How the system works</h2>
+<p>Three LLM agents share one Neo4j knowledge graph. Each test makes the graph a little
+richer, so the next test is proposed from better facts.</p>
+<table><tr><th style="width:17%">Agent</th><th style="width:36%">Job</th><th>What it reads and writes</th></tr>
+<tr><td><b>Planner</b></td><td>Decides what to test next and writes the test case</td>
+<td>Calls tools over the graph — untested requirements, screens already mapped, findings
+so far, open questions, coverage gaps — then proposes a test. A validation gate rejects
+proposals that duplicate earlier work or target screens that do not exist.</td></tr>
+<tr><td><b>Executor</b></td><td>Drives the real device</td>
+<td>Receives the test case in plain language and interacts with the live app, with a
+budget of 50 steps. Emits a step-by-step trajectory.</td></tr>
+<tr><td><b>Investigator</b></td><td>Turns the trajectory into knowledge</td>
+<td>Reads the trajectory and writes <i>findings</i> — typed, deduplicated claims about the
+app — back into the graph, and marks earlier open questions resolved when a run settles
+them.</td></tr></table>
+<p>Nothing is carried in conversation history. Every planner call is stateless and rebuilt
+from the graph, so "learning" means the graph grew — not that the model remembers.</p><h2 class="brk">3 · Results</h2><h3>3.1 Outcome</h3>
+<table><tr><th>Verdict</th><th class="num">Tests</th><th class="num">Share</th><th style="width:44%"></th></tr>
+<tr><td><span class="pass">Passed</span></td><td class="num">1</td>
+<td class="num">50%</td><td><div class="bar"><span class="bpass" style="width:50.0%"></span></div></td></tr>
+<tr><td><span class="fail">Failed</span></td><td class="num">1</td>
+<td class="num">50%</td><td><div class="bar"><span class="bfail" style="width:50.0%"></span></div></td></tr></table>
+<h3>3.2 Why tests failed — and what each reason means</h3>
+<table><tr><th style="width:24%">Reason</th><th class="num">Count</th>
+<th style="width:17%">Tells us about</th><th>Interpretation</th></tr><tr><td class="mono">ASSERTION_FAILURE</td><td class="num">1</td>
+<td style="color:#0b5f7f"><b>App evidence</b></td><td>The agent reached its checkpoint and the app did not do what the test expected. These are the results that describe the app.</td></tr></table>
+<div class="note"><b>This split is the most important number in the report.</b> A testing
+agent that cannot finish its own test produces a failure that looks identical to a real
+defect unless you separate them. 1 of 1 failures are app evidence; the rest
+are our ceiling, and they are the clearest direction for future work.</div><h3>3.3 Coverage</h3>
+<table><tr><th>Dimension</th><th class="num">Covered</th><th class="num">Total</th>
+<th style="width:34%"></th></tr>
+<tr><td>Requirements exercised by at least one test</td><td class="num">7</td>
+<td class="num">141</td>
+<td><div class="bar"><span class="bneutral" style="width:5.0%"></span></div></td></tr>
+<tr><td>Feature areas reached</td><td class="num">2</td><td class="num">2</td>
+<td><div class="bar"><span class="bneutral" style="width:100.0%"></span></div></td></tr>
+<tr><td>Distinct UI states mapped</td><td class="num">6</td><td class="num">—</td><td></td></tr>
+</table>
+<h3>3.4 Spread across the app</h3>
+<p>An exploratory agent's failure mode is tunnelling — hammering one feature it already
+understands. Across 2 tests the agent touched <b>2 areas</b>, the largest
+taking 50% of the campaign.</p>
+<table><tr><th style="width:38%">Feature area</th><th class="num">Tests</th>
+<th class="num">Pass</th><th class="num">Fail</th><th style="width:26%"></th></tr><tr><td>contact_creation</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:50.0%"></span></div></td></tr><tr><td>draft_protection</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:50.0%"></span></div></td></tr></table><h2 class="brk">4 · What the agent learned — findings</h2>
+<p>A <i>finding</i> is a typed, deduplicated claim the investigator wrote into the graph.
+Findings are deduplicated semantically, so a repeat observation increments a counter rather
+than creating a new row. This campaign produced <b>9</b> of them.</p>
+<table><tr><th style="width:23%">Kind</th><th class="num">Count</th><th>What it means</th>
+<th style="width:17%"></th></tr><tr><td class="mono"><b>SPEC_VIOLATION</b></td><td class="num">1</td>
+<td>App contradicts a written requirement in the SRS.</td><td><div class="bar"><span class="bneutral" style="width:25.0%"></span></div></td></tr><tr><td class="mono"><b>SPEC_GAP</b></td><td class="num">1</td>
+<td>The SRS does not say what should happen here.</td><td><div class="bar"><span class="bneutral" style="width:25.0%"></span></div></td></tr><tr><td class="mono"><b>CONFIRMED_BEHAVIOUR</b></td><td class="num">4</td>
+<td>App worked as expected — evidence the feature is sound.</td><td><div class="bar"><span class="bneutral" style="width:100.0%"></span></div></td></tr><tr><td class="mono"><b>UNVERIFIED</b></td><td class="num">1</td>
+<td>The run could not settle the question either way.</td><td><div class="bar"><span class="bneutral" style="width:25.0%"></span></div></td></tr><tr><td class="mono"><b>AGENT_DIFFICULTY</b></td><td class="num">2</td>
+<td>Our testing agent struggled. Says nothing about the app.</td><td><div class="bar"><span class="bneutral" style="width:50.0%"></span></div></td></tr></table>
+<p><b>Lifecycle.</b> Findings that pose a question start <span class="mono">open</span> and
+are closed when a later run settles them — after three inconclusive attempts they are marked
+<span class="mono">inconclusive</span> rather than retried forever. Status now:
+<b>5</b> resolved, <b>2</b> open, <b>2</b> n/a.
+<span class="mono">n/a</span> covers kinds that are not questions, such as
+AGENT_DIFFICULTY.</p><h3>4.2 SPEC_VIOLATION — all 1</h3>
+<p>App contradicts a written requirement in the SRS.</p>
+<table><tr><th style="width:44%">Claim</th><th style="width:15%">Screen</th>
+<th class="num">Sev</th><th class="num">Seen</th><th>Evidence</th></tr><tr><td>Creating a second contact with identical name and phone number (&#x27;TestContact1&#x27;, +1 555-123-4567) does not trigger any duplicate detection UI; the save succeeds and a second identical entry is silently created in the list.</td><td>Add contact photo</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 19-25: re-entered identical name and phone, tapped Save, saw &#x27;TestContact1 saved&#x27; toast with no merge/keep-separate dialog; back on list, two TestContact1 entries visible…</td></tr></table><h3>4.3 SPEC_GAP — all 1</h3>
+<p>The SRS does not say what should happen here.</p>
+<table><tr><th style="width:44%">Claim</th><th style="width:15%">Screen</th>
+<th class="num">Sev</th><th class="num">Seen</th><th>Evidence</th></tr><tr><td>The unsaved-changes dialog offers only &#x27;Discard&#x27; and &#x27;Save&#x27; - no explicit cancel/return-to-form option was observed, so the only way to keep editing may be dismissing the dialog by other means.</td><td>Add contact photo</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 5 and 11: dialog observed with exactly two buttons, &#x27;Discard&#x27; and &#x27;Save&#x27;; no Cancel/Keep-editing button reported in either occurrence.</td></tr></table><h2 class="brk">5 · Every test case</h2>
+<p>All 2 tests in execution order. "Why" quotes the agent's own reasoning about what
+happened on the device.</p><div class="case f">
+<h4>1. TC-001 — Validate contact creation persistence and duplicate detection with minimal valid data</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area contact_creation · 26 device steps
+ · 324s · 17:31
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-ADD-01</span> <span class="tag">FR-ADD-02</span> <span class="tag">FR-ADD-07</span> <span class="tag">FR-ADD-08</span> <span class="tag">FR-DUP-01</span> <span class="tag">FR-DUP-02</span></p><p class="why"><b>Why it failed:</b> Partially failed: First contact creation and persistence worked correctly. However, duplicate detection did NOT trigger when creating a second contact with identical name and phone number. Instead of showing a merge/keep separate UI, the app silently created a duplicate entry (two &quot;TestContact1&quot; contacts now visible in the list). The expected duplicate detection flow was not observed.</p><p class="why"><b>Agent's account:</b> Objective refuted. Creating a contact with only first name and phone number succeeded, saved with a toast, and the contact appeared in the list under T. However, saving a second contact with identical name and phone number produced no duplicate detection UI; a second TestContact1 entry was silently created. The duplicate-detection requirement is violated. Findings: 1 agent_difficulty, 2 confirmed_behaviour, 1 spec_violation. (4 new, 0 reinforced)</p></div><div class="case ">
+<h4>2. TC-002 — Verify Draft Protection on Unsaved Contact Creation</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area draft_protection · 18 device steps
+ · 294s · 17:36
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective unclear. The run confirmed that navigating away from the Add Contact form with unsaved data triggers a &#x27;Your changes have not been saved&#x27; dialog with Discard/Save options, and that Discard returns to the list without creating a contact. However, the &#x27;cancel discard preserves data&#x27; path was never verified: the agent clicked &#x27;Save&#x27; (which saves the contact) instead of a cancel/return option, so the dialog&#x27;s cancel semantics remain unknown.…</p></div><h2 class="brk">6 · Limitations</h2>
+<p>Stated plainly, because they bound every number above.</p>
+<table><tr><th style="width:28%">Limitation</th><th>Consequence</th></tr>
+<tr><td><b>No ground truth</b></td><td>The app has no known, seeded defect list, so we
+cannot compute recall. We know what the agent found; we cannot say what it missed. This is
+the single biggest gap.</td></tr>
+<tr><td><b>No ablation</b></td><td>Every component — graph memory, tools, the finding
+lifecycle — is on. We have not measured what each contributes, so we cannot attribute the
+results to any one design choice.</td></tr>
+<tr><td><b>0 of 1 failures are ours</b></td><td>The 50-step executor budget
+and navigation reliability, not the app, cap the usable yield of a campaign.</td></tr>
+<tr><td><b>Findings are LLM-authored</b></td><td>A SUSPECTED_DEFECT is a model's judgement
+from a device trajectory, not a verified bug. The "suspected" is load-bearing and each one
+still needs a human.</td></tr>
+<tr><td><b>Single app, single run</b></td><td>One Bengali Android app, one campaign, no
+repetition. Nothing here establishes variance between runs.</td></tr>
+<tr><td><b>Provider variance</b></td><td>Inference is routed through OpenRouter, where
+different providers served the same model with order-of-magnitude differences in latency
+and token usage, adding noise to any cost or timing figure.</td></tr>
+</table>
+<footer>Generated from the Neo4j campaign graph by
+<span class="mono">scripts/build_campaign_report.py</span> · project
+<span class="mono">contacts</span> · campaign since
+<span class="mono">2026-09-20T17:00:00</span> · 2 executions, 9 findings.</footer>
+</body></html>

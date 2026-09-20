@@ -524,6 +524,13 @@ nothing new. Do not invent findings to fill space.
 cite step numbers (<= 500 chars). State only what the steps directly show - no
 speculation. At most 15 findings.
 
+If you were shown a cluster above and the findings share one cause, add a
+`generalise` object alongside `findings`:
+  "generalise": {"members": ["F-aaaa","F-bbbb","F-cccc"],
+                 "claim": "the single underlying defect, stated once",
+                 "kind": "SUSPECTED_DEFECT", "screen": "<screen name>"}
+Only when one cause genuinely explains all of them. Omit it otherwise.
+
 Return STRICT JSON only. No markdown fences, no text outside the object:
 {"run_verdict": {"objective_outcome": "confirmed|refuted|unclear",
                  "screen_hint_accurate": true,
@@ -661,6 +668,31 @@ def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None 
         except Exception:
             pass
 
+        # Findings on these screens that look like one defect stated several ways.
+        # Shown only for screens this run touched, so the prompt grows only where
+        # there is something to collapse.
+        cluster_text = ""
+        try:
+            cs = [c for c in rag_client.rag_get(
+                      "/findings/clusters", {"project": req.project}).get("clusters", [])
+                  if c.get("screen") in set(touched)]
+            if cs:
+                blocks = []
+                for c in cs[:2]:
+                    lines = [f"- On '{c['screen']}' these {c['size']} findings may be one defect:"]
+                    lines += [f"    [{m['ref']}] {m['claim']}" for m in c["members"]]
+                    blocks.append("\n".join(lines))
+                cluster_text = (
+                    "SEVERAL FINDINGS MAY BE ONE DEFECT STATED SEVERAL WAYS.\n"
+                    + "\n".join(blocks) + "\n"
+                    "If they share ONE cause — e.g. a field that validates nothing, so it accepts "
+                    "empty, emoji and over-long values alike — say so with a `generalise` object: "
+                    "one claim naming the cause, and the refs it covers. The specific findings are "
+                    "kept as its evidence, so nothing is lost. If they are genuinely different "
+                    "defects, leave `generalise` out.\n\n")
+        except Exception:
+            pass
+
         # Condense thought+action pairs, capped at the executor's own step budget.
         step_lines = []
         for s in steps[:50]:
@@ -672,6 +704,7 @@ def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None 
 
         prompt = (
             mission_text
+            + cluster_text
             + f"This test's objective was: {req.objective or '(not stated)'}\n"
             f"Expected result: {req.expected_result or '(not stated)'}\n"
             f"It assumed the relevant screen was: {req.screen_hint or '(not stated)'}\n"
@@ -730,6 +763,21 @@ def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None 
                 detail=f"evaluation parsed but findings never reached the graph: {e}",
                 test_case_id=str(req.test_case_id),
             )
+
+        gen = parsed.get("generalise") or {}
+        if isinstance(gen, dict) and gen.get("members") and gen.get("claim"):
+            try:
+                g = rag_client.rag_post("/findings/generalise", {
+                    "project": req.project, "members": gen.get("members", []),
+                    "claim": gen.get("claim", ""), "kind": gen.get("kind", "SUSPECTED_DEFECT"),
+                    "screen": gen.get("screen", ""),
+                    "evidence": f"generalised from {len(gen.get('members', []))} findings "
+                                f"during {req.test_case_id}",
+                })
+                log.info("findings_generalised", project=req.project, **{
+                    k: g.get(k) for k in ("generalised", "ref", "absorbed") if k in g})
+            except Exception as e:
+                log.warning("generalise_failed", error=str(e)[:160])
 
         # A short human-readable line for the dashboard/ExecutionLog. Deliberately
         # NOT the thing any prompt reads any more — prompts read findings.

@@ -1,0 +1,283 @@
+Software Requirements Specification — Contacts Android Application
+Package: com.google.android.contacts   Framework: Android native   Build under test: 4.86.23
+
+The Contacts application stores, organises and retrieves the user's personal contact
+records on an Android device. Users create contacts with names, phone numbers, email
+addresses and supplementary detail; browse and search a contact list that may hold
+thousands of entries; organise contacts with labels and a favourites set; reconcile
+duplicate records through a guided merge; and move contact data on and off the device
+through vCard import, export and share. The application is the system provider of
+contact data to the dialler, messaging and mail applications on the same device.
+
+SCOPE NOTE FOR THIS TEST CAMPAIGN
+The device holds 74 pre-existing contact records stored locally, with no cloud account
+attached. Sections marked PRECONDITION-UNAVAILABLE describe behaviour that cannot be
+exercised on this device because the precondition it depends on is absent — principally
+a signed-in cloud account. They are stated so their absence is understood, not so they
+can be attempted; a test that targets them will fail for reasons that say nothing about
+the application. Every other section is in scope.
+
+Requirements are written to be independently checkable. Where a requirement states a
+boundary, an ordering, a message or a count, that value is the expected result and a
+departure from it is a defect, not a variation.
+
+1. SCOPE AND ENVIRONMENT
+FR-SCOPE-01 The application operates against locally stored contact records and does not
+           require network access for create, read, update, delete, search or export.
+FR-SCOPE-02 Contact records created during testing persist across application restart.
+FR-SCOPE-03 Contact records created during testing persist across device reboot.
+FR-SCOPE-04 The application is the registered provider of contact data to other
+           applications on the device through the system contacts provider.
+FR-SCOPE-05 No cloud account is attached to this device, so contact records are written
+           to device-local storage by default.
+FR-SCOPE-06 The application remains usable in full when no cloud account is present; no
+           feature outside section 11 is gated behind sign-in.
+
+2. NAVIGATION AND APPLICATION STRUCTURE
+FR-NAV-01 The application opens to a contact list as its primary screen.
+FR-NAV-02 A persistent search affordance is reachable from the primary screen without
+          first opening a menu.
+FR-NAV-03 A persistent control for creating a new contact is reachable from the primary
+          screen without first opening a menu.
+FR-NAV-04 A navigation surface exposes the application's top-level destinations, and the
+          destination currently displayed is indicated as selected.
+FR-NAV-05 Selecting the already-selected top-level destination returns that destination
+          to its top scroll position rather than creating a second copy of the screen.
+FR-NAV-06 The system back gesture from a contact detail screen returns to the list that
+          opened it, with the list's prior scroll position restored.
+FR-NAV-07 The system back gesture from the primary screen exits the application; it does
+          not re-enter an earlier screen of the same application.
+FR-NAV-08 Opening a navigation drawer and pressing system back closes the drawer and
+          leaves the application on the screen beneath it.
+FR-NAV-09 Every screen that is not the primary screen provides a visible route back to
+          the primary screen without using the system back gesture.
+
+3. CONTACT LIST AND DISPLAY
+FR-LIST-01 The contact list displays every stored contact that has a display name.
+FR-LIST-02 Contacts are ordered alphabetically by display name by default.
+FR-LIST-03 Each list row shows at minimum the contact's display name.
+FR-LIST-04 A contact with no photograph is shown with a generated placeholder, never a
+           blank or broken image region.
+FR-LIST-05 The list supports continuous scrolling through the full record set without
+           dropping, duplicating or reordering rows already seen.
+FR-LIST-06 Selecting a list row opens the detail screen for that contact and no other.
+FR-LIST-07 When the contact store holds no records, the list presents an empty state that
+           names the condition and offers the create-contact action.
+FR-LIST-08 The empty state is never shown while one or more contacts exist.
+FR-LIST-09 A contact whose display name is empty is listed under an explicit "(No name)"
+           style entry rather than as a blank row.
+
+4. CREATING A CONTACT
+FR-ADD-01 The create-contact screen accepts a given name and a family name as separate
+          fields.
+FR-ADD-02 The create-contact screen accepts at least one phone number.
+FR-ADD-03 The create-contact screen accepts at least one email address.
+FR-ADD-04 The create-contact screen accepts optional company and job title.
+FR-ADD-05 The create-contact screen provides a free-text notes field.
+FR-ADD-06 Additional phone numbers and email addresses can be added to a contact before
+          it is saved, each with its own type label.
+FR-ADD-07 The contact is written to storage upon explicit user confirmation and not
+          before; abandoning the screen leaves no partial record.
+FR-ADD-08 After a successful save the application returns to the list or detail view and
+          the new contact is immediately present without a manual refresh.
+FR-ADD-09 A save that cannot be completed reports the reason to the user; it does not
+          fail silently or appear to succeed.
+FR-ADD-10 Leaving the create screen with unsaved data prompts for confirmation before
+          the data is discarded.
+
+5. FIELD VALIDATION
+FR-VAL-01 A contact cannot be saved with a display name that is empty.
+FR-VAL-02 A contact cannot be saved with a display name consisting only of whitespace.
+FR-VAL-03 A name field accepts at most 100 characters; input beyond that limit is
+          rejected or prevented at entry, and is never silently truncated on save.
+FR-VAL-04 A contact cannot be saved with zero phone numbers and zero email addresses;
+          at least one means of contact is required.
+FR-VAL-05 A phone number in international format — a leading '+', a country code and a
+          subscriber number — is accepted.
+FR-VAL-06 A phone number in national format — an area code and a subscriber number — is
+          accepted.
+FR-VAL-07 A phone number field rejects input containing alphabetic characters.
+FR-VAL-08 An email address is accepted only in local-part@domain form.
+FR-VAL-09 An email address with no '@', with more than one '@', or with an empty domain
+          is rejected.
+FR-VAL-10 Every rejection identifies the specific field at fault and states what is
+          wrong with it; a generic failure message is not sufficient.
+FR-VAL-11 A validation failure preserves all data the user has already entered; no field
+          is cleared as a side effect of the failure.
+FR-VAL-12 Leading and trailing whitespace is trimmed from name, phone and email values
+          before they are stored.
+FR-VAL-13 A name containing emoji, punctuation or non-Latin script is accepted and is
+          rendered identically on the detail screen and in the list.
+FR-VAL-14 A value accepted at save is the value returned on re-opening the contact; the
+          stored value never differs from the confirmed value.
+FR-VAL-15 Validation is enforced on edit exactly as it is on creation; an existing
+          contact cannot be edited into a state that creation would have refused.
+
+6. EDITING AND DELETING
+FR-EDIT-01 An existing contact can be opened for editing from its detail screen.
+FR-EDIT-02 The edit screen is populated with the contact's current stored values.
+FR-EDIT-03 A changed field is persisted on confirmation and is visible on the detail
+           screen without a manual refresh.
+FR-EDIT-04 Abandoning an edit leaves the stored contact unchanged in every field.
+FR-EDIT-05 A phone number or email address can be removed from a contact that has more
+           than one, subject to FR-VAL-04.
+FR-EDIT-06 Deleting a contact requires an explicit confirmation step.
+FR-EDIT-07 A deleted contact is absent from the list and from search results immediately
+           after deletion.
+FR-EDIT-08 Deletion of one contact never alters any other contact record.
+FR-EDIT-09 Multiple contacts can be selected and deleted in a single operation, with the
+           count of affected records stated before confirmation.
+
+7. DUPLICATE DETECTION AND MERGE
+FR-DUP-01 The application identifies a potential duplicate when a display name matches an
+          existing contact exactly, ignoring case.
+FR-DUP-02 The application identifies a potential duplicate when a phone number matches an
+          existing contact's phone number.
+FR-DUP-03 The application identifies a potential duplicate when an email address matches
+          an existing contact's email address.
+FR-DUP-04 On detecting a potential duplicate the application presents the existing and
+          the candidate record together so the user can compare them before deciding.
+FR-DUP-05 The user is offered a choice to keep both records as separate entries.
+FR-DUP-06 The user is offered a choice to merge the records into a single entry.
+FR-DUP-07 A merge preserves every unique field value from both records; no value present
+          before the merge is absent after it.
+FR-DUP-08 Where phone numbers or email addresses conflict, a merge retains both values as
+          separate entries within the merged contact.
+FR-DUP-09 Where name or company conflict, a merge prefers the more recently entered value.
+FR-DUP-10 A merge reduces the contact count by exactly one for each pair merged.
+FR-DUP-11 Declining a merge leaves both records intact and unmodified.
+
+8. SEARCH
+FR-SRCH-01 A search field accepts free text and is reachable from the primary screen.
+FR-SRCH-02 Search matches against contact display names.
+FR-SRCH-03 Search matches against phone numbers.
+FR-SRCH-04 Search matches against email addresses.
+FR-SRCH-05 Results update as each character is typed, without requiring a submit action.
+FR-SRCH-06 Search matches a contact when the query appears as a substring anywhere in a
+           searchable field, not only at the start of that field.
+FR-SRCH-07 Search is case-insensitive.
+FR-SRCH-08 A query matching no contact presents an empty state naming the query; it does
+           not present a blank screen or the unfiltered list.
+FR-SRCH-09 Clearing the search field restores the full contact list.
+FR-SRCH-10 A query consisting only of whitespace is treated as an empty query and does
+           not produce an error.
+FR-SRCH-11 Query text containing SQL or markup metacharacters is treated as literal text
+           and never alters application behaviour.
+FR-SRCH-12 The application retains the last 10 search queries and offers them for reuse;
+           an eleventh query displaces the oldest.
+
+9. ORGANISING — LABELS AND FAVOURITES
+FR-FILT-01 A contact can be marked as a favourite from its detail screen.
+FR-FILT-02 Favourite status is visible on the contact's detail screen and persists across
+           application restart.
+FR-FILT-03 Favourited contacts can be listed as a set distinct from the full list.
+FR-FILT-04 A contact can be removed from favourites, and is then absent from that set.
+FR-FILT-05 A user-defined label can be created and named.
+FR-FILT-06 A contact can be assigned to a label, and a label's members can be listed.
+FR-FILT-07 A contact can belong to more than one label simultaneously.
+FR-FILT-08 Deleting a label does not delete the contacts assigned to it.
+FR-FILT-09 The contact list can be filtered to a single label, and the active filter is
+           indicated on screen.
+
+10. IMPORT, EXPORT AND SHARING
+FR-EXP-01 The contact list can be exported to a vCard (.vcf) file.
+FR-EXP-02 An export includes every field that holds data for each exported contact:
+          names, phone numbers, email addresses, company, job title and notes.
+FR-EXP-03 The user selects the destination for an exported file before it is written.
+FR-EXP-04 Contacts can be imported from a vCard file.
+FR-EXP-05 An import reports how many records were read and how many were created.
+FR-EXP-06 An import of a record that duplicates an existing contact triggers the
+          detection described in section 7 rather than creating a silent duplicate.
+FR-EXP-07 An import of a malformed or truncated file reports the failure and leaves the
+          existing contact store unchanged.
+FR-EXP-08 A single contact can be shared to another application as a vCard.
+FR-EXP-09 A share offers the applications on the device that accept the vCard type, and
+          cancelling the share returns to the contact unchanged.
+
+11. CLOUD SYNCHRONISATION AND BACKUP  [PRECONDITION-UNAVAILABLE — no account on device]
+FR-SYNC-01 With a signed-in account and network access, contact changes synchronise to
+           that account automatically on create, update and delete.
+FR-SYNC-02 Synchronisation occurs on application launch when an account is present.
+FR-SYNC-03 Contacts created while offline are queued and synchronised when connectivity
+           returns.
+FR-SYNC-04 A synchronisation failure is surfaced to the user and does not discard local
+           changes.
+FR-SYNC-05 The account a contact is stored under is visible on the contact's detail screen
+           when more than one storage account exists.
+
+12. INTEROPERABILITY WITH OTHER APPLICATIONS
+FR-INT-01 A phone number on the detail screen initiates a call through the device dialler
+          when selected.
+FR-INT-02 A phone number on the detail screen offers a message action that opens the
+          device messaging application with that recipient populated.
+FR-INT-03 An email address on the detail screen opens the device mail application with
+          that recipient populated.
+FR-INT-04 Returning from an external application leaves the contact detail screen in the
+          state it held before the external application opened.
+FR-INT-05 When no application on the device can service an action, the action is either
+          hidden or reports that no handler is available; it never fails silently.
+
+13. LOCALISATION AND NUMBER FORMATTING
+FR-LOC-01 Phone numbers are formatted according to the region indicated by the device
+          SIM's mobile country code.
+FR-LOC-02 A number entered in international format retains its country code as stored and
+          as displayed.
+FR-LOC-03 The application's interface follows the device locale for language and for
+          text direction.
+FR-LOC-04 Changing the device locale updates the interface language without loss of any
+          stored contact data.
+FR-LOC-05 Contact names in non-Latin scripts sort and display correctly under the active
+          locale.
+FR-LOC-06 Date values shown by the application are rendered in the device locale's format.
+
+14. PERMISSIONS AND PRIVACY
+FR-PERM-01 The application requests the contacts permission before first accessing
+           contact data.
+FR-PERM-02 Denying a permission leaves the application running and explains which
+           functionality is unavailable; it does not crash or close.
+FR-PERM-03 A permission denied at first request can be granted later from within the
+           application's own flow.
+FR-PERM-04 The application requests no permission that none of its stated features needs.
+FR-PERM-05 Contact data is not transmitted off the device when no account is attached.
+
+15. DELETION SAFETY AND RECOVERY
+FR-DEL-01 A deleted contact is recoverable for a defined retention period before it is
+          permanently removed.
+FR-DEL-02 The recovery area lists deleted contacts with the date each was deleted.
+FR-DEL-03 Restoring a deleted contact returns it to the main list with all fields intact.
+FR-DEL-04 A contact permanently removed from the recovery area is not recoverable and no
+          longer appears in search.
+FR-DEL-05 The recovery area presents an empty state when it holds no deleted contacts.
+
+16. ACCESSIBILITY
+FR-A11Y-01 Every interactive control exposes an accessibility label that describes its
+           action.
+FR-A11Y-02 An accessibility label matches the control's visible text where visible text
+           exists.
+FR-A11Y-03 A control's accessible action performs the same operation as a direct tap.
+FR-A11Y-04 Interface text reflows without truncation or overlap when the system font size
+           is increased.
+FR-A11Y-05 Interactive targets are large enough to be activated reliably without zooming.
+
+17. ROBUSTNESS AND PERFORMANCE
+FR-PERF-01 The contact list becomes interactive within three seconds of application launch
+           on the reference device.
+FR-PERF-02 Search results for a list of this size update without perceptible delay as the
+           user types.
+FR-PERF-03 The application does not stop responding, close unexpectedly or lose data
+           during any operation described in this document.
+FR-PERF-04 Rotating the device preserves the current screen, its entered data and its
+           scroll position.
+FR-PERF-05 Backgrounding and resuming the application preserves unsaved entry in progress.
+FR-PERF-06 Repeated rapid activation of a control performs its action once, not once per
+           activation.
+FR-PERF-07 An operation that takes perceptible time presents progress and prevents
+           duplicate submission while it runs.
+
+18. PLATFORM CONSTRAINTS
+FR-CON-01 The application runs on Android 10 (API level 29) and above.
+FR-CON-02 The application is not offered to devices below Android 10.
+FR-CON-03 The application functions without a network connection for every feature
+          outside section 11.
+FR-CON-04 The application functions with no SIM present, falling back to the device
+          locale for number formatting.

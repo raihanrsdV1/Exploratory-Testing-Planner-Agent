@@ -105,6 +105,29 @@ context-limited**, and deliberately so.
 
 ---
 
+---
+
+# Part 1b — the investigator's prompt
+
+Not the planner's, but it shares the same discipline: bounded blocks, and content only when
+there is something to say.
+
+| Block | When it appears |
+|---|---|
+| Mission (`addresses`) | only when the planner targeted an open question |
+| Cluster candidates | only when a screen this run touched has ≥3 findings sharing a cause |
+| Structural facts about touched screens | always (small — often <1,200 ch) |
+| Findings already recorded for those screens | always; open ones flagged `**OPEN QUESTION**` |
+| Trajectory | ≤50 steps, untruncated |
+| Output contract | fixed, ~3,500 ch |
+
+Both conditional blocks exist because of measured failures: without the mission block the
+evaluator never resolved a question (`resolves` emitted empty on every finding across a whole
+campaign), and without the cluster block one defect stayed recorded as five separate findings.
+Full detail in [INVESTIGATOR.md](../INVESTIGATOR.md).
+
+---
+
 # Part 2 — `pipeline` mode (still the default)
 
 One large prompt assembled from ~15 candidate blocks, fitted highest-priority-first into

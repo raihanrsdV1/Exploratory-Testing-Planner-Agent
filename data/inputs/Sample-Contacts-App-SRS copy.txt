@@ -1,0 +1,111 @@
+Company Name
+Contacts 1.0
+Software Requirements Specification
+
+
+Jun 16 2026 16:00
+
+Table of contents
+Please right-click and choose "Update Field" to initialize this field. 
+
+
+3.2 Phone Software Requirements
+-- 
+3.2.1 Functional Requirements
+-- 
+3.2.1.1 Contact Management
+-- 
+3.2.1.1.1 Add New Contact
+DETAILED DESCRIPTION: The phone application shall provide an interface to allow the user to add a new contact by entering the contact's name, phone number, email address, and optional fields such as company, job title, and notes. The application shall save the contact to the local database immediately upon user confirmation. 
+
+RATIONALE/ JUSTIFICATION OF THE REQUIREMENT: The primary function of the Contacts+ application is to allow users to create and store contact information. The data shall be persisted immediately to prevent data loss.
+3.2.1.1.2 Contact Field Validation
+DETAILED DESCRIPTION: The phone application shall validate the contact fields before saving a contact according to the following rules:
+•	Name field shall not be empty and shall not exceed 100 characters.
+•	Phone number field shall conform to the following formats:
+o	International format starting with '+' followed by country code and subscriber number (e.g., +1-555-0123)
+o	National format with area code and subscriber number (e.g., 555-0123)
+•	Email address field, if provided, shall conform to standard email format (local-part@domain).
+•	The application shall not allow saving a contact with zero phone numbers and zero email addresses.
+o	At least one phone number or one email address shall be provided.
+
+RATIONALE/ JUSTIFICATION OF THE REQUIREMENT: Invalid contact data can cause issues when the user attempts to call, message, or email a contact. Field validation ensures data integrity and a consistent user experience.
+3.2.1.1.3 Duplicate Contact Detection and Merge
+DETAILED DESCRIPTION: The phone application shall detect and notify the user when a newly added or imported contact is a potential duplicate of an existing contact. A potential duplicate is identified when:
+1.	The contact name matches exactly (case-insensitive) with an existing contact, or
+2.	The phone number matches an existing contact's phone number, or
+3.	The email address matches an existing contact's email address.
+
+When a potential duplicate is detected, the phone application shall display both the existing and new contact information side by side and provide the following options:
+- Keep Both : saves the new contact as a separate entry
+- Merge : combines the fields of both contacts into a single entry, preserving all unique field values
+- Replace : overwrites the existing contact with the new contact data
+
+The merge operation shall resolve field conflicts using the following priority:
+- For conflicting phone numbers or email addresses: retain both values as separate entries within the same contact
+- For conflicting name or company: prefer the newly entered data
+
+(TODO: The duplicate detection threshold and fuzzy matching sensitivity will be defined after UX research is completed in Q3 2026)
+
+RATIONALE/ JUSTIFICATION OF THE REQUIREMENT: Duplicate contacts create confusion when searching or communicating. Automatic detection and guided merge helps the user maintain a clean and organized contact list without manual effort.
+3.2.1.2 Search and Filtering
+-- 
+3.2.1.2.1 Contact Search and Filtering
+DETAILED DESCRIPTION: The phone application shall provide a search function that allows the user to find contacts by name, phone number, or email address. The search shall support the following behaviors:
+1.	Real-time search: results shall update as the user types each character in the search field.
+2.	Partial match: the search shall match contacts that contain the search query as a substring in any searchable field.
+3.	Search history: the application shall retain the last 10 search queries for quick re-access.
+
+Additionally, the phone application shall provide filtering options to narrow down the contact list by:
+•	Contact group (e.g., Family, Work, Friends)
+•	Favorite status
+•	Recently added (within the last 7 days)
+
+RATIONALE/ JUSTIFICATION OF THE REQUIREMENT: Users with large contact lists need an efficient way to find specific contacts. Real-time search and filtering significantly reduce the time and effort required to locate a contact.
+3.2.1.3 Data Sync and Backup
+-- 
+3.2.1.3.1 Cloud Synchronization
+DETAILED DESCRIPTION: The phone application shall synchronize the contact data with the user's cloud account when the user is signed in and has an active internet connection. The synchronization shall be performed automatically when the application is launched or when a contact is created, updated, or deleted. 
+
+RATIONALE/ JUSTIFICATION OF THE REQUIREMENT: Cloud synchronization ensures that the user's contact data is available across multiple devices and is not lost if the user's phone is lost, damaged, or replaced.
+3.2.1.3.2 Data Export
+DETAILED DESCRIPTION: The phone application shall allow the user to export their contact list in the following formats:
+- VCF (vCard) : standard format compatible with most contact applications
+- CSV : comma-separated values format for spreadsheet import
+- JSON : structured data format for programmatic access
+
+The exported file shall include all contact fields that have data:
+•	Name, phone numbers, email addresses
+•	Company, job title
+•	Notes and custom fields
+•	Contact photo (embedded in VCF, as file reference in CSV and JSON)
+
+RATIONALE/ JUSTIFICATION OF THE REQUIREMENT: Users shall be able to export their contact data for backup purposes or for migration to another application or service.
+3.2.1.4 Localization
+-- 
+3.2.1.4.1 Supporting regions and countries
+DETAILED DESCRIPTION: The phone application shall be activated only if a user is within a supported country. The phone device country code shall be checked with the device locale settings and the user's region shall be verified through the SIM card's MCC (Mobile Country Code). 
+1.	At the time of initial activation, the phone application shall check whether the device locale and SIM MCC correspond to a supported country.
+2.	In the case of phone number formatting dependent on each country, the phone application shall apply the appropriate format based on the detected country code.
+
+RATIONALE/ JUSTIFICATION OF THE REQUIREMENT: The Contacts+ application may have region-specific regulatory requirements for data storage and privacy. This limitation shall be enforced using the device locale and SIM MCC.
+3.2.1.4.2 Supporting regions and countries - iOS
+The phone application shall be activated only if a user is within a supported country while using the phone with the approved region setting. The user's Apple ID region code will be used to identify the user's country. 
+In the case of phone number formatting dependent on each country, the phone application provides them according to the user's region at the time of activation. 
+
+RATIONALE/ JUSTIFICATION OF THE REQUIREMENT: The Contacts+ application may have region-specific regulatory requirements for data storage and privacy. This limitation shall be provided using the Apple ID region of the user.
+3.2.2 Non-Functional Requirements
+-- 
+3.2.2.1 Constraint
+-- 
+3.2.2.1.1 Supported Device
+DETAILED DESCRIPTION: The phone application shall be searched and downloaded from the Google Play Store only on Android devices with Android 10 (API level 29) or above OS version. 
+
+RATIONALE/ JUSTIFICATION OF THE REQUIREMENT: The phone application should not be exposed to the Android 9 (API level 28) or lower OS version devices at the Google Play Store.
+3.2.2.1.2 Supported Device - iOS
+DETAILED DESCRIPTION: The phone application shall be searched and downloaded from the Apple App Store on devices with iOS 15.0 or above OS version. 
+
+RATIONALE/ JUSTIFICATION OF THE REQUIREMENT: The phone application should not be exposed to the lower than iOS 15.0 devices at the Apple App Store.
+
+
+

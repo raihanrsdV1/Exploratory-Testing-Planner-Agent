@@ -1,0 +1,62 @@
+[
+  {
+    "n": 1,
+    "title": "System architecture",
+    "file": "01-system-architecture.png"
+  },
+  {
+    "n": 2,
+    "title": "One test round, end to end",
+    "file": "02-one-test-round-end-to-end.png"
+  },
+  {
+    "n": 3,
+    "title": "Knowledge graph schema",
+    "file": "03-knowledge-graph-schema.png"
+  },
+  {
+    "n": 4,
+    "title": "Planner \u2014 tool-calling mode",
+    "file": "04-planner-tool-calling-mode.png"
+  },
+  {
+    "n": 5,
+    "title": "Planner \u2014 pipeline mode (default)",
+    "file": "05-planner-pipeline-mode-default.png"
+  },
+  {
+    "n": 6,
+    "title": "Investigator \u2014 trajectory to knowledge",
+    "file": "06-investigator-trajectory-to-knowledge.png"
+  },
+  {
+    "n": 7,
+    "title": "Finding taxonomy and who consumes it",
+    "file": "07-finding-taxonomy-and-who-consumes-it.png"
+  },
+  {
+    "n": 8,
+    "title": "Finding lifecycle",
+    "file": "08-finding-lifecycle.png"
+  },
+  {
+    "n": 9,
+    "title": "Failure attribution",
+    "file": "09-failure-attribution.png"
+  },
+  {
+    "n": 10,
+    "title": "Campaign lifecycle",
+    "file": "10-campaign-lifecycle.png"
+  },
+  {
+    "n": 11,
+    "title": "Ingestion \u2014 document to queryable requirements",
+    "file": "11-ingestion-document-to-queryable-requirements.png"
+  },
+  {
+    "n": 12,
+    "title": "Runtime topology",
+    "file": "12-runtime-topology.png"
+  }
+]

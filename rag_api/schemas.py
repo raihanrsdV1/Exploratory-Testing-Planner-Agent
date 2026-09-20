@@ -218,3 +218,13 @@ class RecordAttemptRequest(BaseModel):
     """Count one test aimed at an open question (see rag_api/findings.py)."""
     project: str = Field(..., min_length=1)
     ref: str = Field(..., min_length=1, description="Finding ref ('F-1a2b3c4d') or full id.")
+
+
+class GeneraliseRequest(BaseModel):
+    """Collapse a cluster of findings into one general claim (rag_api/findings.py)."""
+    project: str = Field(..., min_length=1)
+    members: list[str] = Field(default_factory=list, description="Refs of the findings to absorb.")
+    claim: str = ""
+    kind: str = ""
+    screen: str = ""
+    evidence: str = ""

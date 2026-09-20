@@ -235,6 +235,51 @@ curl "http://127.0.0.1:9010/findings/open?project=$PROJECT" | python3 -m json.to
 ./venv/bin/python scripts/backfill_finding_status.py --project $PROJECT   # one-time, for pre-lifecycle findings
 ```
 
+### Generalisation — one defect stated several ways
+
+Dedup collapses a finding **restated**. It deliberately does not collapse findings that are
+different observations sharing a cause — "accepts emoji" and "accepts 150 characters" are
+genuinely different things to have seen, and merging them at write time would destroy detail a
+developer needs.
+
+The consequence, measured on a 13-round campaign: **20 of 74 findings described one text field**,
+each technically new, all of them the same defect — *the farm name field validates nothing*. The
+planner read them as separate open questions and kept testing a further input. An
+information-yield check would never have caught it, because the yield never dropped.
+
+So a second, looser pass runs at evaluation time:
+
+| | dedup | clustering |
+|---|---|---|
+| question | "is this the same claim?" | "do these share one cause?" |
+| threshold | 0.90 cosine, same merge group, model-led | **0.72** cosine, same screen + merge group |
+| action | reinforce (`times_seen++`) | offer the group to the evaluator |
+
+When a run touches a screen with a cluster, the evaluator is shown it and may answer with a
+`generalise` object — one claim naming the cause, plus the refs it covers:
+
+```json
+"generalise": {"members": ["F-8db26e8a", "F-2c51aff9", "F-68c04424", "F-861bf6df"],
+               "claim": "The farm name field performs no validation at all: empty,
+                         whitespace-only, special characters, emoji and 150+ character
+                         values are all accepted and report success.",
+               "kind": "SUSPECTED_DEFECT", "screen": "খামারের তথ্য আপডেট"}
+```
+
+**Members are not deleted.** Each keeps its claim, gains `generalised_by`, and is linked by
+`GENERALISED_BY` to the general finding, whose `evidence` carries all the specifics. They vanish
+from every planner-facing view — `query`, `open_questions`, `stats`, the rollup — because that is
+the point; the detail stays in the graph for a human. Verified on the live graph: 74 → 71 visible,
+one claim replacing four, evidence intact.
+
+Clustering is a **candidate detector only**. It never merges anything on its own: whether one
+cause really explains a group is a judgement about the app, and it belongs to the evaluator that
+has the evidence.
+
+```bash
+curl "http://127.0.0.1:9010/findings/clusters?project=$PROJECT" | python3 -m json.tool
+```
+
 ### Lifetime across campaigns
 
 Findings are cleared by the **`delete_appmodel`** slice of `POST /project/reset`

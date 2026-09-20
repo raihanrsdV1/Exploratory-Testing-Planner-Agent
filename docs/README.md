@@ -9,6 +9,7 @@ Read in this order.
 | **[WORKFLOW.md](WORKFLOW.md)** | How the whole system works, end to end. **Read this first.** |
 | **[GETTING_STARTED.md](start/GETTING_STARTED.md)** | First-time setup: Neo4j, emulator, on-device portal, `.env`, troubleshooting |
 | **[ROADMAP.md](ROADMAP.md)** | Current status, what the agent has found, what to build next, known limitations |
+| **[DIAGRAMS.md](DIAGRAMS.md)** | Twelve diagrams of the system as built — architecture, the round loop, graph schema, both planners, finding lifecycle, failure attribution. Rendered PNGs in [`diagrams/`](diagrams/) |
 
 ## The three agents, in depth
 

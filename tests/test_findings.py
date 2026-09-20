@@ -249,6 +249,64 @@ def main():
               [r["open"] for r in st["by_screen"]] ==
               sorted([r["open"] for r in st["by_screen"]], reverse=True), True)
 
+        print("\none defect stated several ways collapses into one claim")
+        # The root cause of a measured tunnelling failure: nothing represented a
+        # DEFECT CLASS, so "empty name accepted" and "emoji name accepted" looked
+        # like separate questions when they are one answer. 20 of 74 findings
+        # described a single text field, and every one of them was technically new
+        # — so no information-yield check would ever have caught it.
+        _wipe(s)
+        # Phrased the way the real campaign phrased them: varied openings, one
+        # shared cause. Uniform phrasing ("The farm name field accepts X…" four
+        # times) scores above the 0.90 dedup threshold and merges on write, which
+        # is dedup working correctly — but it leaves nothing to cluster.
+        CLUSTER = [
+            "Saving the farm info form with an empty farm name produces no validation error and a success toast",
+            "Special characters '& @ # !' are accepted in the farm name and the save succeeds",
+            "A 178-character farm name is stored without any length check or warning",
+            "Emoji in the farm name pass through untouched; the record saves normally",
+        ]
+        F.record(s, PROJECT, [
+            {"claim": c, "kind": "SUSPECTED_DEFECT", "screen": "Farm Update", "evidence": f"step {i}"}
+            for i, c in enumerate(CLUSTER)],
+            log_id="", test_case_id="TC-CL", embed_texts=_embed, now=NOW)
+        F.record(s, PROJECT, [
+            {"claim": "The chat search box ignores leading and trailing whitespace entirely",
+             "kind": "SUSPECTED_DEFECT", "screen": "Chats", "evidence": "step 2"}],
+            log_id="", test_case_id="TC-CL2", embed_texts=_embed, now=NOW)
+
+        if embeddings.is_enabled():
+            cs = F.clusters(s, PROJECT)
+            farm = [c for c in cs if c["screen"] == "Farm Update"]
+            check("the four same-cause findings are detected as one cluster", len(farm), 1)
+            check("and all four are in it", farm[0]["size"], 4)
+            check("a lone finding on another screen is not clustered",
+                  any(c["screen"] == "Chats" for c in cs), False)
+
+            before = len(F.query(s, PROJECT, limit=100))
+            out = F.generalise(s, PROJECT, [m["ref"] for m in farm[0]["members"]],
+                               "The farm name field performs no validation at all",
+                               "SUSPECTED_DEFECT", "Farm Update", "from a 4-finding cluster",
+                               _embed, NOW)
+            check("generalising reports what it absorbed", out["absorbed"], 4)
+            after = F.query(s, PROJECT, limit=100)
+            check("the planner now sees fewer findings", len(after) < before, True)
+            check("the members are hidden from the planner",
+                  any(f["claim"].startswith("The farm name field accepts an empty") for f in after), False)
+            gen = [f for f in after if "no validation at all" in f["claim"]]
+            check("one general claim is shown instead", len(gen), 1)
+            check("the specifics survive as its evidence", len(gen[0]["evidence"]) >= 4, True)
+            check("the unrelated finding is untouched",
+                  any("chat search box" in f["claim"] for f in after), True)
+            check("members remain in the graph, linked to the general finding",
+                  s.run("MATCH (m:Finding {project:$p})-[:GENERALISED_BY]->(:Finding) "
+                        "RETURN count(*) AS c", p=PROJECT).single()["c"], 4)
+            check("a cluster already generalised is not offered again",
+                  any(c["screen"] == "Farm Update" for c in F.clusters(s, PROJECT)), False)
+        else:
+            print("  [SKIP] clustering needs embeddings")
+        _wipe(s)
+
         print("\nthe open queue balances started questions against fresh ones")
         # Neither sort alone works. attempts ASC starves started questions (each
         # run mints new ones, so a half-investigated question is never shown

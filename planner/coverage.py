@@ -16,6 +16,12 @@ from . import config
 # test data. They must not create "hot spots", because a hot spot tells the planner
 # "keep digging here" — and digging into an area we simply cannot reach produced a
 # run of five near-duplicate tests that each burned the full step budget.
+# Tests in one area before it stops being promoted as a hot spot. Chosen from
+# the measured failure: the ninth test on the same screen was still producing
+# technically-new findings, so "stop when the yield drops" would never have
+# fired — a spend cap is what was missing, not an information-yield check.
+AREA_SATURATION = 5
+
 NON_INFORMATIVE_ERRORS = {
     "PRECONDITION_NOT_MET", "STEP_LIMIT_EXCEEDED", "NAVIGATION_LIVELOCK",
     "NAVIGATION_FAILURE", "ELEMENT_NOT_FOUND", "TIMEOUT", "PERMISSION_DENIED",
@@ -74,7 +80,20 @@ def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict],
     tested_areas = set(area_stats.keys()) - {"general"}
     uncovered_purposes = sorted(screen_purposes - tested_areas)
     # Hot spot = the APP broke here repeatedly. Unreachable failures are excluded.
-    hot_spots = sorted(a for a, s in area_stats.items() if s["failed"] >= 2)
+    # An area we have already spent a lot of tests on, whatever the verdicts.
+    # Without this a failing area is a ONE-WAY DOOR: `hot_spots` promotes it to
+    # priority 1 forever, and the only exit (`exhausted`, below) requires
+    # failed == 0, which a failing area can never reach. Measured consequence:
+    # 9 of 13 tests in one campaign landed on a single screen, and 20 of 74
+    # findings described one text field — the same missing-validation defect
+    # restated for empty, whitespace, special characters, emoji and 150 chars.
+    saturated = sorted(a for a, s in area_stats.items() if s["total"] >= AREA_SATURATION)
+
+    # A hot spot stops being a priority once we have already spent a lot of
+    # tests there. It is still fragile; it is just no longer the best place to
+    # spend the next test.
+    hot_spots = sorted(a for a, s in area_stats.items()
+                       if s["failed"] >= 2 and a not in saturated)
     # Dead end = we keep trying and keep failing to even observe the app. Steer away.
     dead_ends = sorted(
         a for a, s in area_stats.items()
@@ -90,6 +109,7 @@ def compute_coverage_map(recent_tests: list[dict], figma_screens: list[dict],
         "area_stats": area_stats,
         "uncovered_purposes": uncovered_purposes,
         "hot_spots": hot_spots,
+        "saturated_areas": saturated,
         "dead_ends": dead_ends,
         "exhausted_areas": exhausted,
         "total_tests": len(executed),
@@ -146,6 +166,7 @@ def build_exploration_directive(coverage_map: dict, recent_tests: list[dict], mo
     dead_ends = coverage_map.get("dead_ends", [])
     uncovered = coverage_map.get("uncovered_purposes", [])
     exhausted = coverage_map.get("exhausted_areas", [])
+    saturated = coverage_map.get("saturated_areas", [])
 
     investigate = (
         f"[INVESTIGATE] Areas with repeated failures need deeper edge-case coverage: "
@@ -168,6 +189,14 @@ def build_exploration_directive(coverage_map: dict, recent_tests: list[dict], mo
 
     for i, block in enumerate([b for b in ordered if b], start=1):
         lines.append(f"[PRIORITY {i}] " + block)
+
+    if saturated:
+        lines.append(
+            f"[SPENT] These areas have already had {AREA_SATURATION}+ tests: "
+            f"{', '.join(saturated[:4])}. Whatever is wrong there is almost certainly "
+            f"already recorded — another variant of the same input on the same field adds "
+            f"little. Go somewhere else unless nothing untested remains."
+        )
 
     last_areas = [str(t.get("area", "")).lower().strip() for t in recent_tests[:4] if t.get("area")]
     if len(last_areas) >= 3 and len(set(last_areas)) == 1:

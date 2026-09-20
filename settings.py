@@ -419,6 +419,20 @@ EXECUTOR_TIMEOUT = _int("EXECUTOR_TIMEOUT", 420)
 EXECUTOR_MAX_TOKENS = _int("EXECUTOR_MAX_TOKENS", 4000)
 EXECUTOR_CONTEXT_WINDOW = _int("EXECUTOR_CONTEXT_WINDOW", 128_000)
 SELF_HEAL = _bool("SELF_HEAL", True)
+
+# How many times a failed planning call is retried before the campaign gives up,
+# and how long to wait between tries (multiplied by the attempt number). The
+# planner already waits out a network outage on its own; this is the outer guard
+# so one bad round cannot end a 40-round batch, which is how 13 rounds were lost.
+ROUND_RETRIES = _int("ROUND_RETRIES", 5)
+ROUND_RETRY_WAIT_S = _int("ROUND_RETRY_WAIT_S", 30)
+
+# Continue an existing campaign instead of starting a new one: nothing is
+# deleted, no campaign snapshot is taken, and test ids carry on from the highest
+# already in the graph. Overrides CLEAN_SLATE for the run. Used after an
+# interrupted batch — e.g. a power cut or a network outage that stopped it
+# partway — so the completed rounds are not thrown away to finish the rest.
+RESUME = _bool("RESUME", False)
 # Show the device agent screenshots as well as the accessibility tree. Needs a
 # vision-capable model. Worth it for verdict quality and for Compose/Flutter
 # screens that expose almost no structural control names.

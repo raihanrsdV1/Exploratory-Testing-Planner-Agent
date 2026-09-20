@@ -1752,8 +1752,11 @@ def tests_recent(project: str, limit: int = 20, authorization: str | None = Head
         rows = session.run(
             """
             MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
-            RETURN t.id AS id, t.title AS title, t.last_verdict AS verdict,
-                   t.last_notes AS notes, t.last_run_at AS ts
+            OPTIONAL MATCH (t)-[:COVERS]->(q:Requirement)
+            WITH t, [r IN collect(DISTINCT q.ref_id) WHERE r IS NOT NULL] AS reqs
+            RETURN t.id AS id, t.external_id AS external_id, t.title AS title,
+                   t.last_verdict AS verdict, t.last_notes AS notes,
+                   t.last_run_at AS ts, t.area AS area, reqs AS requirement_ids
             ORDER BY t.last_run_at DESC
             LIMIT $limit
             """,
@@ -2387,6 +2390,26 @@ def findings_attempt(req: RecordAttemptRequest, authorization: str | None = Head
     _check_auth(authorization)
     with driver.session() as session:
         out = findings_mod.record_attempt(session, req.project, req.ref, _utc_now())
+    return {"project": req.project, **out}
+
+
+@app.get("/findings/clusters")
+def findings_clusters(project: str, min_size: int = 3, authorization: str | None = Header(default=None)):
+    """Findings on one screen that look like one defect stated several ways."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        cs = findings_mod.clusters(session, project, min_size=min_size)
+    return {"project": project, "count": len(cs), "clusters": cs}
+
+
+@app.post("/findings/generalise")
+def findings_generalise(req: GeneraliseRequest, authorization: str | None = Header(default=None)):
+    """Replace a cluster with one general finding; members keep their detail."""
+    _check_auth(authorization)
+    with driver.session() as session:
+        out = findings_mod.generalise(
+            session, req.project, req.members, req.claim, req.kind, req.screen,
+            req.evidence, _embed_texts, _utc_now())
     return {"project": req.project, **out}
 
 

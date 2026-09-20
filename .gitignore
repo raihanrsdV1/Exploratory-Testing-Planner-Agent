@@ -49,3 +49,10 @@ pids/
 *.swo
 .env.bak.*
 .env.*.bak
+
+
+data/backups
+.env.*
+!.env.example
+.mermaid-cache/
+data/experiments/**/neo4j_*.json
