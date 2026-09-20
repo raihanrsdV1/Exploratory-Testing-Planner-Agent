@@ -114,6 +114,24 @@ question was ever *answered* — only abandoned when its attempts ran out.
 Loop 3 is the one most systems lack: the planner is told not just *what the app did* but *how its
 own last test fared*, so over-scoping has a visible consequence that returns to what caused it.
 
+### Every loop needs a damping term
+
+A positive feedback loop without one runs away. Measured: `hot_spots` promoted a failing area to
+priority 1, and its only exit required `failed == 0` — so a failing area was a **one-way door**,
+and 9 of 13 tests in a campaign landed on one screen.
+
+Each loop now has a bound:
+
+| Loop | Runs away as | Damping |
+|---|---|---|
+| 2 — knowledge | one defect presenting as N open questions | clustering + generalisation |
+| 2 — questions | chasing one question forever | `MAX_FINDING_ATTEMPTS` (3), then inconclusive |
+| 3 — self-correction | digging into one area forever | `AREA_SATURATION` (5), then [SPENT] |
+
+These are the terms that make exploration terminate. Without them the agent maximises the signal
+it is given — *investigate failures* — at the expense of the objective, which is finding defects
+across the whole app.
+
 ### What is deliberately kept apart
 
 `AGENT_DIFFICULTY` findings — *our* agent struggling — never enter the bug oracle. A screen where
@@ -282,6 +300,7 @@ presented as app defects).
 (:Project)-[:HAS_FINDING]->(:Finding)-[:ABOUT_SCREEN]->(:UIState)
                                     -[:FOUND_BY]->(:ExecutionLog)
                                     -[:CONCERNS]->(:Requirement)
+                                    -[:GENERALISED_BY]->(:Finding)   # one defect stated N ways
 (:Project)-[:HAS_TEST]->(:TestCase)-[:COVERS]->(:Requirement)
 (:NavTreeNode)-[:CHILD]->(:NavTreeNode)                        # proven routes, avoid flags
 ```

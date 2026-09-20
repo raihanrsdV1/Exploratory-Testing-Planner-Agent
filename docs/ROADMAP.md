@@ -154,12 +154,44 @@ the weakest lever available), and it must never be applied to the broad survey p
 an area is chosen. **Revisit when the planner is observed making bad area choices** — that is the
 signal it would fix. Until then the ~6,000 characters it saves are not a constraint being hit.
 
-### 3.5 Coverage reporting *(~15 min)*
+### 3.5 Exploration tunnelling ✅ **FIXED (20 Sep 2026)**
+
+**Measured failure.** A 13-round campaign put **9 of 13 tests on one screen**, and **20 of 74
+findings described a single text field** — all of them the same defect (*the farm name field
+validates nothing*) restated for empty, whitespace, special characters, emoji and 150 characters.
+One duplicate was force-accepted after exhausting its 3 rejections.
+
+**Cause: a positive feedback loop with no damping term.** Three signals all pointed at the same
+screen, and the structural one could never stop — `hot_spots` promoted an area on `failed >= 2`,
+while the only exit (`exhausted_areas`) required `failed == 0`. **A failing area was a one-way
+door.**
+
+**Fixed in three layers:**
+
+1. `AREA_SATURATION` (5) — an area stops being promoted past that many tests whatever its
+   verdicts, and the directive marks it `[SPENT]` with the reason.
+2. The recent-runs note no longer says *"probe the same behaviour"*; it points at `get_coverage`
+   and `findings_summary` first.
+3. **Clustering + generalisation** — findings on one screen sharing a cause (0.72 cosine, far
+   looser than dedup's 0.90) are offered to the evaluator, which may collapse them into one
+   claim. Members keep their detail and are linked by `GENERALISED_BY`, but leave every
+   planner-facing view. Verified live: 74 → 71 findings, one claim replacing four.
+
+**An idea checked and rejected:** "exhaust an area when it stops producing new findings". The
+ninth test on that screen was *still* producing technically-new findings, so it would never have
+fired. A spend cap was missing, not an information-yield check — worth remembering, because the
+intuitive fix was the wrong one.
+
+**Still open:** the duplicate force-accept. When a proposal exhausts `MAX_REJECTIONS` the best
+effort is taken unvalidated, so a *known* duplicate can still be logged. Exempting duplicates
+from that fallback is a small follow-up.
+
+### 3.6 Coverage reporting *(~15 min)*
 `coverage_pct` is computed from **Figma** screen purposes. With no Figma it reports `0%` while
 requirement coverage says 11% — misleading in the dashboard and in any write-up. Report
 requirement coverage when no design file exists.
 
-### 3.6 Finding decay and retirement — **premature, revisit after several campaigns**
+### 3.7 Finding decay and retirement — **premature, revisit after several campaigns**
 UIStates decay (90-day half-life) and strategies decay; findings never do. A fixed defect stays
 in the oracle forever and the planner keeps steering around a bug that no longer exists. Real and
 compounding, but two things measured on 20 Sep 2026 say it cannot be built usefully yet:
@@ -177,16 +209,16 @@ Build it as **soft decay** — mark stale and deprioritise, never delete. "Not r
 simply mean "not re-tested", and silently dropping a real defect is much worse than carrying a
 fixed one.
 
-### 3.7 Typical step cost per area
+### 3.8 Typical step cost per area
 The planner has no sense that "this kind of flow needs 35+ steps" and can write a test that
 structurally cannot fit in `EXECUTOR_MAX_STEPS`. Same `ExecutionLog` data as the agent-difficulty
 signal.
 
-### 3.8 Proven interaction steps, not just control names
+### 3.9 Proven interaction steps, not just control names
 The planner sees real control names for a screen but not *actions that provably worked*. Requires
 matching trajectory steps to screens — a bigger lift, worth it after 3.1–3.3 land.
 
-### 3.9 Vision captioning for thin screens
+### 3.10 Vision captioning for thin screens
 Screens with no usable accessibility tree (pure Compose/Flutter) are invisible beyond a control
 count. Screenshots are already captured in `data/appmodel/<project>/`. Direct vision at
 generation time is already implemented; the remaining gap is **cached captions** for screens with

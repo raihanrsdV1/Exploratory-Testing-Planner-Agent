@@ -179,5 +179,6 @@ of them.
 | `APP_LOGIN_*` | — | credentials; the secret reaches only the executor, never the planner prompt |
 | `EXECUTOR_MAX_STEPS` / `EXECUTOR_TIMEOUT` | 50 / 900s | the executor's budget per test |
 | `EXPLORATION_MODE` | `balanced` | `explore` = breadth first, `exploit` = dig into failures |
+| `AREA_SATURATION` | `5` | tests in one area before it stops being promoted — stops the planner tunnelling on one screen |
 | `EVALUATOR_REASONING_EFFORT` | `low` | the investigator's latency lever (113.8s → 22.7s) |
 | `CLEAN_SLATE_APPMODEL` | `false` | `true` wipes the app map **and findings** — start blind |

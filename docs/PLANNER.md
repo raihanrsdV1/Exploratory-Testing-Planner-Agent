@@ -159,6 +159,39 @@ of the question's attempts.
   that each burned the full step budget on an area the agent could not reach.
 - A later run that answers it flips it to **resolved**, overriding the inconclusive close.
 
+## 6b. Not getting stuck — area saturation
+
+A measured failure: **9 of 13 tests in one campaign landed on a single screen**, and 20 of 74
+findings described one text field. Three signals were all pointing at the same place, and none of
+them could ever stop:
+
+1. `farm_management` kept failing, so it was a **hot spot** — the directive put it at priority 1
+2. the recent-runs note said *"a narrower follow-up probing the same behaviour…"* after every failure
+3. failures on that screen created open questions about that screen
+
+The structural bug was in (1): `hot_spots` promoted an area on `failed >= 2`, and the only exit —
+`exhausted_areas` — required `failed == 0`. **A failing area was a one-way door.**
+
+`AREA_SATURATION` (5) is the damping term. Past that many tests an area stops being promoted
+whatever its verdicts, and the directive says so with the reason:
+
+```
+[PRIORITY 1] [EXPAND] Areas with ZERO test coverage yet: chat, orders
+[SPENT] These areas have already had 5+ tests: farm_management. Whatever is wrong
+        there is almost certainly already recorded — another variant of the same
+        input on the same field adds little.
+```
+
+Signal (2) was softened to point at `get_coverage` / `findings_summary` first. Signal (3) is
+addressed at the knowledge layer instead: clustered findings collapse into one general claim, so
+one defect stops presenting as five open questions
+([INVESTIGATOR.md](INVESTIGATOR.md) §"Generalisation").
+
+**A rejected alternative, for the record:** "exhaust an area when it stops producing new
+findings". Checked against the data first — the ninth test on that screen was *still* producing
+technically-new findings, so it would never have fired. A spend cap was what was missing, not an
+information-yield check.
+
 ## 7. What it deliberately does not do
 
 **It never writes steps.** The output is a goal, because the planner cannot see the live app and
@@ -198,6 +231,7 @@ campaign. See [PLANNER_REDESIGN.md](PLANNER_REDESIGN.md) §7 for the comparison 
 | `PLANNER_REASONING_EFFORT` | `low` | scratchpad budget per turn |
 | `ENABLED_SOURCES` | srs, live_ui, defects, navtree | a disabled source's tools are never registered |
 | `EXPLORATION_MODE` | `balanced` | `explore` = breadth first, `exploit` = dig into failures |
+| `AREA_SATURATION` | `5` | tests in one area before it stops being promoted as a hot spot (`planner/coverage.py`) |
 | `REQUIRE_GROUNDED_SCREEN_HINT` | `0` | require `screen_hint='unknown'` on a cold start |
 | `OUT_OF_SCOPE` | — | areas never to test; enforced at proposal time |
 | `MAX_TURNS` / `FORCE_PROPOSE_AFTER` / `MAX_REJECTIONS` | 12 / 6 / 3 | loop bounds (`planner/agent_loop.py`) |
