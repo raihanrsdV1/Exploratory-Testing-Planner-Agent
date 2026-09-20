@@ -1,0 +1,378 @@
+% Chapter 1 -- Rubric: PO1 (1.1), PO2 (problem identification), PO3 (3.2 objectives)
+\chapter{Problem Identification and Formulation}
+\label{ch:problem}
+
+\section{Background and Motivation}
+\label{sec:background}
+
+Graphical user interfaces are the surface through which almost all consumer
+software is used, and they are the surface on which almost all of its defects
+become visible to a user. Verifying them is therefore unavoidable, and it is
+expensive. A modern mobile application ships on a fortnightly or monthly
+cadence, across several device profiles (phone, tablet, watch, television) and
+several platform versions, and every release re-opens the question of whether
+the parts that used to work still work.
+
+Industry answers this question in three broad ways, and each of them is
+unsatisfactory in a different direction.
+
+\textbf{Manual exploratory testing} is what skilled human testers do: they open
+the application, form a hypothesis about where it is likely to be weak, probe
+it, and follow whatever they find. It is by a wide margin the most effective
+technique at finding defects that nobody anticipated, because the tester is
+reasoning about the product rather than replaying a script. Its weaknesses are
+economic and organisational rather than technical. It does not scale with the
+number of device--platform--profile combinations, the cost is linear in the
+number of releases, and, most damagingly, the knowledge the tester builds up
+about where the application is fragile lives in that person's head. When they
+move to another project, the organisation starts again.
+
+\textbf{Scripted automation} (Appium, Espresso, Selenium, and the page-object
+patterns built on them) converts a tester's knowledge into code, which makes it
+repeatable and cheap to re-run. The cost moves from execution to maintenance.
+Every script encodes a set of assumptions about element identifiers, screen
+layout, and navigation order, and a user-interface redesign invalidates all of
+them at once. More fundamentally, a script can only check what its author
+thought to check: scripted automation is a regression technique, not a
+discovery technique. It confirms known behaviour; it does not explore.
+
+\textbf{Random and search-based exploration} (Android's Monkey~\cite{monkey},
+and the academic line of work on search-based GUI exploration) removes the
+human from the loop entirely and drives the application with generated input.
+It is cheap and it scales, but it has no test oracle worth the name. It can
+detect a crash or an unhandled exception, because those are self-evident
+failures, but it cannot detect that an application accepted an invalid price,
+routed an order to the wrong seller, or displayed a total that does not match
+its line items. Those are the defects that matter commercially, and they are
+invisible without a notion of what the application was supposed to do.
+
+\subsection{The Shift the Industry Partner Asked For}
+\label{subsec:shift}
+
+The problem addressed here was posed by an industry partner, Samsung Research
+and Development Institute Bangladesh, whose brief is what fixes the project's
+difficulty. The partner supplied the problem, a technical requirements document
+and an early review; the design, implementation and evaluation reported in this
+document are the team's own work. That review asked for one specific change: to
+move from \emph{directed functional testing}, in which an agent is handed a
+test objective and must carry it out, to \emph{exploratory testing}, in which
+the agent must decide for itself what is worth testing next. The technical
+requirements document that followed, ETA-TR-2026-001~\cite{etatr}, formalises
+that shift as the evolution of a static-knowledge test generator into ``an
+autonomously learning, self-optimising exploratory test engineer'', and states
+the objective in one sentence that this project is ultimately evaluated
+against: \emph{every execution cycle must make the agent smarter than the
+last}.
+
+The distinction is easy to state and easy to underestimate. In directed testing
+the objective is an \emph{input}: a person, or an upstream tool, has already
+decided what to check and usually what the correct answer is, and the agent's
+job is execution. In exploratory testing the objective is an \emph{output}: the
+agent must generate the objective, derive its own notion of correct behaviour,
+execute, judge the result, and then let what it learned change the next
+objective it generates. Exploratory testing is characterised by Kaner, Bach and
+Pettichord as the \emph{simultaneous} performance of learning, test design and
+test execution~\cite{kaner}; automating it means automating all three at once,
+and automating the feedback between them.
+
+\subsection{Why Exploratory Testing Is Hard}
+\label{subsec:whyhard}
+
+Six difficulties follow from that definition, and together they account for
+most of the engineering effort reported in this document.
+
+\begin{enumerate}[label=\textbf{D\arabic*.},leftmargin=3.0em]
+  \item \textbf{The objective must be generated, and the search space is
+    unbounded.} For any non-trivial application the set of possible action
+    sequences is effectively infinite, and there is no ground truth for which
+    of them is worth performing. A directed agent searches for a path to a
+    given goal; an exploratory agent must first search the space of goals.
+  \item \textbf{There is no stopping criterion.} A scripted suite is finished
+    when its last case has run. Exploration ends when the budget ends, so every
+    reported result is conditioned on a budget and no result is ever
+    ``complete''. Coverage becomes something that is reported rather than
+    something that is achieved.
+  \item \textbf{The oracle must be derived rather than supplied.} A directed
+    test case arrives with its expected result attached. An exploratory agent
+    must work out what correct behaviour is from whatever specification exists and, critically, must abstain when the specification is silent rather than
+    inventing an expectation. The alternative failure modes are a fabricated
+    defect report and a silent pass, and \Cref{subsec:agreement} shows both are
+    documented in the literature.
+  \item \textbf{Credit assignment is ambiguous.} When a scripted test fails, the
+    script is fixed and the application is the variable. When an exploratory run
+    ends without a pass, three explanations compete: the application is wrong,
+    the agent could not drive the application, or the environment blocked the
+    attempt. Only the first is a defect, and conflating them inflates the reported defect count, which is the most expensive error this kind of system can make.
+  \item \textbf{Non-reproducibility is intrinsic, not incidental.} Two
+    exploratory runs are \emph{supposed} to do different things; that is where
+    the value comes from. A regression therefore cannot be demonstrated by
+    re-running the suite, and every claim about the system must be made over a
+    distribution of runs rather than a single run.
+  \item \textbf{Without memory, exploration is worthless.} A stateless
+    exploratory agent re-treads the same ground every session. The whole value
+    of the technique depends on what it learned persisting and changing what it does next, which is precisely why the partner's requirements are dominated
+    by mechanisms for \emph{remembering} (\Cref{subsec:fr}).
+\end{enumerate}
+
+The literature confirms that this is the harder problem rather than merely a
+different one. Of the seven agent systems reviewed in \Cref{ch:research}, five
+are handed their objective: a task string, a test case, or a natural-language
+test requirement~\cite{appagent,appagentx,autodroid,xuatcopilot,auitestagent}.
+Only DroidAgent generates its own testing goals~\cite{droidagent}, and its
+authors describe it as the first Android GUI testing technique able to do so.
+The measured gap is instructive: objective-driven systems report 77\% to
+88.55\% task completion~\cite{auitestagent,xuatcopilot}, while DroidAgent
+completes 59\% of the tasks it set itself, with a further 15\% judged not
+viable in the first place. Those figures come from different applications and
+benchmarks and are not a controlled comparison, but the direction is consistent
+and unsurprising: an agent that must invent its own objective will set some
+objectives that cannot be achieved.
+
+\subsection{The Gap}
+
+The gap this project addresses is therefore specific: an automated technique
+that has the \emph{oracle} of manual exploratory testing, meaning a model of
+intended behaviour drawn from the specification and from what has gone wrong
+before, together with the \emph{scale and repeatability} of automation, and
+that, unlike both, \emph{accumulates} what it learns so that the hundredth
+execution is better informed than the first.
+
+The stakeholders affected are the partner's quality assurance engineers, whose
+manual effort the system is intended to displace; application developers, who
+receive its defect reports and pay the cost of false positives; and,
+indirectly, end users of the applications under test.
+
+\section{Problem Statement}
+\label{sec:problem-statement}
+
+\subsection*{Statement}
+
+Given (i) whatever partial specification of an application exists (a software
+requirements specification, a user-interface design export, a history of
+previously filed defects, or none of these) and (ii) an executable instance of
+that application on a real device or in a browser, construct an autonomous
+agent that \emph{chooses} what to test next, executes its choice, judges the
+outcome against a derived oracle, and persists what it learned, such that the
+knowledge produced by each execution measurably improves the test cases
+proposed in subsequent executions. No test objective is supplied from outside
+the loop.
+
+\subsection*{Engineering formulation}
+
+Let $A$ be the application under test and let $K_t$ be the agent's knowledge
+state at round $t$. The system is a loop
+\[
+  K_{t+1} \;=\; U\big(K_t,\; E(A,\; P(K_t))\big),
+\]
+where $P$ is a \emph{planner} that maps a knowledge state to a concrete test
+case, $E$ is an \emph{executor} that drives $A$ through that test case and
+returns an observed trajectory, and $U$ is an \emph{investigator} that reduces
+a trajectory to durable, deduplicated knowledge and merges it into the graph.
+The three functions are realised by separate large-language-model roles and
+communicate only through $K$, which is a persistent property graph. No
+conversational state is carried between calls.
+
+The exploratory character of the problem is carried entirely by $P$. A directed
+testing system would take the test case as an input and need only $E$; here $P$
+must select from an unbounded space using $K_t$ as its only evidence, and the
+quality of the whole system is bounded by the quality of that selection.
+
+\begin{description}[leftmargin=2.2em,style=nextline]
+  \item[Inputs] A requirements specification (free text), a user-interface
+    design export, a structured defect history, and the live accessibility tree
+    plus screenshot of the running application. Every one of these is optional;
+    the system must degrade rather than fail when a source is absent.
+  \item[Outputs] Executable test cases with steps, expected results and
+    requirement citations; per-execution verdicts with an explicit fault
+    attribution; atomic, deduplicated findings about the application; and a
+    coverage and risk report over the requirement set.
+  \item[Entities] Requirements, requirement chunks, feature areas, design
+    screens and elements, observed UI states and the transitions between them,
+    navigation paths, defects, test cases, execution logs, error patterns,
+    strategy memory, and findings, all of them nodes in one project-scoped property graph.
+  \item[Quantities to be optimised] Requirement coverage per unit cost;
+    autonomy, defined as the fraction of executions that terminate with a
+    verdict attributable to the application rather than to the agent or the
+    environment; defect-discovery rate; duplicate-proposal rate (to be
+    minimised); and monetary cost per executed test.
+  \item[Quantities to be guaranteed] No destructive or irreversible action on
+    the application under test; no silent failure, meaning every degradation must be recorded and surfaced; and no fabricated evidence, meaning a verdict must be
+    traceable to an observation.
+  \item[Assumptions] The application exposes an accessibility tree (Android) or
+    a DOM (web); a dedicated, disposable test account is available; the device
+    or browser is reachable from the host; and a hosted language-model API is
+    available within a fixed budget.
+\end{description}
+
+\subsection*{Engineering knowledge demanded}
+
+The formulation above is not solvable by routine application of a single body
+of knowledge. It requires, at minimum: graph data modelling and query design
+(the knowledge state is a property graph with constraints and vector indexes);
+information retrieval, including both lexical and dense-vector similarity, to
+select the fraction of $K_t$ that fits in a bounded prompt; similarity and
+hashing theory, applied to the non-trivial question of when two observed
+screens are the same screen; distributed-systems design, since the four
+processes must share state without sharing memory; the specialist body of
+knowledge of software testing, in particular test-oracle theory and fault
+attribution; and empirical evaluation methodology, because the central claim of
+the project, that the agent improves, is a claim about a trend and can only be
+established statistically.
+
+\section{Complexity of the Problem}
+\label{sec:complexity}
+A complex engineering problem must have characteristic P1 and some or all of
+P2--P7 (\Cref{tab:complexity}). P1 requires in-depth knowledge at the level of
+one or more of the knowledge profiles K3--K8 listed in
+\Cref{tab:knowledge-profile}.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}l>{\hsize=1.10\hsize}Y>{\hsize=0.90\hsize}Y@{}}
+  \caption{Complex engineering problem characteristics (P1--P7) and evidence from this project}
+  \label{tab:complexity}\\
+  \toprule
+  Code & Definition & Evidence from this project \\
+  \midrule
+  \endfirsthead
+  \caption[]{Complex engineering problem characteristics (P1--P7) \emph{(continued)}}\\
+  \toprule
+  Code & Definition & Evidence from this project \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  P1 & \textbf{Depth of knowledge required.} Cannot be resolved without in-depth engineering knowledge at the level of one or more of K3, K4, K5, K6, or K8, which allows a fundamentals-based, first-principles analytical approach. &
+  \textbf{K3, K4, K5, K6 and K8 are all engaged.} K3: the state-identity problem was solved from first principles as a cascade of set-similarity measures (exact signature, Jaccard index, containment, structural-skeleton containment) with a perceptual image hash as the final tie-break, each with an analytically chosen threshold and guard. K4: test-oracle theory and fault attribution, taken from the software-testing body of knowledge, are what separate an application defect from an agent failure. K5: the four-process architecture and the single-writer graph discipline are design-knowledge decisions. K6: current practice in Android accessibility services, Playwright, Neo4j and hosted language-model tool-calling. K8: seven recent systems were read in full and a further seven surveyed, as reported in \Cref{ch:research}. \\
+  \addlinespace
+  P2 & \textbf{Range of conflicting requirements.} Involves wide-ranging or conflicting technical, engineering, and other issues. &
+  Four irreducible conflicts were managed rather than eliminated: \emph{autonomy versus safety}, where the agent must act freely but must never log out, delete an account, or make a payment; \emph{coverage versus cost}, where every additional test is a metered charge against a fixed budget; \emph{generality versus grounding}, where knowledge of the specific application makes the agent effective and simultaneously makes it useless on the next application; and \emph{exploration versus reproducibility}, which is difficulty D5, where the agent's value comes from non-deterministic exploration while the report it produces must be defensible evidence. \\
+  \addlinespace
+  P3 & \textbf{Depth of analysis required.} Has no obvious solution and requires abstract thinking and originality in analysis to formulate suitable models. &
+  Three sub-problems had no off-the-shelf answer. (i) \emph{What should be tested next?} This is difficulty D1, and it has no ground truth; the answer adopted is to rank an unbounded space by evidence held in the knowledge graph (uncovered requirements, defect-dense areas, regression risk) rather than by any fixed heuristic. (ii) \emph{When are two screens the same screen?} A naive signature fragmented one wizard into nine distinct states, destroying the navigation model; the multi-stage cascade described under P1 was designed in response. (iii) \emph{Whose fault was this failure?} Difficulty D4: an execution that ends without a pass is ambiguous between a defect, an agent limitation and an environmental block, and a three-way attribution taxonomy with a single authoritative definition was introduced to prevent conflation. \\
+  \addlinespace
+  P4 & \textbf{Familiarity of issues.} Involves infrequently encountered issues. &
+  The system embeds non-deterministic components inside a harness whose own output is a correctness judgement, an inversion of the usual assumption that a test harness is deterministic. Further non-routine issues: applications built with cross-platform toolkits expose no stable resource identifiers and report a single activity on every screen, defeating conventional element location; and prompt injection becomes a live concern because the application's own on-screen text is fed to a model that also decides what to do next. \\
+  \addlinespace
+  P5 & \textbf{Extent of applicable codes.} Is outside problems encompassed by standards and codes of practice for professional engineering. &
+  ISO/IEC/IEEE 29119~\cite{iso29119} gives a vocabulary and a process for testing but presumes that test cases are authored by people and that test design is deterministic. It has nothing to say about an agent that authors its own test cases at run time, nor about how to report coverage when the test set is not fixed in advance, which is exactly the regime difficulty D2 describes. No standard governs the correctness of a language-model-produced verdict. The applicable codes therefore had to be supplemented by project-specific rules, documented in \Cref{sec:standards}. \\
+  \addlinespace
+  P6 & \textbf{Extent of stakeholder involvement and conflicting requirements.} Involves diverse groups of stakeholders with widely varying needs. &
+  The industry partner wants learning that transfers across device profiles and platforms; a quality-assurance lead wants runs that can be reproduced and audited; application developers want a near-zero false-positive rate, because each false defect report costs them investigation time; the academic supervisor requires a defensible empirical evaluation; and the end users of the application under test require that testing never damage live data. These pull in different directions, most sharply transfer-driven generalisation against reproducibility. \\
+  \addlinespace
+  P7 & \textbf{Interdependence.} Is a high-level problem including many component parts or sub-problems. &
+  The partner's requirements document itself decomposes the work into eight requirement families (ETA-REQ-301 to 308) with an explicit dependency ordering, and the delivered system comprises four cooperating processes, two execution platforms (Android and web), three distinct language-model roles, nine pluggable knowledge sources and a single shared graph schema. A change to the attribution taxonomy, for example, propagates to the executor, the investigator, the risk score, the coverage report and the generated PDF. \\
+\end{xltabular}
+\endgroup
+
+\begin{table}[htbp]
+  \centering
+  \caption{Knowledge profiles referenced by P1}
+  \label{tab:knowledge-profile}
+  \begin{tabularx}{\textwidth}{@{}lY@{}}
+    \toprule
+    Code & Description \\
+    \midrule
+    K3 & A systematic, theory-based formulation of engineering fundamentals required in the engineering discipline. \\
+    K4 & Engineering specialist knowledge that provides theoretical frameworks and bodies of knowledge for the accepted practice areas in the engineering discipline; much is at the forefront of the discipline. \\
+    K5 & Knowledge that supports engineering design in a practice area. \\
+    K6 & Knowledge of engineering practice (technology) in the practice areas in the engineering discipline. \\
+    K8 & Engagement with selected knowledge in the research literature of the discipline. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Project Objectives and Scope}
+\label{sec:objectives}
+
+\subsection*{Objectives}
+
+The objectives below are stated so that each one can be checked;
+\Cref{ch:evaluation} evaluates the delivered system against them. O2 and O4
+together are the exploratory requirement of \Cref{subsec:shift}: the agent must
+choose its own objectives, and what it learns must change the choices it makes
+afterwards.
+
+\begin{enumerate}[label=\textbf{O\arabic*.},leftmargin=3.2em]
+  \item \textbf{Build a persistent, project-scoped knowledge graph} that ingests
+    a requirements specification, a user-interface design export and a defect
+    history, and that is additionally grown from the agent's own observations of
+    the running application.
+    \emph{Verified by:} ingesting each source independently and querying the
+    resulting nodes and relationships.
+
+  \item \textbf{Select and generate executable, non-duplicate test cases from
+    that graph without an externally supplied objective}, each citing the
+    requirement it covers.
+    \emph{Verified by:} the proportion of generated test cases that carry a
+    valid requirement citation, the rejection rate of re-worded duplicates, and
+    the absence of any human-supplied objective in the loop.
+
+  \item \textbf{Execute generated test cases autonomously} against a real
+    Android device and against a live web application, and return a verdict with
+    an explicit three-way fault attribution.
+    \emph{Verified by:} the autonomy rate, meaning executions that terminate with a verdict about the application rather than about the agent, measured over a campaign.
+
+  \item \textbf{Close the learning loop}, so that execution outcomes are
+    persisted as durable findings, navigation paths, error patterns and strategy
+    scores, and demonstrably alter the next round's proposals.
+    \emph{Verified by:} showing that a proposal changes when, and only when, the
+    corresponding knowledge is present in the graph.
+
+  \item \textbf{Satisfy the eight requirement families of
+    ETA-TR-2026-001}~\cite{etatr} (ETA-REQ-301 to 308) and its two non-functional
+    requirements.
+    \emph{Verified by:} the requirement-to-implementation traceability matrix in
+    \Cref{sec:requirements}, and the partner's stated acceptance criteria.
+
+  \item \textbf{Keep the system application-agnostic.} No knowledge of any
+    particular application may be embedded in code or prompts; all
+    application-specific information must arrive through configuration.
+    \emph{Verified by:} an automated generality audit over the source tree, and
+    by running the same unmodified system against more than one application.
+
+  \item \textbf{Operate within a fixed monetary budget}, with the cost per
+    executed test measured and reported rather than estimated.
+    \emph{Verified by:} reconciling the provider's billing record against the
+    number of executions.
+
+  \item \textbf{Provide an operator surface}: a live dashboard and an exportable report, so that a run can be watched, audited and handed to
+    someone who was not present for it.
+    \emph{Verified by:} demonstration against a live campaign.
+\end{enumerate}
+
+\subsection*{Scope}
+
+\textbf{Within scope.} Autonomous exploratory testing of (i) Android
+applications on a physical device or emulator, driven through the platform
+accessibility service, and (ii) web applications, driven through a headless or
+headed browser; ingestion of requirements, design exports and defect histories;
+a persistent knowledge graph with learning across runs; fault attribution and
+self-healing retry; risk-weighted prioritisation; and an operator dashboard
+with report export.
+
+\textbf{Explicitly out of scope.} Unit, integration, performance, load and
+security testing of the application under test; this project addresses
+system-level testing through the user interface only. Directed execution of a
+human-authored test suite: the system may be given a specification, never an
+individual objective, since supplying objectives would remove the exploratory
+problem the partner asked to have solved. Testing of flows that cannot be
+completed without an irreversible side effect, specifically account
+registration, one-time-password verification, payment and account deletion;
+these are guarded against rather than exercised, and the corresponding
+requirements are marked as preconditions already satisfied. Automated repair of
+discovered defects. Training or fine-tuning of language models: the project
+uses hosted models through an API and treats them as components. Formal
+certification of the agent's verdicts; a reported defect is a candidate for
+human confirmation, not a confirmed defect.
+
+\textbf{Deferred.} Cross-device-profile transfer beyond the \texttt{application}
+axis, and the seeded-defect experiment needed to measure precision and recall
+against a known ground truth, are specified and partially implemented but not
+validated within this session; both are carried into \Cref{ch:conclusion} as
+future work.

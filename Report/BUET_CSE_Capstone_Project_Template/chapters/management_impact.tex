@@ -1,0 +1,400 @@
+% Chapter 6 -- Rubric: PO11, PO9 (9.1--9.4), PO6 (6.1), PO7 (7.1), PO8 (8.1--8.4)
+\chapter{Project Management, Teamwork, and Impact}
+\label{ch:management}
+
+\section{Project Management and Finance}
+
+\subsection{Planning and Risk Management}
+\label{sec:plan}
+\guidance{Present the plan: phases, milestones, task distribution, and schedule,
+noting where actual progress differed. List the major risks and how they were
+mitigated.}
+\begin{figure}[htbp]
+  \centering
+  \begin{ganttchart}[
+      hgrid, vgrid, x unit=0.9cm,
+      time slot format=isodate-yearmonth, time slot unit=month,
+      title label font=\small, bar label font=\small,
+      bar/.style={fill=gray!40}
+    ]{2026-01}{2026-12}
+    \gantttitlecalendar{year, month=shortname} \\
+    \ganttbar{Requirements}{2026-01}{2026-02} \\
+    \ganttbar{Design}{2026-02}{2026-04} \\
+    \ganttbar{Implementation}{2026-04}{2026-09} \\
+    \ganttbar{Testing}{2026-08}{2026-10} \\
+    \ganttbar{Report}{2026-10}{2026-12}
+  \end{ganttchart}
+  \caption{Project schedule}
+  \label{fig:gantt}
+\end{figure}
+
+\subsection{Budgeting and Resource Identification}
+\label{sec:budget}
+\guidance{Identify the resources required (people, hardware, software, cloud
+and API services, data) with an itemised budget.}
+
+\subsection{Economic Analysis and Financial Prospecting}
+\label{sec:economics}
+\guidance{Evaluate the financial prospect of the project with clear
+interpretation: development and operating cost, the potential users or market
+established in \Cref{sec:market}, and how the solution could generate value or
+revenue.}
+
+\subsection{Sustainability in Business and Commercialisation}
+\label{sec:commercialisation}
+\guidance{Explain how the solution could remain viable after the course:
+the commercialisation or deployment path (e.g. with the industry partner) and
+who would maintain and operate it.}
+
+\section{Individual and Teamwork}
+\label{sec:team}
+
+\subsection{Participation and Contribution}
+\label{sec:participation}
+\guidance{For each member, give the role, specific contributions, participation
+in discussions and decision-making, and whether responsibilities were completed
+on time.}
+
+\subsection{Collaboration and Conflict Resolution}
+\label{sec:collaboration}
+\guidance{Describe how the team collaborated and kept a constructive atmosphere,
+and how any conflicts were identified and resolved.}
+
+\subsection{Leadership and Direction}
+\label{sec:leadership}
+\guidance{Explain how direction toward the goals was provided, how members' views
+were listened to, how the team planned for improvement after setbacks, and how
+members were motivated.}
+
+\subsection{Multidisciplinary Engagement}
+\label{sec:multidisciplinary}
+\guidance{Explain the multidisciplinary nature of the project and the team's
+participation in activities outside its own discipline: work with the industry
+partner, domain experts, end users, or other departments.}
+
+\section{Impact on Society}
+\label{sec:society}
+
+This system does not reach the public directly. It tests other people's
+software, so its effect on society travels through two channels: the quality of
+the applications that reach users, and the work of the people who currently
+test them. Both are considered below, followed by the negative impacts and what
+the design does about them.
+
+\paragraph{Software quality, and why it is a safety question here.} A defect in
+the graphical interface of a consumer application is usually an annoyance. In
+the class of application this project was evaluated against it is not. The
+target is an agricultural commerce platform used by smallholder farmers and
+buyers in Bangladesh, where a wrong price, an order routed to the wrong seller,
+or a total that does not match its line items is a direct financial loss to a
+party with very little margin to absorb it. Those are exactly the defects that
+a crash detector cannot see, for the reason set out in
+\Cref{subsec:measurement}, and exactly the class that a specification-grounded
+oracle is built to catch. \emph{Who is affected:} the end users of any
+application tested with this system. \emph{How the design responds:} the oracle
+is derived from the requirements rather than from the absence of a crash, and
+every generated test cites the requirement it covers, so a defect report can be
+traced to the behaviour that was promised.
+
+\paragraph{Access to systematic testing.} Cost is not a neutral engineering
+detail in this context. A firm that cannot fund a dedicated quality-assurance
+team does not substitute a cheaper tool; it ships without systematic testing at
+all. Measured cost per executed test is therefore a societal variable as well
+as a budgetary one, and it is the reason NFR-D1 exists.
+\emph{Who is affected:} small development firms, disproportionately in
+economies like Bangladesh's, and the users of the software they ship.
+\emph{How the design responds:} unit cost is measured rather than assumed
+(DR-10), the expensive roles were moved to cheaper model tiers once the quality
+cost of doing so had been measured, and a new target is configured as a
+validated JSON profile through the dashboard rather than as a code change
+(DR-09), so adoption does not require an engineer who can modify the system.
+
+\paragraph{Accessibility, as a by-product.} The Android executor drives
+applications through the platform accessibility tree and the web executor
+through the accessibility-annotated DOM. The consequence is worth stating
+plainly: a control this agent cannot locate is, in general, a control that a
+screen-reader user cannot locate either. The agent's element-location failures
+are therefore an accessibility signal, and its failure log doubles as a rough
+accessibility audit of the application under test.
+\emph{Who is affected:} users of assistive technology.
+\emph{How the design responds:} controls are addressed by accessible role, name and content description rather than by pixel coordinates (\Cref{sec:standards}), and each agent-attributed failure records the specific control that could not be reached. The agent does also receive a screenshot, which sharpens the signal rather than weakening it: a control the agent can see in the image but cannot name from the accessibility tree is exactly a control that is visible to a sighted user and invisible to a screen reader, and that divergence is the accessibility gap itself. This is a genuine benefit but an incidental
+one; it should not be presented as a designed accessibility audit, because the
+agent does not check contrast, focus order, or any other WCAG criterion.
+
+\paragraph{Language, and a failure that was silent.} The project's text
+normalisation originally filtered input to the Latin range, which strips every
+non-Latin character. Two Bengali strings therefore both normalised to the empty
+string and were scored as nought per cent similar regardless of what they
+actually said. Bengali vowel signs are Unicode combining marks and are not
+covered by the usual word-character classes, so the bug survived casual
+inspection. It was fixed by normalising on Unicode category rather than on a
+Latin character class. The general point is larger than the bug: tooling built
+on Latin-script assumptions does not fail loudly on a Bengali interface, it
+fails silently and reports a plausible number.
+\emph{Who is affected:} users and testers of software in Bengali and other
+non-Latin scripts. \emph{How the design responds:} script-agnostic
+normalisation wherever user-visible text is compared.
+
+\paragraph{Legal considerations.} These are analysed in full in
+\Cref{sec:standards}. In summary: dedicated disposable test accounts rather
+than production user data, no ingestion of user records into the knowledge
+graph, and destructive or communicative actions blocked at the configuration
+layer rather than discouraged in prose.
+
+\subsection*{Negative impacts, and what is done about them}
+
+\begin{enumerate}[label=\textbf{N\arabic*.},leftmargin=3.0em]
+  \item \textbf{Effect on quality-assurance employment.} A tool whose stated
+    purpose is to displace manual effort has a labour effect, and it would be
+    dishonest to present it otherwise. The evidence available suggests
+    augmentation rather than replacement so far: the closest field deployment in
+    the literature reports a saving of 1.5 person-days per regression round on a
+    single business line~\cite{auitestagent}, which redirects effort rather than
+    removing a role. The design choice that matters here is that the output is a
+    natural-language test case a person can read, review and take ownership of,
+    not an opaque verdict, so the human role shifts toward judgement rather than
+    execution. At larger scale the effect on entry-level testing work is real
+    and lies outside what this project can control.
+  \item \textbf{Automation bias.} The most likely way this system causes harm is
+    not by failing, but by being believed. An organisation that treats an
+    automated verdict as authoritative will ship the defects the agent missed.
+    \emph{Response:} a reported defect is explicitly scoped as a candidate for
+    human confirmation and never as a confirmed fault (\Cref{sec:objectives});
+    the generated report states its own degradations rather than hiding them
+    (NFR-D2); and the attribution taxonomy makes it structurally impossible for
+    the agent's own failure to be filed as an application defect (NFR-D3).
+  \item \textbf{Acting on a production system with live users.} The evaluation
+    target is in production. An exploratory agent that decides for itself what
+    to do is, by construction, capable of doing something irreversible.
+    \emph{Response:} the safety boundary is machine-enforced (DR-07) through
+    blocked control texts and blocked URL patterns, out-of-scope requirements are
+    withheld from the planner's citable list, and accounts used for testing are
+    disposable.
+  \item \textbf{Prompt injection.} The application's own on-screen text is fed
+    to a model that also decides the next action, so content under an attacker's
+    control could in principle direct the agent.
+    \emph{Response:} every prompt that carries observed application content
+    labels it explicitly as untrusted data that must never be read as
+    instructions, in line with the OWASP guidance for language-model
+    applications~\cite{owaspllm}.
+  \item \textbf{False reports wasting developer time.} Each incorrectly reported
+    defect costs investigation effort and erodes trust in the tool, which is the
+    conflict recorded in \Cref{tab:stakeholders}.
+    \emph{Response:} the evidence-integrity requirements above. The honest
+    limitation is that the false-positive rate has not been measured, because
+    doing so requires the seeded-defect experiment described in
+    \Cref{sec:conclusion}.
+\end{enumerate}
+
+\section{Environmental Impact and Life Cycle Sustainability}
+\label{sec:sustainability}
+
+\subsection*{Development}
+
+The development footprint is five developer workstations, one physical Android
+handset, emulator instances on those workstations, and a local graph database.
+No hardware was manufactured for the project; the handset is an existing
+personal device. The decision that matters most environmentally was taken for
+other reasons: model training and fine-tuning were placed out of scope
+(\Cref{sec:objectives}), and the project uses hosted inference through an API
+instead. Training is the dominant energy cost in most machine-learning work, so
+excluding it means this project's footprint is an inference footprint only.
+
+\subsection*{Operation}
+
+The recurring environmental cost is hosted model inference, and it scales with
+the number of tokens processed rather than with wall-clock time. Three
+properties of the design reduce that volume. All three were adopted to control
+money rather than energy, but the mechanism is the same.
+
+\begin{itemize}[leftmargin=1.6em]
+  \item Roughly nine tenths of the work in each execution happens on the device
+    or in the browser rather than in a model, so most of a campaign consumes no
+    inference at all.
+  \item The executor and investigator roles run on smaller, cheaper model tiers,
+    adopted once the quality cost of the downgrade had been measured.
+  \item Context is budgeted rather than accumulated. Findings are atomic and
+    deduplicated on write (DR-06), so a discovery made in round one is carried
+    into round twenty as a single line with an observation count instead of
+    being restated in full each time. Before that change, one test case's
+    prose occupied the majority of the next generation prompt.
+\end{itemize}
+
+The literature supports token volume as the correct lever. AutoDroid halves its
+prompt length by merging functionally equivalent interface nodes and reports
+the query cost falling by the same proportion~\cite{autodroid}; AppAgentX
+reduces tokens per task from 9.26k to 4.94k by replacing repeated reasoning
+with stored shortcuts~\cite{appagentx}. Against these, the per-application
+figures for a two-hour exploratory campaign reported by
+DroidAgent~\cite{droidagent} indicate the scale of inference that an
+unoptimised design consumes.
+
+Device-side energy is smaller but not zero: a handset driven continuously for
+the length of a campaign, plus a graph database left running between campaigns.
+The honest limitation is that this project measured \emph{monetary} cost, not
+energy. Token count is a reasonable proxy, but converting it to energy or
+carbon requires the provider's hardware and grid mix, which are not disclosed.
+No carbon figure is therefore claimed anywhere in this report.
+
+\subsection*{Data life cycle, which is the real issue}
+
+The knowledge graph accumulates screenshots, accessibility dumps and execution
+traces of a production application, gathered through accounts that can sign in
+to it. That is sensitive local test evidence with a retention question
+attached, not neutral telemetry, and three concrete problems follow.
+
+\begin{enumerate}[label=\textbf{E\arabic*.},leftmargin=3.0em]
+  \item \textbf{Decay is not deletion.} A knowledge half-life (default 90 days)
+    downweights stale knowledge in retrieval so the agent adapts when an
+    application changes. It keeps the graph \emph{relevant}; it does nothing to
+    bound how large it grows or how long the underlying evidence persists.
+    \emph{Mitigation:} a retention policy that actually deletes, applied to
+    screenshots and raw traces separately from the derived findings that give
+    them value.
+  \item \textbf{Graph snapshots are large, and permanent if mishandled.} A full export of the knowledge graph runs to tens of megabytes and carries the same evidence the live graph does. Version control is the wrong home for such a snapshot, because anything committed to a repository is effectively permanent in its history. \emph{Mitigation:} snapshots are held outside version control, under the same controls as the test credentials and with a stated retention period.
+  \item \textbf{Screenshots are the bulk and the most sensitive part.}
+    \emph{Mitigation:} store them outside the repository with an explicit
+    lifetime, and keep the derived caption and structural signature, which is
+    what retrieval actually uses, rather than the image, once that lifetime
+    expires.
+\end{enumerate}
+
+\subsection*{Retirement}
+
+The system is four processes, one database and no bespoke hardware, so
+decommissioning it is deleting a database, revoking API keys and disabling the
+test accounts. Nothing becomes electronic waste. The obligation that outlives
+the software is the data described above, and it is the part that a retirement
+plan has to name explicitly rather than assume will disappear with the code.
+
+\section{Ethics}
+\label{sec:ethics}
+
+\subsection{Equity and Inclusivity}
+\label{sec:equity}
+
+Three groups could be excluded by a system of this kind, and each was
+considered.
+
+\emph{Users of software written in non-Latin scripts.} The normalisation defect
+described in \Cref{sec:society} is the concrete instance: a component that
+silently scored every pair of Bengali strings as completely dissimilar. It is
+representative of a wider pattern in which tooling developed against English
+interfaces degrades invisibly elsewhere, and the response was to normalise on
+Unicode category so that any script is handled on the same footing.
+
+\emph{Users of assistive technology.} Covered in \Cref{sec:society}: because
+the agent is confined to what the accessibility layer exposes, an application
+that is opaque to it is generally also opaque to a screen reader, and the
+agent's failures make that visible rather than hiding it.
+
+\emph{Organisations without the budget for quality assurance.} The measured
+unit cost and the configuration-driven target system are what put this within
+reach of a team that cannot fund a dedicated testing function.
+
+The limitation to state honestly is that the agent is only as inclusive as the
+interface it is given. An application built with a toolkit that exposes no
+stable identifiers and no text through the accessibility tree, which is
+precisely constraint C4, is one the agent tests poorly. That is a real
+exclusion and it falls on exactly the applications that are already least
+accessible.
+
+\subsection{Accountability and Personal Responsibility}
+\label{sec:accountability}
+
+Responsibility for a system that issues correctness judgements has to be
+located deliberately, because the failure mode is a machine-authored claim that
+a human then acts on.
+
+At the system level the position taken throughout this project is that
+\textbf{the agent is not accountable for its verdicts; the people operating it
+are}. Three mechanisms make that position operable rather than rhetorical. A
+reported defect is scoped as a candidate requiring human confirmation
+(\Cref{sec:objectives}). The three-way fault attribution taxonomy (NFR-D3) has
+exactly one definition in the source tree, so an agent limitation cannot be
+reported as an application defect through drift between components. And the
+cross-process degradation register (NFR-D2) records every fallback taken, on
+the principle that a system that hides its own degradation is worse than one
+that fails loudly.
+
+Two decisions during the work illustrate the same principle applied to the
+team's own conduct. The team put its own codebase through a structured internal
+review against an explicit severity rubric, rather than assuming that code it
+had written was code it had checked, and scheduled the resulting work
+accordingly. And the evaluation reports autonomy and coverage without
+adjustment, including where those numbers are unflattering, because a testing
+tool that presents its own results selectively has disqualified itself from the
+job.
+
+\guidance{TODO (team): add the per-member statement this indicator also asks
+for, naming who owned which subsystem and who is answerable for it. That is the
+same information as \Cref{sec:participation} and should be consistent with it.}
+
+\subsection{Proper Use of Intellectual Property}
+\label{sec:ip}
+
+\paragraph{Prior work and literature.} Every empirical claim taken from the
+research literature in \Cref{ch:research} is attributed to the paper it came
+from, and the figures were read from those papers directly rather than from
+secondary summaries. Where a work was surveyed rather than read in full, this
+is stated at the point of use (\Cref{subsec:additional}) instead of being
+blurred.
+
+\paragraph{Third-party software.} The system is assembled from open-source
+components and hosted services. The principal Python dependencies are FastAPI
+and Uvicorn (HTTP services), Pydantic (schemas), the Neo4j driver, LangChain
+and LangGraph (agent orchestration), Playwright (browser execution), mobilerun
+(Android device execution), fastembed and NumPy (embeddings), markitdown, pypdf
+and fpdf2 (document handling), structlog and psutil (operations), and an
+OpenRouter client for hosted inference. The dashboard uses React built with
+Vite. Neo4j itself is the graph database. Model inference is obtained
+commercially through OpenRouter and is governed by that provider's terms of
+service.
+
+\guidance{TODO (team): before submission, list each of the above with its
+licence (most are MIT, Apache-2.0 or BSD; Neo4j Community is GPLv3 and
+Playwright is Apache-2.0) and confirm that the project's own intended licence
+is compatible with all of them. \texttt{pip-licenses} will generate the table.}
+
+\paragraph{The partner's material.} The technical requirements document
+ETA-TR-2026-001 is not public. It is cited for traceability, and requirement
+identifiers and titles are reproduced where they are needed to show what was
+delivered, but no confidential content beyond that appears in this report.
+
+\paragraph{Generative AI.} Generative AI tools were used during this project,
+and the Candidates' Declaration requires that use to be disclosed rather than
+concealed. Their role was assistance with implementation, refactoring,
+documentation and drafting, under the team's direction and review; the
+architecture, the requirements analysis, the experimental decisions and the
+interpretation of results are the team's own. All generated code was read,
+tested and, where wrong, corrected before it was kept.
+
+\guidance{TODO (team): replace the sentence above with the team's own precise
+account of how these tools were used, and check it against whatever disclosure
+wording the department requires. Do not submit a generic statement.}
+
+\subsection{Professionalism and Ethical Codes}
+\label{sec:codes}
+
+The ACM Code of Ethics and the IEEE Code of Ethics both place an obligation on
+the engineer to avoid harm, to be honest about the limitations of their work,
+and to accept responsibility for professional judgements. The IEB code makes
+the same demand of the engineer's duty to the public. Three decisions in this
+project were settled by those obligations rather than by convenience, and each
+is documented at the point where it was taken.
+
+\emph{Honesty about what the work establishes.} The review in
+\Cref{subsec:measurement} concludes that this project cannot report precision or
+recall for defect detection without seeding known faults, and says so, rather
+than substituting a coverage number that would look like a result. The
+corresponding ACM obligation is to be honest and trustworthy, including about
+the limits of one's own competence and evidence.
+
+\emph{Avoiding harm to a third party's users.} The evaluation target is a
+production system with real users. Registration, one-time-password
+verification, payment and account deletion were placed out of scope and blocked
+in configuration rather than merely discouraged (DR-07), on the straightforward
+reading that an engineer may not risk another party's users to make their own
+evaluation more complete.
+
+\emph{Applying to our own system the standard we ask of others.} The test account's secret is passed only to the component that has to type it, and never to the planner, which receives the account role alone (NFR-D6). The planner would produce marginally better-grounded tests with the full credential in its context, so the decision cost a little capability to uphold a principle that would have been invisible had it gone the other way. An engineer's obligations do not lapse because the system under discussion is their own.

@@ -1,0 +1,14 @@
+# LaTeX build artefacts. Overleaf/Prism and `latexmk -pdf template.tex` both
+# regenerate these; committing them causes conflicts on every push.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.log
+*.lot
+*.out
+*.synctex.gz
+*.toc
+template.pdf
