@@ -169,6 +169,32 @@ no Neo4j:
 ⚠️ `scripts/ingest_all.py` **always** resets tests, SRS *and* Figma. Don't run it to refresh one
 of them.
 
+### Resuming an interrupted campaign
+
+A batch stopped by a power cut or a network outage does not have to be restarted from scratch —
+every round writes its verdict, execution log and findings as it completes, so only the round in
+flight is lost.
+
+```bash
+RESUME=1 EXECUTOR_ROUNDS=13 ./venv/bin/python clients/executor_runner.py
+```
+
+`RESUME=1` keeps every existing test, continues ids from the highest already in the graph, and
+takes no campaign snapshot — it is the same campaign, not a new one. Without it a run starts by
+wiping test history, which is correct for a clean measurement and wrong for a resume.
+
+### Unstable internet
+
+The agent treats an outage as a **pause, not an error**. A connectivity failure (DNS, refused
+connection, unreachable network) is retried on a long schedule of roughly 32 minutes total, with
+`network_down` / `network_back` logged so a gap in a campaign is explainable afterwards. Falling
+back to another model is pointless during an outage — every backend is behind the same
+connection — so it waits rather than switching.
+
+If a planning call still fails after that, the executor retries the round `ROUND_RETRIES` times
+before stopping, and stops *cleanly*: everything completed so far is already in the graph, and
+`RESUME=1` picks up from there.
+
 ## 8. Configuration that changes behaviour most
 
 | setting | default | effect |
@@ -182,3 +208,5 @@ of them.
 | `AREA_SATURATION` | `5` | tests in one area before it stops being promoted — stops the planner tunnelling on one screen |
 | `EVALUATOR_REASONING_EFFORT` | `low` | the investigator's latency lever (113.8s → 22.7s) |
 | `CLEAN_SLATE_APPMODEL` | `false` | `true` wipes the app map **and findings** — start blind |
+| `RESUME` | `false` | `true` continues the existing campaign: nothing deleted, ids carry on, no snapshot |
+| `ROUND_RETRIES` / `ROUND_RETRY_WAIT_S` | 5 / 30s | how hard a failed planning call is retried before the batch gives up |

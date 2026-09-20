@@ -186,12 +186,28 @@ intuitive fix was the wrong one.
 effort is taken unvalidated, so a *known* duplicate can still be logged. Exempting duplicates
 from that fallback is a small follow-up.
 
-### 3.6 Coverage reporting *(~15 min)*
+### 3.6 Surviving an unstable network ✅ **FIXED (20 Sep 2026)**
+
+A 40-round campaign died at **round 28** when DNS failed for openrouter.ai. The message matched
+no status code in `_RETRY_STATUS`, so `_is_transient()` returned False and the call raised
+**immediately** — failing faster than a rate limit would have. `raise_for_status()` in the
+executor's main loop then ended the batch, losing 13 rounds to an outage that had already
+cleared.
+
+- Connectivity failures are now recognised (`_is_offline`) and waited out on a ~32-minute
+  schedule, with `network_down`/`network_back` logged. `FALLBACK_MODEL` is deliberately not used:
+  every backend is behind the same connection.
+- A real error arriving once the network returns is still raised, not swallowed.
+- `ROUND_RETRIES` (5) stops one failed planning call from ending a batch; the run stops cleanly
+  instead, with everything completed already saved.
+- `RESUME=1` continues an interrupted campaign without deleting anything.
+
+### 3.7 Coverage reporting *(~15 min)*
 `coverage_pct` is computed from **Figma** screen purposes. With no Figma it reports `0%` while
 requirement coverage says 11% — misleading in the dashboard and in any write-up. Report
 requirement coverage when no design file exists.
 
-### 3.7 Finding decay and retirement — **premature, revisit after several campaigns**
+### 3.8 Finding decay and retirement — **premature, revisit after several campaigns**
 UIStates decay (90-day half-life) and strategies decay; findings never do. A fixed defect stays
 in the oracle forever and the planner keeps steering around a bug that no longer exists. Real and
 compounding, but two things measured on 20 Sep 2026 say it cannot be built usefully yet:
@@ -209,16 +225,16 @@ Build it as **soft decay** — mark stale and deprioritise, never delete. "Not r
 simply mean "not re-tested", and silently dropping a real defect is much worse than carrying a
 fixed one.
 
-### 3.8 Typical step cost per area
+### 3.9 Typical step cost per area
 The planner has no sense that "this kind of flow needs 35+ steps" and can write a test that
 structurally cannot fit in `EXECUTOR_MAX_STEPS`. Same `ExecutionLog` data as the agent-difficulty
 signal.
 
-### 3.9 Proven interaction steps, not just control names
+### 3.10 Proven interaction steps, not just control names
 The planner sees real control names for a screen but not *actions that provably worked*. Requires
 matching trajectory steps to screens — a bigger lift, worth it after 3.1–3.3 land.
 
-### 3.10 Vision captioning for thin screens
+### 3.11 Vision captioning for thin screens
 Screens with no usable accessibility tree (pure Compose/Flutter) are invisible beyond a control
 count. Screenshots are already captured in `data/appmodel/<project>/`. Direct vision at
 generation time is already implemented; the remaining gap is **cached captions** for screens with

@@ -44,6 +44,7 @@ from settings import (  # noqa: E402
     GEMINI_API_KEY, OPENROUTER_API_KEY,
     EXECUTOR_LLM_PROVIDER, EXECUTOR_LLM_MODEL, EXECUTOR_TIMEOUT, EXECUTOR_ROUNDS,
     EXECUTOR_MAX_STEPS, EXECUTOR_MAX_TOKENS, EXECUTOR_CONTEXT_WINDOW,
+    RESUME, ROUND_RETRIES, ROUND_RETRY_WAIT_S,
     SELF_HEAL, TARGET_APP_PACKAGE, LOGTAIL_SOURCE_TOKEN, EXECUTOR_VISION, CLEAN_SLATE,
     DEVICE_RESET, DATA_PROVIDER_PACKAGES, DEVICE_RESET_SCOPE, CLEAN_SLATE_APPMODEL,
     TARGET_APP_ONLY, DEVICE_FIXTURE_DIR, DEVICE_FIXTURE_DEST, COMPANION_PACKAGES,
@@ -1418,7 +1419,20 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
     """
     preflight()
 
-    if CLEAN_SLATE:
+    if RESUME:
+        # Resume: keep everything and continue the same campaign. Test ids carry
+        # on from the highest already in the graph (textutil.next_testcase_id),
+        # findings and the app model are untouched, and no campaign snapshot is
+        # taken because this is not a new campaign.
+        _print_header("RESUME — continuing the existing campaign, nothing deleted")
+        try:
+            n = requests.get(f"{RAG_URL}/tests/recent",
+                             params={"project": PROJECT, "limit": 500}, timeout=30).json()
+            existing = len(n.get("tests") or n.get("recent_tests") or [])
+            print(f"  {existing} existing test case(s) kept; new ids continue from there.")
+        except Exception as e:
+            print(f"  (could not count existing tests: {str(e)[:100]})")
+    elif CLEAN_SLATE:
         _print_header("CLEAN SLATE — resetting execution history")
         # Every batch must start from the same graph state or runs are not
         # comparable: leftover tests skew dedup, coverage and risk, and leftover
@@ -1449,7 +1463,19 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
 
     # ── Get the first test case ──────────────────────────────────────────
     _print_header("PLANNER → GENERATING FIRST TEST CASE")
-    planner_data = get_next_testcase()
+    planner_data = None
+    for attempt in range(1, ROUND_RETRIES + 1):
+        try:
+            planner_data = get_next_testcase()
+            break
+        except Exception as first_err:
+            print(f"  ⚠️  Could not reach the planner (attempt {attempt}/{ROUND_RETRIES}): "
+                  f"{str(first_err)[:160]}")
+            if attempt < ROUND_RETRIES:
+                time.sleep(ROUND_RETRY_WAIT_S * attempt)
+    if planner_data is None:
+        print("❌ Planner unreachable. Is the gateway running on :9100?")
+        return
     tc = planner_data.get("next_testcase", {})
 
     # Log planner's RAG interaction to cloud
@@ -1493,7 +1519,30 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
         # Log verdict and get next test case (if not last round)
         if i < rounds:
             _print_header(f"PLANNER → LOGGING VERDICT & GENERATING NEXT TEST CASE")
-            response = log_verdict_and_get_next(tc, verdict, notes)
+            # One failed planning call must not end the campaign. A 40-round run
+            # died at round 28 because an outage made this raise straight out of
+            # main(): rounds 29-40 were lost to a network blip that had already
+            # cleared. The planner itself now waits out an outage, so reaching
+            # here means something else went wrong — worth a few patient retries
+            # before giving up on the whole batch.
+            response = None
+            for attempt in range(1, ROUND_RETRIES + 1):
+                try:
+                    response = log_verdict_and_get_next(tc, verdict, notes)
+                    break
+                except Exception as round_err:
+                    print(f"  ⚠️  Planning call failed (attempt {attempt}/{ROUND_RETRIES}): "
+                          f"{str(round_err)[:160]}")
+                    cloud_log("warning", f"Round {i} planning call failed",
+                              attempt=attempt, error=str(round_err)[:300])
+                    if attempt < ROUND_RETRIES:
+                        time.sleep(ROUND_RETRY_WAIT_S * attempt)
+            if response is None:
+                print(f"  ❌ Could not plan the next test after {ROUND_RETRIES} attempts. "
+                      f"Stopping after {i} completed round(s); everything so far is saved.")
+                cloud_log("error", f"Campaign stopped at round {i}: planning unavailable")
+                break
+
             log_info = response.get("log", {})
             next_data = response.get("next", {})
             tc = next_data.get("next_testcase", {})

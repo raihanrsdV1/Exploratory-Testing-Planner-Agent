@@ -46,6 +46,27 @@ _RETRY_STATUS = ("429", "500 ", "502", "503 ", "504", "too many requests", "over
 _PERMANENT = ("400", "401", "403", "404", "not a valid model", "invalid api key")
 _MAX_ATTEMPTS = 4
 
+# Losing the network is not the same failure as a flaky API, and it used to be
+# treated as WORSE: a DNS failure matches none of the status codes above, so
+# _is_transient() returned False and the call raised immediately — faster than a
+# 429 would have. A 40-round campaign died at round 28 that way.
+#
+# An outage is a pause, not an error. These wait it out on a much longer
+# schedule, because the thing being waited for takes minutes to hours, not
+# seconds — and there is nothing else to do meanwhile: every backend, including
+# FALLBACK_MODEL, is on the far side of the same connection.
+_OFFLINE = (
+    "connection", "max retries exceeded", "nameresolution", "name resolution",
+    "network is unreachable", "connection aborted", "connection reset",
+    "failed to establish a new connection", "temporary failure",
+)
+_OFFLINE_WAITS = (15, 30, 60, 120, 240, 300, 300, 300, 300, 300)  # ~35 min total
+
+
+def _is_offline(exc: Exception) -> bool:
+    """True when the failure looks like an absent network rather than a bad request."""
+    return any(tok in str(exc).lower() for tok in _OFFLINE)
+
 
 def _effective_model(requested: str | None) -> tuple[str, bool]:
     """Resolve which model to actually call, honouring the rate-limit cooldown.
@@ -72,7 +93,31 @@ def _is_transient(exc: Exception) -> bool:
     msg = str(exc).lower()
     if any(tok in msg for tok in _PERMANENT):
         return False
-    return any(tok in msg for tok in _RETRY_STATUS)
+    return _is_offline(exc) or any(tok in msg for tok in _RETRY_STATUS)
+
+
+def _wait_for_network(send, exc: Exception, label: str):
+    """Ride out an outage, retrying `send` on a long schedule. Returns its result.
+
+    Re-raises the original error once the schedule is exhausted, so a genuinely
+    long outage still surfaces rather than hanging forever.
+    """
+    import time
+    waited = 0
+    for delay in _OFFLINE_WAITS:
+        log.warning("network_down", call=label, waiting_s=delay, waited_s=waited,
+                    error=str(exc)[:120])
+        time.sleep(delay)
+        waited += delay
+        try:
+            result = send()
+            log.info("network_back", call=label, offline_for_s=waited)
+            return result
+        except Exception as again:
+            if not _is_offline(again):
+                raise          # network is back; this is a different problem
+            exc = again
+    raise exc
 
 
 def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool,
@@ -119,6 +164,11 @@ def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool,
             break
         except Exception as exc:
             last_exc = exc
+            if _is_offline(exc):
+                # Every model is behind the same connection, so falling back is
+                # pointless. Wait for the network instead of failing the round.
+                result = _wait_for_network(lambda: _dispatch(active_model), exc, "call_model")
+                break
             if not _is_transient(exc):
                 raise  # a bad request/API key fails identically on any model — no point retrying
             if attempt >= _MAX_ATTEMPTS:
@@ -402,6 +452,9 @@ def chat_tools(messages: list[dict], tools: list[dict], model: str | None = None
             break
         except Exception as exc:
             last_exc = exc
+            if _is_offline(exc):
+                message = _wait_for_network(lambda: _send(primary), exc, "chat_tools")
+                break
             if not _is_transient(exc):
                 raise
             if attempt >= _MAX_ATTEMPTS:

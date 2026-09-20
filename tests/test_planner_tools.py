@@ -210,6 +210,60 @@ def main():
     check("the objective field asks for ONE behaviour",
           "ONE behaviour" in prop["parameters"]["properties"]["objective"]["description"], True)
 
+    print("\nan internet outage is a pause, not an error")
+    # A 40-round campaign died at round 28 on a DNS failure. The message matched
+    # no status code in _RETRY_STATUS, so it was classified NON-transient and
+    # raised instantly — failing faster than a 429 would have.
+    import requests as _rq
+    from planner import model_client as _mc
+    outage = _rq.exceptions.ConnectionError(
+        "HTTPSConnectionPool(host='openrouter.ai', port=443): Max retries exceeded "
+        "with url: /api/v1/chat/completions (Caused by NameResolutionError(...))")
+    check("the exact failure is recognised as an outage", _mc._is_offline(outage), True)
+    check("and is therefore retryable", _mc._is_transient(outage), True)
+    check("a bad API key is still permanent",
+          _mc._is_transient(Exception("401 Client Error: invalid api key")), False)
+    check("a rate limit is still transient but NOT an outage",
+          (_mc._is_transient(Exception("429 too many requests")),
+           _mc._is_offline(Exception("429 too many requests"))), (True, False))
+
+    _saved = _mc._OFFLINE_WAITS
+    try:
+        _mc._OFFLINE_WAITS = (0, 0, 0)
+        tries = {"n": 0}
+
+        def _flaky():
+            tries["n"] += 1
+            if tries["n"] < 3:
+                raise _rq.exceptions.ConnectionError("Max retries exceeded (NameResolutionError)")
+            return "recovered"
+        check("it waits out an outage and returns the eventual result",
+              _mc._wait_for_network(_flaky, outage, "t"), "recovered")
+
+        def _other():
+            raise Exception("401 invalid api key")
+        try:
+            _mc._wait_for_network(_other, outage, "t")
+            check("a real error once the network returns is not swallowed", "swallowed", "raised")
+        except Exception as e:
+            check("a real error once the network returns is not swallowed",
+                  "401" in str(e), True)
+
+        def _never():
+            raise _rq.exceptions.ConnectionError("Max retries exceeded (NameResolutionError)")
+        try:
+            _mc._wait_for_network(_never, outage, "t")
+            check("a permanent outage eventually gives up", "hung", "raised")
+        except Exception as e:
+            check("a permanent outage eventually gives up", _mc._is_offline(e), True)
+    finally:
+        _mc._OFFLINE_WAITS = _saved
+
+    print("\nresume continues a campaign instead of wiping it")
+    check("RESUME exists and defaults to off", st.RESUME, False)
+    check("and it has retry bounds for a failed round",
+          (st.ROUND_RETRIES > 1, st.ROUND_RETRY_WAIT_S > 0), (True, True))
+
     print("\na failing area must be able to saturate — it was a one-way door")
     # hot_spots promoted an area on failures; the only exit required failed == 0,
     # which a failing area can never reach. Measured: 9 of 13 tests landed on one
