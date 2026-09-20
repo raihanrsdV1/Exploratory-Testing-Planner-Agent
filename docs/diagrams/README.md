@@ -27,6 +27,9 @@ The renderer uses headless Google Chrome and a cached copy of `mermaid.min.js`
 | 10 | Campaign lifecycle | [`10-campaign-lifecycle.png`](10-campaign-lifecycle.png) |
 | 11 | Ingestion — document to queryable requirements | [`11-ingestion-document-to-queryable-requirements.png`](11-ingestion-document-to-queryable-requirements.png) |
 | 12 | Runtime topology | [`12-runtime-topology.png`](12-runtime-topology.png) |
+| 13 | Why tools replaced retrieval sources | [`13-why-tools-replaced-retrieval-sources.png`](13-why-tools-replaced-retrieval-sources.png) |
+| 14 | The nine tools as an investigation | [`14-the-nine-tools-as-an-investigation.png`](14-the-nine-tools-as-an-investigation.png) |
+| 15 | Three rules that hold for every tool | [`15-three-rules-that-hold-for-every-tool.png`](15-three-rules-that-hold-for-every-tool.png) |
 
 ## Using these elsewhere
 

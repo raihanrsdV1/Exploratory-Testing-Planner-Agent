@@ -58,5 +58,20 @@
     "n": 12,
     "title": "Runtime topology",
     "file": "12-runtime-topology.png"
+  },
+  {
+    "n": 13,
+    "title": "Why tools replaced retrieval sources",
+    "file": "13-why-tools-replaced-retrieval-sources.png"
+  },
+  {
+    "n": 14,
+    "title": "The nine tools as an investigation",
+    "file": "14-the-nine-tools-as-an-investigation.png"
+  },
+  {
+    "n": 15,
+    "title": "Three rules that hold for every tool",
+    "file": "15-three-rules-that-hold-for-every-tool.png"
   }
 ]
