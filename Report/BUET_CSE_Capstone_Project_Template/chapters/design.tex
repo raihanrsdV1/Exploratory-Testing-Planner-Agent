@@ -224,9 +224,7 @@ made over a full campaign.
 
 \subsection{Design calculations and budgets}
 
-Every bound in the system is explicit, because an exploratory agent has no
-natural stopping point (difficulty D2) and will otherwise consume whatever it is
-given. \Cref{tab:budgets} lists them.
+Every bound in the system is explicit, because an exploratory agent has no natural stopping point (difficulty D2) and will otherwise consume whatever it is given. \Cref{tab:budgets} lists them, with the reasoning behind each. All of them are read from configuration rather than compiled in, so the values shown are the ones these campaigns ran with; where a value differs from the shipped default, both are given.
 
 \begingroup
 \small
@@ -251,7 +249,7 @@ given. \Cref{tab:budgets} lists them.
 
   Device actions per test & 50 & The executor's interaction budget. Exhausting it yields no evidence about the application, so the planner is told the number and is warned when recent tests repeatedly hit it. \\
   \addlinespace
-  Wall clock per test & 900\,s & Bounds a single execution including model latency and recovery. \\
+  Wall clock per test & 900\,s & Bounds a single execution including model latency and recovery. This is the value configured for the campaigns reported here; the shipped default is 420\,s. \\
   \addlinespace
   Planner turns & 12 & Ceiling on the tool loop. \\
   \addlinespace
@@ -334,9 +332,7 @@ key sets rather than on a live device.
 \section{Application of Tools}
 \label{sec:tools}
 
-\Cref{fig:topology} is the deployment view of the same system: four processes on
-one host, one device over the Android Debug Bridge, and exactly one external
-dependency.
+A note on the word. This section concerns \emph{third-party technologies}, which is the sense the assessment criteria use. It is not about the planner's nine graph tools of \Cref{fig:nine-tools}, which are functions this project wrote over its own database. \Cref{fig:topology} is the deployment view: four processes on one host, one device over the Android Debug Bridge, and exactly one external dependency.
 
 \begin{figure}[htbp]
   \centering
@@ -346,21 +342,21 @@ dependency.
   \label{fig:topology}
 \end{figure}
 
-\Cref{tab:tools} states why each significant tool was chosen and what it costs.
+\Cref{tab:tools} states why each significant technology was chosen and what it costs.
 
 \begingroup
 \small
 \setlength{\tabcolsep}{5pt}
 \begin{xltabular}{\textwidth}{@{}>{\hsize=0.54\hsize}Y>{\hsize=1.18\hsize}Y>{\hsize=1.28\hsize}Y@{}}
-  \caption{Tool selection and the limitations accepted with each}
+  \caption{Third-party technologies selected, and the limitation accepted with each}
   \label{tab:tools}\\
   \toprule
-  Tool & Why it was selected & Limitation accepted \\
+  Technology & Why it was selected & Limitation accepted \\
   \midrule
   \endfirsthead
-  \caption[]{Tool selection and limitations \emph{(continued)}}\\
+  \caption[]{Third-party technologies and limitations \emph{(continued)}}\\
   \toprule
-  Tool & Why it was selected & Limitation accepted \\
+  Technology & Why it was selected & Limitation accepted \\
   \midrule
   \endhead
   \midrule
@@ -483,12 +479,12 @@ any selected state.
   \label{fig:dash-model}
 \end{figure}
 
-\guidance{TODO (team): these two captures are from an earlier campaign against a
-contacts application and are included here as evidence that the operator surface
-exists, which is what this section claims. Do not reuse them in
-\Cref{ch:evaluation}: their totals are from a different application and would
-contradict the campaign reported there. Take fresh captures during a current run
-if \Cref{ch:evaluation} needs a live-run figure.}
+Both captures are from an earlier campaign against a contacts application and are
+included to show that the surface exists and what it presents, which is what
+this section claims. They are not results: the totals visible in them belong to
+a different application from the one evaluated in \Cref{ch:evaluation}, and
+\Cref{ch:evaluation} reports its own. The interface has continued to change, so
+these should be replaced with current captures before submission.
 
 \subsection{Code organisation}
 
@@ -549,9 +545,17 @@ checked by an automated sweep of the source tree rather than by review, after a
 manual audit declared the system generic while application-specific vocabulary
 was still embedded in the executor and in prompt templates.
 
-\guidance{TODO (team): add the repository URL, the branch and review convention
-actually used, and whether any continuous-integration workflow runs the test
-suite on push. Keep this consistent with \Cref{sec:participation}.}
+The work is held in a single Git repository,
+
+\begin{center}\small\url{https://github.com/raihanrsdV1/Exploratory-Testing-Planner-Agent}\end{center}
+
+\noindent with a long-lived branch per team member and integration through a shared default branch. Of the nine merges into that branch, five were made as reviewed pull
+requests and four were direct integrations of a member's own branch, which
+reflects the practice honestly: review was applied to cross-cutting changes and
+relaxed for work confined to one subsystem. No continuous-integration workflow
+runs the suite on push; it is run locally before a merge, which is a gap rather
+than a decision and is the cheapest of the outstanding items in
+\Cref{sec:conclusion}.
 
 \section{Deployment}
 \label{sec:deployment}
