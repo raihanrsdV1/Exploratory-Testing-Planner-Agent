@@ -1752,8 +1752,11 @@ def tests_recent(project: str, limit: int = 20, authorization: str | None = Head
         rows = session.run(
             """
             MATCH (p:Project {name:$project})-[:HAS_TEST]->(t:TestCase)
-            RETURN t.id AS id, t.title AS title, t.last_verdict AS verdict,
-                   t.last_notes AS notes, t.last_run_at AS ts
+            OPTIONAL MATCH (t)-[:COVERS]->(q:Requirement)
+            WITH t, [r IN collect(DISTINCT q.ref_id) WHERE r IS NOT NULL] AS reqs
+            RETURN t.id AS id, t.external_id AS external_id, t.title AS title,
+                   t.last_verdict AS verdict, t.last_notes AS notes,
+                   t.last_run_at AS ts, t.area AS area, reqs AS requirement_ids
             ORDER BY t.last_run_at DESC
             LIMIT $limit
             """,

@@ -1373,7 +1373,13 @@ def _export_batch_csv(path: str | None = None) -> str:
         return ""
 
     label = {n["id"]: n.get("label", "?") for n in graph.get("nodes", [])}
-    meta = {t.get("id"): t for t in tests}
+    # ExecutionLog carries the external id ("TC-014"); TestCase.id is the graph id
+    # ("project::tc::tc_014"). Index both so the lookup below cannot miss.
+    meta = {}
+    for _t in tests:
+        for _k in (_t.get("external_id"), _t.get("id")):
+            if _k:
+                meta.setdefault(_k, _t)
     APP_FAULT = {"ASSERTION_FAILURE", "CRASH"}
     from settings import AGENT_FAULT  # single source of truth
 

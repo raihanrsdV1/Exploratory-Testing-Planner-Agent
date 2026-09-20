@@ -1,0 +1,142 @@
+Row: 0 raw_contact_id=2, mimetype=vnd.android.cursor.item/name, data1=KM AZAD, data2=KM, data3=AZAD
+Row: 1 raw_contact_id=2, mimetype=vnd.android.cursor.item/phone_v2, data1=+8808801321663190, data2=2, data3=NULL
+Row: 2 raw_contact_id=4, mimetype=vnd.android.cursor.item/name, data1=Kmm Azad, data2=Kmm, data3=Azad
+Row: 3 raw_contact_id=4, mimetype=vnd.android.cursor.item/phone_v2, data1=+880 1234-567891, data2=2, data3=NULL
+Row: 4 raw_contact_id=6, mimetype=vnd.android.cursor.item/name, data1=John Doe, data2=John, data3=Doe
+Row: 5 raw_contact_id=6, mimetype=vnd.android.cursor.item/email_v2, data1=john.doe@example.com, data2=1, data3=NULL
+Row: 6 raw_contact_id=6, mimetype=vnd.android.cursor.item/email_v2, data1=j.doe@work.com, data2=2, data3=NULL
+Row: 7 raw_contact_id=6, mimetype=vnd.android.cursor.item/phone_v2, data1=+1234567890, data2=2, data3=NULL
+Row: 8 raw_contact_id=9, mimetype=vnd.android.cursor.item/name, data1=John, data2=John, data3=NULL
+Row: 9 raw_contact_id=9, mimetype=vnd.android.cursor.item/phone_v2, data1=+1+1234567890, data2=2, data3=NULL
+Row: 10 raw_contact_id=9, mimetype=vnd.android.cursor.item/email_v2, data1=johnemail.com, data2=1, data3=NULL
+Row: 11 raw_contact_id=13, mimetype=vnd.android.cursor.item/phone_v2, data1=555-123-4567, data2=2, data3=NULL
+Row: 12 raw_contact_id=14, mimetype=vnd.android.cursor.item/name, data1=John, data2=John, data3=NULL
+Row: 13 raw_contact_id=14, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-123-4567, data2=2, data3=NULL
+Row: 14 raw_contact_id=14, mimetype=vnd.android.cursor.item/email_v2, data1=invalidemail.com, data2=1, data3=NULL
+Row: 15 raw_contact_id=15, mimetype=vnd.android.cursor.item/name, data1=John Doe, data2=John, data3=Doe
+Row: 16 raw_contact_id=15, mimetype=vnd.android.cursor.item/organization, data1=Droidrun Inc., data2=NULL, data3=NULL
+Row: 17 raw_contact_id=15, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-123-4567, data2=2, data3=NULL
+Row: 18 raw_contact_id=16, mimetype=vnd.android.cursor.item/phone_v2, data1=555-123-4567, data2=2, data3=NULL
+Row: 19 raw_contact_id=17, mimetype=vnd.android.cursor.item/name, data1=Test, data2=Test, data3=NULL
+Row: 20 raw_contact_id=17, mimetype=vnd.android.cursor.item/phone_v2, data1=+112345678901234567890, data2=2, data3=NULL
+Row: 21 raw_contact_id=18, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-123-4567, data2=2, data3=NULL
+Row: 22 raw_contact_id=19, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-1234, data2=2, data3=NULL
+Row: 23 raw_contact_id=20, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-5678, data2=2, data3=NULL
+Row: 24 raw_contact_id=21, mimetype=vnd.android.cursor.item/name, data1=John, data2=John, data3=NULL
+Row: 25 raw_contact_id=21, mimetype=vnd.android.cursor.item/phone_v2, data1=+11234567890, data2=2, data3=NULL
+Row: 26 raw_contact_id=22, mimetype=vnd.android.cursor.item/name, data1=JOHN, data2=JOHN, data3=NULL
+Row: 27 raw_contact_id=22, mimetype=vnd.android.cursor.item/phone_v2, data1=+10987654321, data2=2, data3=NULL
+Row: 28 raw_contact_id=23, mimetype=vnd.android.cursor.item/name, data1=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA BoundaryTest, data2=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA, data3=BoundaryTest
+Row: 29 raw_contact_id=23, mimetype=vnd.android.cursor.item/phone_v2, data1=1 (234) 567-890, data2=2, data3=NULL
+Row: 30 raw_contact_id=24, mimetype=vnd.android.cursor.item/name, data1=\u00a0\u00a0\u00a0, data2=\u00a0\u00a0\u00a0, data3=NULL
+Row: 31 raw_contact_id=24, mimetype=vnd.android.cursor.item/phone_v2, data1=555-1234, data2=2, data3=NULL
+Row: 32 raw_contact_id=25, mimetype=vnd.android.cursor.item/name, data1=John, data2=John, data3=NULL
+Row: 33 raw_contact_id=25, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-1234, data2=2, data3=NULL
+Row: 34 raw_contact_id=26, mimetype=vnd.android.cursor.item/name, data1=Jane, data2=Jane, data3=NULL
+Row: 35 raw_contact_id=26, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-1234, data2=2, data3=NULL
+Row: 36 raw_contact_id=27, mimetype=vnd.android.cursor.item/name, data1=Smith, data2=NULL, data3=Smith
+Row: 37 raw_contact_id=27, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-1234, data2=2, data3=NULL
+Row: 38 raw_contact_id=28, mimetype=vnd.android.cursor.item/name, data1=Alice Smith, data2=Alice, data3=Smith
+Row: 39 raw_contact_id=28, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-1234, data2=2, data3=NULL
+Row: 40 raw_contact_id=28, mimetype=vnd.android.cursor.item/email_v2, data1=alice@example.com, data2=1, data3=NULL
+Row: 41 raw_contact_id=29, mimetype=vnd.android.cursor.item/name, data1=Bob Jones, data2=Bob, data3=Jones
+Row: 42 raw_contact_id=29, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-5678, data2=2, data3=NULL
+Row: 43 raw_contact_id=29, mimetype=vnd.android.cursor.item/email_v2, data1=alice@example.com, data2=1, data3=NULL
+Row: 44 raw_contact_id=30, mimetype=vnd.android.cursor.item/name, data1=Alice, data2=Alice, data3=NULL
+Row: 45 raw_contact_id=30, mimetype=vnd.android.cursor.item/phone_v2, data1=555-1234, data2=2, data3=NULL
+Row: 46 raw_contact_id=31, mimetype=vnd.android.cursor.item/name, data1=Bob, data2=Bob, data3=NULL
+Row: 47 raw_contact_id=31, mimetype=vnd.android.cursor.item/phone_v2, data1=+115551234, data2=2, data3=NULL
+Row: 48 raw_contact_id=32, mimetype=vnd.android.cursor.item/email_v2, data1=john.doe@example.com, data2=1, data3=NULL
+Row: 49 raw_contact_id=33, mimetype=vnd.android.cursor.item/email_v2, data1=JOHN.DOE@EXAMPLE.COM, data2=1, data3=NULL
+Row: 50 raw_contact_id=34, mimetype=vnd.android.cursor.item/name, data1=John Doe, data2=John, data3=Doe
+Row: 51 raw_contact_id=34, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-1234, data2=2, data3=NULL
+Row: 52 raw_contact_id=34, mimetype=vnd.android.cursor.item/email_v2, data1=JOHN.DOE@EXAMPLE.COM, data2=1, data3=NULL
+Row: 53 raw_contact_id=35, mimetype=vnd.android.cursor.item/name, data1=Jane Smith, data2=Jane, data3=Smith
+Row: 54 raw_contact_id=35, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-5678, data2=2, data3=NULL
+Row: 55 raw_contact_id=35, mimetype=vnd.android.cursor.item/email_v2, data1=john.doe@example.com, data2=1, data3=NULL
+Row: 56 raw_contact_id=36, mimetype=vnd.android.cursor.item/name, data1=Alice Smith, data2=Alice, data3=Smith
+Row: 57 raw_contact_id=36, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-0101, data2=2, data3=NULL
+Row: 58 raw_contact_id=36, mimetype=vnd.android.cursor.item/email_v2, data1=alice@example.com, data2=1, data3=NULL
+Row: 59 raw_contact_id=37, mimetype=vnd.android.cursor.item/name, data1=Bob Jones, data2=Bob, data3=Jones
+Row: 60 raw_contact_id=37, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-0102, data2=2, data3=NULL
+Row: 61 raw_contact_id=37, mimetype=vnd.android.cursor.item/email_v2, data1=alice @ example.com, data2=1, data3=NULL
+Row: 62 raw_contact_id=38, mimetype=vnd.android.cursor.item/name, data1=John, data2=John, data3=NULL
+Row: 63 raw_contact_id=39, mimetype=vnd.android.cursor.item/name, data1=John, data2=John, data3=NULL
+Row: 64 raw_contact_id=40, mimetype=vnd.android.cursor.item/name, data1=Cafe&#x0301;, data2=Cafe&#x0301;, data3=NULL
+Row: 65 raw_contact_id=40, mimetype=vnd.android.cursor.item/phone_v2, data1=555-1234, data2=2, data3=NULL
+Row: 66 raw_contact_id=41, mimetype=vnd.android.cursor.item/name, data1=Café, data2=Café, data3=NULL
+Row: 67 raw_contact_id=41, mimetype=vnd.android.cursor.item/phone_v2, data1=555-5678, data2=2, data3=NULL
+Row: 68 raw_contact_id=42, mimetype=vnd.android.cursor.item/name, data1=Alice Smith, data2=Alice, data3=Smith
+Row: 69 raw_contact_id=42, mimetype=vnd.android.cursor.item/phone_v2, data1=+1020 7946 0958, data2=2, data3=NULL
+Row: 70 raw_contact_id=43, mimetype=vnd.android.cursor.item/name, data1=Bob Jones, data2=Bob, data3=Jones
+Row: 71 raw_contact_id=43, mimetype=vnd.android.cursor.item/phone_v2, data1=+1+44 20 7946 0958, data2=2, data3=NULL
+Row: 72 raw_contact_id=44, mimetype=vnd.android.cursor.item/name, data1=John, data2=John, data3=NULL
+Row: 73 raw_contact_id=44, mimetype=vnd.android.cursor.item/phone_v2, data1=+11234567890, data2=2, data3=NULL
+Row: 74 raw_contact_id=45, mimetype=vnd.android.cursor.item/name, data1=Jane, data2=Jane, data3=NULL
+Row: 75 raw_contact_id=45, mimetype=vnd.android.cursor.item/phone_v2, data1=+10987654321, data2=2, data3=NULL
+Row: 76 raw_contact_id=45, mimetype=vnd.android.cursor.item/email_v2, data1=invalid-email, data2=1, data3=NULL
+Row: 77 raw_contact_id=46, mimetype=vnd.android.cursor.item/name, data1=Existing User, data2=Existing, data3=User
+Row: 78 raw_contact_id=46, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555-1234, data2=2, data3=NULL
+Row: 79 raw_contact_id=47, mimetype=vnd.android.cursor.item/name, data1=New User, data2=New, data3=User
+Row: 80 raw_contact_id=47, mimetype=vnd.android.cursor.item/phone_v2, data1=+1555 1234, data2=2, data3=NULL
+Row: 81 raw_contact_id=48, mimetype=vnd.android.cursor.item/name, data1=Alice, data2=Alice, data3=NULL
+Row: 82 raw_contact_id=48, mimetype=vnd.android.cursor.item/email_v2, data1=alice@exämple.com, data2=1, data3=NULL
+Row: 83 raw_contact_id=49, mimetype=vnd.android.cursor.item/name, data1=Alice, data2=Alice, data3=NULL
+Row: 84 raw_contact_id=49, mimetype=vnd.android.cursor.item/email_v2, data1=ALICE@EXÄMPLE.COM, data2=1, data3=NULL
+Row: 85 raw_contact_id=50, mimetype=vnd.android.cursor.item/name, data1=Alice, data2=Alice, data3=NULL
+Row: 86 raw_contact_id=50, mimetype=vnd.android.cursor.item/phone_v2, data1=+1020 7946 0958, data2=2, data3=NULL
+Row: 87 raw_contact_id=51, mimetype=vnd.android.cursor.item/name, data1=Bob, data2=Bob, data3=NULL
+Row: 88 raw_contact_id=51, mimetype=vnd.android.cursor.item/phone_v2, data1=+10044 20 7946 0958, data2=2, data3=NULL
+Row: 89 raw_contact_id=52, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-123-4567, data2=2, data3=NULL
+Row: 90 raw_contact_id=53, mimetype=vnd.android.cursor.item/email_v2, data1=test@example.com, data2=1, data3=NULL
+Row: 91 raw_contact_id=54, mimetype=vnd.android.cursor.item/email_v2, data1=test@example.com, data2=1, data3=NULL
+Row: 92 raw_contact_id=55, mimetype=vnd.android.cursor.item/name, data1=Doe, data2=NULL, data3=Doe
+Row: 93 raw_contact_id=55, mimetype=vnd.android.cursor.item/phone_v2, data1=1 (234) 567-890, data2=2, data3=NULL
+Row: 94 raw_contact_id=56, mimetype=vnd.android.cursor.item/name, data1=Doe, data2=NULL, data3=Doe
+Row: 95 raw_contact_id=57, mimetype=vnd.android.cursor.item/name, data1=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Doe, data2=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, data3=Doe
+Row: 96 raw_contact_id=58, mimetype=vnd.android.cursor.item/name, data1=!!! Doe, data2=!!!, data3=Doe
+Row: 97 raw_contact_id=58, mimetype=vnd.android.cursor.item/phone_v2, data1=+11234567890, data2=2, data3=NULL
+Row: 98 raw_contact_id=59, mimetype=vnd.android.cursor.item/name, data1=John Doe, data2=John, data3=Doe
+Row: 99 raw_contact_id=60, mimetype=vnd.android.cursor.item/name, data1=john Doe, data2=john, data3=Doe
+Row: 100 raw_contact_id=61, mimetype=vnd.android.cursor.item/name, data1=Alice, data2=Alice, data3=NULL
+Row: 101 raw_contact_id=61, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-123-4567, data2=2, data3=NULL
+Row: 102 raw_contact_id=62, mimetype=vnd.android.cursor.item/name, data1=Bob, data2=Bob, data3=NULL
+Row: 103 raw_contact_id=62, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-123-4567, data2=2, data3=NULL
+Row: 104 raw_contact_id=63, mimetype=vnd.android.cursor.item/name, data1=Test, data2=Test, data3=NULL
+Row: 105 raw_contact_id=63, mimetype=vnd.android.cursor.item/phone_v2, data1=+1+1 (555) 123-4567, data2=2, data3=NULL
+Row: 106 raw_contact_id=64, mimetype=vnd.android.cursor.item/name, data1=Doe, data2=NULL, data3=Doe
+Row: 107 raw_contact_id=64, mimetype=vnd.android.cursor.item/phone_v2, data1=+11234567890, data2=2, data3=NULL
+Row: 108 raw_contact_id=65, mimetype=vnd.android.cursor.item/name, data1=Alice Smith, data2=Alice, data3=Smith
+Row: 109 raw_contact_id=65, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-000-1, data2=2, data3=NULL
+Row: 110 raw_contact_id=65, mimetype=vnd.android.cursor.item/email_v2, data1=alice@example.com, data2=1, data3=NULL
+Row: 111 raw_contact_id=66, mimetype=vnd.android.cursor.item/name, data1=Bob Jones, data2=Bob, data3=Jones
+Row: 112 raw_contact_id=66, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-000-2, data2=2, data3=NULL
+Row: 113 raw_contact_id=66, mimetype=vnd.android.cursor.item/email_v2, data1=ALICE@example.com, data2=1, data3=NULL
+Row: 114 raw_contact_id=67, mimetype=vnd.android.cursor.item/name, data1=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, data2=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, data3=NULL
+Row: 115 raw_contact_id=68, mimetype=vnd.android.cursor.item/name, data1=Alice Smith, data2=Alice, data3=Smith
+Row: 116 raw_contact_id=68, mimetype=vnd.android.cursor.item/email_v2, data1=alice@example.com, data2=1, data3=NULL
+Row: 117 raw_contact_id=69, mimetype=vnd.android.cursor.item/name, data1=Bob Jones, data2=Bob, data3=Jones
+Row: 118 raw_contact_id=69, mimetype=vnd.android.cursor.item/email_v2, data1=ALICE@example.com, data2=1, data3=NULL
+Row: 119 raw_contact_id=70, mimetype=vnd.android.cursor.item/name, data1=Alice Smith, data2=Alice, data3=Smith
+Row: 120 raw_contact_id=70, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-123-4567, data2=2, data3=NULL
+Row: 121 raw_contact_id=71, mimetype=vnd.android.cursor.item/name, data1=Bob Jones, data2=Bob, data3=Jones
+Row: 122 raw_contact_id=71, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-123-4567, data2=2, data3=NULL
+Row: 123 raw_contact_id=72, mimetype=vnd.android.cursor.item/name, data1=Alice Smith, data2=Alice, data3=Smith
+Row: 124 raw_contact_id=72, mimetype=vnd.android.cursor.item/phone_v2, data1=+1+1 555-123-4567, data2=2, data3=NULL
+Row: 125 raw_contact_id=73, mimetype=vnd.android.cursor.item/name, data1=Bob Jones, data2=Bob, data3=Jones
+Row: 126 raw_contact_id=73, mimetype=vnd.android.cursor.item/phone_v2, data1=+10015551234567, data2=2, data3=NULL
+Row: 127 raw_contact_id=74, mimetype=vnd.android.cursor.item/name, data1=Alice Smith, data2=Alice, data3=Smith
+Row: 128 raw_contact_id=74, mimetype=vnd.android.cursor.item/phone_v2, data1=+1+1 555-123-4567, data2=2, data3=NULL
+Row: 129 raw_contact_id=75, mimetype=vnd.android.cursor.item/name, data1=Bob Jones, data2=Bob, data3=Jones
+Row: 130 raw_contact_id=75, mimetype=vnd.android.cursor.item/phone_v2, data1=+10015551234567, data2=2, data3=NULL
+Row: 131 raw_contact_id=76, mimetype=vnd.android.cursor.item/phone_v2, data1=+11234567890, data2=2, data3=NULL
+Row: 132 raw_contact_id=77, mimetype=vnd.android.cursor.item/phone_v2, data1=+11234567890, data2=2, data3=NULL
+Row: 133 raw_contact_id=78, mimetype=vnd.android.cursor.item/name, data1=Alice, data2=Alice, data3=NULL
+Row: 134 raw_contact_id=78, mimetype=vnd.android.cursor.item/phone_v2, data1=+1+1 123, data2=2, data3=NULL
+Row: 135 raw_contact_id=79, mimetype=vnd.android.cursor.item/name, data1=123 Doe, data2=123, data3=Doe
+Row: 136 raw_contact_id=79, mimetype=vnd.android.cursor.item/phone_v2, data1=+1+1 555-123-4567, data2=2, data3=NULL
+Row: 137 raw_contact_id=80, mimetype=vnd.android.cursor.item/name, data1=123 Doe, data2=123, data3=Doe
+Row: 138 raw_contact_id=80, mimetype=vnd.android.cursor.item/phone_v2, data1=+1+1 555-123-4567, data2=2, data3=NULL
+Row: 139 raw_contact_id=81, mimetype=vnd.android.cursor.item/name, data1=null, data2=null, data3=NULL
+Row: 140 raw_contact_id=81, mimetype=vnd.android.cursor.item/phone_v2, data1=+1 555-123-4567, data2=2, data3=NULL
+Row: 141 raw_contact_id=82, mimetype=vnd.android.cursor.item/name, data1=Alice Smith, data2=Alice, data3=Smith

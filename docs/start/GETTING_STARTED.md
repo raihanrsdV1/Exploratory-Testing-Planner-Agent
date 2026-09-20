@@ -172,6 +172,21 @@ adb shell ime set com.mobilerun.portal/.input.MobilerunKeyboardIME
 > and re-save its snapshot *after* running setup, or rely on `start.sh` re-asserting it every run.
 > `mobilerun doctor` names exactly which piece is missing if something still seems off.
 
+> **A `device_portal_unavailable` warning is not proof the portal is down.** The probe reads
+> `driver.portal_available` / `_portal_keyboard_available`, and both can report `False` while the
+> portal is serving state perfectly well. Confirm before you act on it — query the provider
+> directly:
+>
+> ```bash
+> adb shell content query --uri content://com.mobilerun.portal/state | head -c 400
+> ```
+>
+> A JSON `a11y_tree` plus `phone_state` coming back means the portal is alive and the warning is a
+> false alarm. An error or empty result means it genuinely is not, and the setup above needs
+> re-running. Worth checking rather than assuming either way: the warning is classed CRITICAL and
+> declares that "text-entry results from this run are not trustworthy", which — if you believe it
+> without checking — retroactively casts doubt on every validation finding in the campaign.
+
 ### Sideloading an app from a physical device
 
 If the app under test isn't easily installable on the emulator (region-locked, not on the Play
@@ -377,8 +392,25 @@ Every node is tagged with a `project` property, and every query filters on it �
 standard multi-tenant pattern (the same one relational databases use with a `tenant_id` column),
 not something specific to this app. Two (or more) completely unrelated apps can have their SRS,
 tests, and app models sitting in the same Neo4j instance with zero risk of one leaking into the
-other's generation prompts. Switch which one the running services act on purely via `.env`'s
-`PROJECT=` value; nothing else needs to change.
+other's generation prompts. Switch which one the running services act on via `.env`'s
+`PROJECT=` value.
+
+⚠️ **Restart both services after changing `PROJECT`.** `settings.PROJECT` is read once at
+import time, so a running `rag_api`/`gateway` keeps serving the project it started with.
+Ingesting without restarting writes the new SRS under the *old* project name, which looks
+like a successful ingest and is only visible later as requirements that belong to the wrong
+app. Kill the listeners by port and start them again:
+
+```bash
+# -sTCP:LISTEN matters: a bare `lsof -ti tcp:9010` also matches clients connected to the
+# port, and will kill a campaign that is mid-run
+for port in 9010 9100; do kill $(lsof -ti tcp:$port -sTCP:LISTEN) 2>/dev/null; done
+```
+
+The reset performed by `ingest_all.py` is project-scoped, so ingesting one project never
+touches another's data — but back up first anyway if the other project holds results you
+care about (`scripts/backup_neo4j.py`, no arguments; it takes the output path as its only
+positional argument and has no `--help`).
 
 ## Two things newcomers get wrong
 

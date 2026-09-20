@@ -210,3 +210,50 @@ before stopping, and stops *cleanly*: everything completed so far is already in 
 | `CLEAN_SLATE_APPMODEL` | `false` | `true` wipes the app map **and findings** — start blind |
 | `RESUME` | `false` | `true` continues the existing campaign: nothing deleted, ids carry on, no snapshot |
 | `ROUND_RETRIES` / `ROUND_RETRY_WAIT_S` | 5 / 30s | how hard a failed planning call is retried before the batch gives up |
+
+## 9. Reporting a finished campaign
+
+`scripts/build_campaign_report.py` renders one campaign as a self-contained HTML report —
+results, failure analysis, coverage, every finding, every test case, and the limitations that
+bound all of it. It reads the graph only; it changes nothing.
+
+```bash
+# --since is the instant the campaign began: the first ExecutionLog after CLEAN SLATE
+./venv/bin/python scripts/build_campaign_report.py --since 2026-09-20T05:41:00
+
+# print it to PDF (macOS; any Chromium works)
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --disable-gpu \
+  --no-pdf-header-footer --print-to-pdf="$PWD/reports/campaign_report.pdf" \
+  "file://$PWD/reports/campaign_report.html"
+```
+
+Find the campaign's start instant with:
+
+```cypher
+MATCH (e:ExecutionLog {project:'shobarkhamar'}) RETURN min(e.created_at)
+```
+
+⚠️ **`--since` is not optional, and the reason matters.** `CLEAN_SLATE` resets execution
+history but **findings survive it** — they are the accumulated knowledge, deliberately kept.
+So `ExecutionLog` nodes are already campaign-scoped while `Finding` nodes are not. Without
+`--since` a report would pair this campaign's 45 runs with every finding ever written. The
+flag filters findings on `first_seen`, so the report counts only what *this* campaign
+discovered; findings carried over from earlier sessions are excluded rather than claimed.
+
+Two conventions in the output worth keeping if you write your own:
+
+- **Failures are split by what they tell you about.** `ASSERTION_FAILURE` is app evidence;
+  `STEP_LIMIT_EXCEEDED` and `NAVIGATION_FAILURE` are our own agent's ceiling. Reporting a raw
+  pass rate without that split overstates the defect count substantially.
+- **`AGENT_DIFFICULTY` findings are counted apart from the rest.** They describe the tester,
+  not the app under test, and folding them into a "findings" headline inflates it.
+
+### The batch CSV
+
+Each campaign also writes `logs/batch_<project>_<stamp>.csv`, one row per execution, which is the
+only record that survives the next `CLEAN_SLATE`. Its `area` and `requirement_ids` columns were
+empty in every file written before 20 Sep 2026: `/tests/recent` did not project those fields, and
+the writer indexed its lookup by `TestCase.id` (`project::tc::tc_014`) while reading it back by
+`ExecutionLog.test_case_id` (`TC-014`), so the lookup could never hit. Both are fixed. CSVs
+exported before that date have the columns but not the values — read requirement grounding out of
+the title prefix instead when comparing against an old run.
