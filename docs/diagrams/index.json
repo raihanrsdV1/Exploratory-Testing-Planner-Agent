@@ -73,5 +73,15 @@
     "n": 15,
     "title": "Three rules that hold for every tool",
     "file": "15-three-rules-that-hold-for-every-tool.png"
+  },
+  {
+    "n": 16,
+    "title": "The executor, in detail",
+    "file": "16-the-executor-in-detail.png"
+  },
+  {
+    "n": 17,
+    "title": "State identity \u2014 is this a screen we have seen?",
+    "file": "17-state-identity-is-this-a-screen-we-have-seen.png"
   }
 ]

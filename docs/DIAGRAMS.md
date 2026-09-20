@@ -596,3 +596,154 @@ flowchart TB
 
 > **Applies to `PLANNER_MODE=tools` only.** The default is `pipeline`
 > (diagram 5), where none of this runs — including the validation gate.
+
+## 16. The executor, in detail
+
+What one test execution actually does on the Android side: how the goal becomes
+device actions, what it observes, and every artefact it leaves behind for the
+dashboard and the graph.
+
+Two things are worth reading carefully. **The executor never decides what to
+test** — it receives an objective in plain language and works out *how* from the
+live screen. And **it has no in-loop livelock detector**: an earlier one was
+removed after cancelling an agent mid-run left it executing alongside the next
+test. Over-scoping therefore surfaces as `STEP_LIMIT_EXCEEDED` and is corrected
+by the *planner*, from the recent-runs block, not inside the executor. The web
+executor does have in-loop guards; Android does not.
+
+```mermaid
+flowchart TB
+    subgraph IN[" "]
+        G["goal text<br/><i>objective · screen_hint · addresses<br/>identity · login · input · verification blocks<br/>unachievable preconditions filtered out</i>"]
+    end
+
+    subgraph EX["EXECUTOR — clients/executor_runner.py"]
+        AG["mobilerun MobileAgent<br/><i>fast_agent · manager · executor</i><br/>vision = EXECUTOR_VISION"]
+        DRV["AndroidDriver"]
+        OBS["_observe_device<br/><i>3 retries, 0.6s apart</i>"]
+        SHOT["_safe_screenshot<br/><i>best effort</i>"]
+        EV["RecordUIStateEvent stream"]
+    end
+
+    subgraph DEV["DEVICE"]
+        PORTAL["com.mobilerun.portal<br/><i>accessibility service + IME</i>"]
+        APP["app under test"]
+    end
+
+    subgraph ART["ARTEFACTS ON DISK"]
+        TRAJ["logs/trajectories/&lt;run&gt;/trajectory.json<br/><i>per-step thought · tool call · outcome</i>"]
+        MLOG["logs/mobilerun.log<br/><i>teed live from the mobilerun logger</i>"]
+        DEG["logs/degradations.jsonl"]
+    end
+
+    subgraph SVC["SERVICES"]
+        LIVE["POST /liveui/observe<br/><i>state + screenshot → Live App Model</i>"]
+        ELOG["POST /execution/log<br/><i>ExecutionLog</i>"]
+        TLOG["POST /tests/log<br/><i>verdict + COVERS</i>"]
+        EVAL["POST /execution/evaluate<br/><i>hands the trajectory to the investigator</i>"]
+    end
+
+    subgraph DASH["DASHBOARD reads"]
+        D1["/dashboard/logs<br/><i>streams mobilerun.log live</i>"]
+        D2["/dashboard/run-steps<br/><i>replays trajectory.json</i>"]
+        D3["/dashboard/screenshot · /session/live"]
+    end
+
+    G --> AG
+    AG <--> DRV
+    DRV -->|adb| PORTAL
+    PORTAL <--> APP
+    DRV --> OBS
+    OBS -->|"a11y tree + screenshot"| AG
+    DRV --> SHOT
+    AG --> EV
+    AG -.->|"loop, up to 50 steps"| DRV
+
+    EV --> LIVE
+    SHOT --> LIVE
+    AG --> TRAJ
+    AG --> MLOG
+    OBS -.->|"observation failed"| DEG
+    AG --> ELOG
+    AG --> TLOG
+    TRAJ --> EVAL
+
+    MLOG --> D1
+    TRAJ --> D2
+    LIVE --> D3
+
+    STEP["step budget exhausted<br/>→ STEP_LIMIT_EXCEEDED"]
+    AG --> STEP
+    STEP -->|"corrected by the PLANNER,<br/>not inside the executor"| ELOG
+
+    classDef input fill:#FFE8CC,stroke:#E8892B,stroke-width:2px,color:#7A4A10
+    classDef agent fill:#E5DBFF,stroke:#6741D9,stroke-width:2px,color:#3B2185
+    classDef device fill:#E9ECEF,stroke:#868E96,stroke-width:2px,color:#343A40
+    classDef svc fill:#D0EBFF,stroke:#1971C2,stroke-width:2px,color:#0B4A87
+    classDef know fill:#D3F9D8,stroke:#2F9E44,stroke-width:2px,color:#1B5E27
+    classDef warn fill:#FFE3E3,stroke:#E03131,stroke-width:2px,color:#8B1A1A
+    class G input
+    class AG,DRV,OBS,SHOT,EV agent
+    class PORTAL,APP device
+    class LIVE,ELOG,TLOG,EVAL svc
+    class TRAJ,MLOG,DEG,D1,D2,D3 know
+    class STEP warn
+```
+
+## 17. State identity — is this a screen we have seen?
+
+Every observation asks one question before anything else can be learned: is this
+a screen already in the app model, or a new one? Getting it wrong in either
+direction is expensive. Merge too eagerly and the map collapses; split too
+eagerly and one wizard becomes nine states and the navigation model is useless.
+
+Five stages, cheapest first. Each was added in response to a specific way the
+previous one failed, and every threshold is a configurable setting.
+
+```mermaid
+flowchart TB
+    OBSV["observation<br/><i>key_set = resource_id␟class␟desc␟clickable</i>"] --> S1
+
+    S1{"1 · exact signature<br/><i>package + activity + sorted keys + dialog</i>"}
+    S1 -->|match| SAME["KNOWN STATE<br/><i>increment visit_count, refresh last_seen</i>"]
+    S1 -->|no| S2
+
+    S2{"2 · structural Jaccard<br/>≥ STATE_MERGE_THRESHOLD (0.9)"}
+    S2 -->|match| SAME
+    S2 -->|no| S2B
+    W2["tolerates minor dynamic chrome<br/><i>counters, timestamps, list data</i>"]
+    S2 -.- W2
+
+    S2B{"2b · containment ≥ 0.95<br/><i>guards: ≥ 8 controls, size ratio ≤ 2.0</i>"}
+    S2B -->|match| SAME
+    S2B -->|no| S2C
+    W2B["a screen captured before its late-painting<br/>chrome is a strict SUBSET of the full screen,<br/>which Jaccard scores as different"]
+    S2B -.- W2B
+
+    S2C{"2c · skeleton containment ≥ 0.95<br/>with full containment ≥ 0.60<br/><i>skeleton = resource_id + class only</i>"}
+    S2C -->|match| SAME
+    S2C -->|no| S3
+    W2C["a content-description is a LABEL on a button<br/>but a VALUE on a form field, so filling a form<br/>rewrites the key set — one wizard produced nine states.<br/>The full-key floor keeps genuinely different screens apart."]
+    S2C -.- W2C
+
+    S3{"3 · perceptual hash<br/>Hamming ≤ PHASH_MATCH_DISTANCE (6)<br/><i>closest match, not first</i>"}
+    S3 -->|match| SAME
+    S3 -->|no| NEW["NEW STATE<br/><i>store screenshot + caption,<br/>record TRANSITIONS_TO edge</i>"]
+    W3["the only signal left when the accessibility tree<br/>is thin: Compose, games, WebView"]
+    S3 -.- W3
+
+    classDef input fill:#FFE8CC,stroke:#E8892B,stroke-width:2px,color:#7A4A10
+    classDef stage fill:#D0EBFF,stroke:#1971C2,stroke-width:2px,color:#0B4A87
+    classDef know fill:#D3F9D8,stroke:#2F9E44,stroke-width:2px,color:#1B5E27
+    classDef why fill:#F8F9FA,stroke:#ADB5BD,stroke-width:1.5px,color:#343A40
+    class OBSV input
+    class S1,S2,S2B,S2C,S3 stage
+    class SAME,NEW know
+    class W2,W2B,W2C,W3 why
+```
+
+> Thresholds are settings, not constants: `STATE_MERGE_THRESHOLD`,
+> `STATE_CONTAINMENT_THRESHOLD`, `STATE_MIN_CONTROLS_FOR_CONTAINMENT`,
+> `STATE_CONTAINMENT_MAX_RATIO`, `STATE_SKELETON_THRESHOLD`,
+> `STATE_SKELETON_MIN_FULL`, `PHASH_MATCH_DISTANCE`. They are tuned on one
+> application's states — evidence, not proof.

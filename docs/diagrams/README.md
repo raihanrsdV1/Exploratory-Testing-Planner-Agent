@@ -30,6 +30,8 @@ The renderer uses headless Google Chrome and a cached copy of `mermaid.min.js`
 | 13 | Why tools replaced retrieval sources | [`13-why-tools-replaced-retrieval-sources.png`](13-why-tools-replaced-retrieval-sources.png) |
 | 14 | The nine tools as an investigation | [`14-the-nine-tools-as-an-investigation.png`](14-the-nine-tools-as-an-investigation.png) |
 | 15 | Three rules that hold for every tool | [`15-three-rules-that-hold-for-every-tool.png`](15-three-rules-that-hold-for-every-tool.png) |
+| 16 | The executor, in detail | [`16-the-executor-in-detail.png`](16-the-executor-in-detail.png) |
+| 17 | State identity — is this a screen we have seen? | [`17-state-identity-is-this-a-screen-we-have-seen.png`](17-state-identity-is-this-a-screen-we-have-seen.png) |
 
 ## Using these elsewhere
 
