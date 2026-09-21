@@ -40,6 +40,9 @@ ERROR_BLURB = {
         "did not do what the test expected. These are the results that describe the app."),
     "NAVIGATION_FAILURE": ("Agent limitation", "The agent could not reach the screen the "
         "test targeted."),
+    "PRECONDITION_NOT_MET": ("Environment", "The state the test assumed was not present on "
+        "the device. Neither an app defect nor an agent limitation."),
+    "CRASH": ("App evidence", "The application terminated unexpectedly."),
 }
 e = lambda s: html.escape(str(s if s is not None else ""))
 
@@ -90,7 +93,7 @@ def bar(pct, cls):
     return f'<div class="bar"><span class="{cls}" style="width:{pct:.1f}%"></span></div>'
 
 
-def build(runs, findings, cov, states, project, since):
+def build(runs, findings, cov, states, project, since, app_desc=""):
     n = len(runs)
     npass = sum(1 for r in runs if r["verdict"] == "pass")
     nfail = n - npass
@@ -158,8 +161,7 @@ footer {{ margin-top: 26px; padding-top: 9px; border-top: 1px solid #e8eef2;
 
     w(f"""<div class="cover"><h1>Exploratory QA Test-Case Planner Agent</h1>
 <p class="sub">Autonomous Android testing campaign — full results</p>
-<p style="margin-top:20px"><b>Application under test:</b> {e(project)} (Bengali-language
-Android livestock-management app)<br>
+<p style="margin-top:20px"><b>Application under test:</b> {e(project)}{(' — ' + e(app_desc)) if app_desc else ''}<br>
 <b>Campaign:</b> {n} autonomous test cases, generated and executed without human input<br>
 <b>Executed:</b> {since[:10]} &nbsp;·&nbsp; <b>Report generated:</b>
 {datetime.now().strftime('%d %b %Y')}</p></div>""")
@@ -181,8 +183,9 @@ checkpoint and the app did something unexpected. The other <b>{agentlim}</b> are
 running out of its own interaction budget or failing to navigate, which says nothing about
 the app's quality. The honest headline is <b>{assertion} app-level failures across {n}
 tests</b>, not a {nfail*100//n}% defect rate.</div>
-<p>The campaign produced <b>{len(findings)} findings</b>, of which {app_findings} describe
-the application and {kinds.get('AGENT_DIFFICULTY', 0)} record our own agent's difficulties.
+<p>The campaign produced <b>{len(findings)} findings</b>: {app_findings} describe the
+application, {kinds.get('AGENT_DIFFICULTY', 0)} record our own agent's difficulties, and
+{kinds.get('UNVERIFIED', 0)} are questions a run raised but could not settle either way.
 It covered <b>{cov['covered']}/{cov['total']} requirements</b>
 ({cov['covered']*100//cov['total']}%) across <b>{len(areas)} feature areas</b>, and mapped
 <b>{states} distinct UI states</b>. Total device time was {total_h:.1f} hours, median
@@ -317,7 +320,7 @@ and navigation reliability, not the app, cap the usable yield of a campaign.</td
 <tr><td><b>Findings are LLM-authored</b></td><td>A SUSPECTED_DEFECT is a model's judgement
 from a device trajectory, not a verified bug. The "suspected" is load-bearing and each one
 still needs a human.</td></tr>
-<tr><td><b>Single app, single run</b></td><td>One Bengali Android app, one campaign, no
+<tr><td><b>Single app, single run</b></td><td>One application, one campaign, no
 repetition. Nothing here establishes variance between runs.</td></tr>
 <tr><td><b>Provider variance</b></td><td>Inference is routed through OpenRouter, where
 different providers served the same model with order-of-magnitude differences in latency
@@ -336,6 +339,8 @@ def main():
     ap.add_argument("--project", default="shobarkhamar")
     ap.add_argument("--since", required=True, help="ISO instant the campaign began")
     ap.add_argument("--out", default="reports/campaign_report.html")
+    ap.add_argument("--app-desc", default="",
+                    help="one-line description of the app under test, for the cover")
     a = ap.parse_args()
     load_dotenv(".env")
     driver = GraphDatabase.driver(os.getenv("NEO4J_URI"),
@@ -347,7 +352,7 @@ def main():
         sys.exit(f"No executions at or after {a.since} for project {a.project}")
     os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as fh:
-        fh.write(build(runs, findings, cov, states, a.project, a.since))
+        fh.write(build(runs, findings, cov, states, a.project, a.since, a.app_desc))
     print(f"{a.out}  ({len(runs)} executions, {len(findings)} findings)")
 
 

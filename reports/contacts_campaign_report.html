@@ -1,0 +1,625 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Exploratory QA Agent — Campaign Report</title><style>
+@page { size: A4; margin: 16mm 14mm; }
+* { box-sizing: border-box; }
+body { font: 10.5pt/1.5 "Helvetica Neue", Helvetica, Arial, sans-serif; color: #17303d;
+  margin: 0; background: #fff; }
+h1 { font-size: 25pt; margin: 0 0 6px; letter-spacing: -.5px; }
+h2 { font-size: 15pt; margin: 26px 0 10px; padding-bottom: 5px;
+  border-bottom: 2px solid #0f7ea8; color: #0b5f7f; break-after: avoid; }
+h3 { font-size: 11.5pt; margin: 18px 0 7px; color: #0b5f7f; break-after: avoid; }
+p { margin: 0 0 9px; }
+table { width: 100%; border-collapse: collapse; margin: 9px 0 14px; font-size: 9pt; }
+th { background: #eef6fa; text-align: left; padding: 6px 7px; border-bottom: 2px solid #cfe3ee;
+  font-weight: 600; color: #0b5f7f; }
+td { padding: 5px 7px; border-bottom: 1px solid #e8eef2; vertical-align: top; }
+tr { break-inside: avoid; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cover { background: linear-gradient(140deg,#0b5f7f,#0f7ea8 55%,#0f9d76); color:#fff;
+  padding: 30mm 16mm 20mm; margin: -16mm -14mm 22px; }
+.cover p { opacity: .93; }
+.sub { font-size: 13pt; font-weight: 300; }
+.kpis { display: flex; gap: 9px; margin: 14px 0 18px; }
+.kpi { flex: 1; border: 1px solid #d6e6ee; border-top: 3px solid #0f7ea8; border-radius: 4px;
+  padding: 9px 11px; background: #fbfdfe; }
+.kpi b { display: block; font-size: 19pt; color: #0b5f7f; line-height: 1.15; }
+.kpi span { font-size: 8pt; color: #5b7383; text-transform: uppercase; letter-spacing: .4px; }
+.pass { color: #0f9d76; font-weight: 600; } .fail { color: #c0392b; font-weight: 600; }
+.bar { background: #eaf1f5; border-radius: 3px; height: 9px; width: 100%; overflow: hidden; }
+.bar span { display: block; height: 100%; }
+.bpass { background: #0f9d76; } .bfail { background: #d9704f; } .bneutral { background: #0f7ea8; }
+.note { background: #f4fbf8; border-left: 3px solid #0f9d76; padding: 9px 12px; margin: 12px 0;
+  font-size: 9.5pt; }
+.warn { background: #fff8f1; border-left: 3px solid #d9843f; padding: 9px 12px; margin: 12px 0;
+  font-size: 9.5pt; }
+.tag { display: inline-block; font-size: 7.5pt; padding: 1px 6px; border-radius: 9px;
+  background: #eef6fa; color: #0b5f7f; border: 1px solid #d6e6ee; white-space: nowrap; }
+.case { border: 1px solid #e0eaf0; border-left: 3px solid #0f9d76; border-radius: 4px;
+  padding: 9px 12px; margin: 0 0 9px; break-inside: avoid; }
+.case.f { border-left-color: #d9704f; }
+.case h4 { margin: 0 0 5px; font-size: 10pt; }
+.case .meta { font-size: 8pt; color: #5b7383; margin: 0 0 6px; }
+.case .why { font-size: 9pt; margin: 5px 0 0; }
+.case .why b { color: #0b5f7f; }
+.mono { font-family: "SF Mono", Menlo, monospace; font-size: 8pt; }
+footer { margin-top: 26px; padding-top: 9px; border-top: 1px solid #e8eef2;
+  font-size: 8pt; color: #7b8f9c; }
+.brk { break-before: page; }
+</style></head><body><div class="cover"><h1>Exploratory QA Test-Case Planner Agent</h1>
+<p class="sub">Autonomous Android testing campaign — full results</p>
+<p style="margin-top:20px"><b>Application under test:</b> contacts — Google Contacts 4.86.23, tested against a 141-requirement independent specification<br>
+<b>Campaign:</b> 50 autonomous test cases, generated and executed without human input<br>
+<b>Executed:</b> 2026-09-20 &nbsp;·&nbsp; <b>Report generated:</b>
+21 Sep 2026</p></div><h2>1 · Executive summary</h2>
+<p>An LLM-driven agent designed 50 exploratory test cases for an Android app it had
+never seen before, ran each one on a real device, and wrote what it learned into a
+knowledge graph that shaped the next test. No human wrote a test case, a selector, or a
+script.</p>
+<div class="kpis">
+<div class="kpi"><b>50</b><span>Tests executed</span></div>
+<div class="kpi"><b class="pass">20</b><span>Passed (40%)</span></div>
+<div class="kpi"><b class="fail">30</b><span>Failed (60%)</span></div>
+<div class="kpi"><b>125</b><span>Findings about the app</span></div>
+</div>
+<div class="warn"><b>Read the pass rate carefully.</b> Of the 30 failures, only
+<b>19</b> are statements about the application — cases where the agent reached its
+checkpoint and the app did something unexpected. The other <b>10</b> are our agent
+running out of its own interaction budget or failing to navigate, which says nothing about
+the app's quality. The honest headline is <b>19 app-level failures across 50
+tests</b>, not a 60% defect rate.</div>
+<p>The campaign produced <b>198 findings</b>: 125 describe the
+application, 42 record our own agent's difficulties, and
+31 are questions a run raised but could not settle either way.
+It covered <b>55/141 requirements</b>
+(39%) across <b>35 feature areas</b>, and mapped
+<b>60 distinct UI states</b>. Total device time was 6.2 hours, median
+346s per test.</p><h2>2 · How the system works</h2>
+<p>Three LLM agents share one Neo4j knowledge graph. Each test makes the graph a little
+richer, so the next test is proposed from better facts.</p>
+<table><tr><th style="width:17%">Agent</th><th style="width:36%">Job</th><th>What it reads and writes</th></tr>
+<tr><td><b>Planner</b></td><td>Decides what to test next and writes the test case</td>
+<td>Calls tools over the graph — untested requirements, screens already mapped, findings
+so far, open questions, coverage gaps — then proposes a test. A validation gate rejects
+proposals that duplicate earlier work or target screens that do not exist.</td></tr>
+<tr><td><b>Executor</b></td><td>Drives the real device</td>
+<td>Receives the test case in plain language and interacts with the live app, with a
+budget of 50 steps. Emits a step-by-step trajectory.</td></tr>
+<tr><td><b>Investigator</b></td><td>Turns the trajectory into knowledge</td>
+<td>Reads the trajectory and writes <i>findings</i> — typed, deduplicated claims about the
+app — back into the graph, and marks earlier open questions resolved when a run settles
+them.</td></tr></table>
+<p>Nothing is carried in conversation history. Every planner call is stateless and rebuilt
+from the graph, so "learning" means the graph grew — not that the model remembers.</p><h2 class="brk">3 · Results</h2><h3>3.1 Outcome</h3>
+<table><tr><th>Verdict</th><th class="num">Tests</th><th class="num">Share</th><th style="width:44%"></th></tr>
+<tr><td><span class="pass">Passed</span></td><td class="num">20</td>
+<td class="num">40%</td><td><div class="bar"><span class="bpass" style="width:40.0%"></span></div></td></tr>
+<tr><td><span class="fail">Failed</span></td><td class="num">30</td>
+<td class="num">60%</td><td><div class="bar"><span class="bfail" style="width:60.0%"></span></div></td></tr></table>
+<h3>3.2 Why tests failed — and what each reason means</h3>
+<table><tr><th style="width:24%">Reason</th><th class="num">Count</th>
+<th style="width:17%">Tells us about</th><th>Interpretation</th></tr><tr><td class="mono">ASSERTION_FAILURE</td><td class="num">19</td>
+<td style="color:#0b5f7f"><b>App evidence</b></td><td>The agent reached its checkpoint and the app did not do what the test expected. These are the results that describe the app.</td></tr><tr><td class="mono">NAVIGATION_FAILURE</td><td class="num">5</td>
+<td style="color:#8a6d3b"><b>Agent limitation</b></td><td>The agent could not reach the screen the test targeted.</td></tr><tr><td class="mono">STEP_LIMIT_EXCEEDED</td><td class="num">5</td>
+<td style="color:#8a6d3b"><b>Agent limitation</b></td><td>The executor exhausted its interaction budget before it could assert. Not evidence of an app defect.</td></tr><tr><td class="mono">PRECONDITION_NOT_MET</td><td class="num">1</td>
+<td style="color:#8a6d3b"><b>Environment</b></td><td>The state the test assumed was not present on the device. Neither an app defect nor an agent limitation.</td></tr></table>
+<div class="note"><b>This split is the most important number in the report.</b> A testing
+agent that cannot finish its own test produces a failure that looks identical to a real
+defect unless you separate them. 19 of 30 failures are app evidence; the rest
+are our ceiling, and they are the clearest direction for future work.</div><h3>3.3 Coverage</h3>
+<table><tr><th>Dimension</th><th class="num">Covered</th><th class="num">Total</th>
+<th style="width:34%"></th></tr>
+<tr><td>Requirements exercised by at least one test</td><td class="num">55</td>
+<td class="num">141</td>
+<td><div class="bar"><span class="bneutral" style="width:39.0%"></span></div></td></tr>
+<tr><td>Feature areas reached</td><td class="num">35</td><td class="num">35</td>
+<td><div class="bar"><span class="bneutral" style="width:100.0%"></span></div></td></tr>
+<tr><td>Distinct UI states mapped</td><td class="num">60</td><td class="num">—</td><td></td></tr>
+</table>
+<h3>3.4 Spread across the app</h3>
+<p>An exploratory agent's failure mode is tunnelling — hammering one feature it already
+understands. Across 50 tests the agent touched <b>35 areas</b>, the largest
+taking 10% of the campaign.</p>
+<table><tr><th style="width:38%">Feature area</th><th class="num">Tests</th>
+<th class="num">Pass</th><th class="num">Fail</th><th style="width:26%"></th></tr><tr><td>duplicate_detection</td><td class="num">5</td><td class="num pass">2</td>
+<td class="num fail">3</td><td><div class="bar"><span class="bneutral" style="width:10.0%"></span></div></td></tr><tr><td>deletion_recovery</td><td class="num">5</td><td class="num pass">2</td>
+<td class="num fail">3</td><td><div class="bar"><span class="bneutral" style="width:10.0%"></span></div></td></tr><tr><td>contact_list_display</td><td class="num">3</td><td class="num pass">2</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:6.0%"></span></div></td></tr><tr><td>accessibility_labels</td><td class="num">2</td><td class="num pass">1</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:4.0%"></span></div></td></tr><tr><td>contact_creation</td><td class="num">2</td><td class="num pass">1</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:4.0%"></span></div></td></tr><tr><td>character_encoding</td><td class="num">2</td><td class="num pass">1</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:4.0%"></span></div></td></tr><tr><td>duplicate_resolution</td><td class="num">2</td><td class="num pass">0</td>
+<td class="num fail">2</td><td><div class="bar"><span class="bneutral" style="width:4.0%"></span></div></td></tr><tr><td>search</td><td class="num">2</td><td class="num pass">2</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:4.0%"></span></div></td></tr><tr><td>access_control</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>accessibility_behavior</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>async_operation_handling</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>search_security</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>contact_editing</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>edit_validation</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>contact_deletion</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>contact_details_management</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>import_contacts</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>search_clearing</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>search_input_validation</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>deletion_permanent</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>export_contacts</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>labels_creation</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>contact_list_sorting</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>navigation</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>labels_assignment</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>labels_deletion</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>contact_detail_management</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>organize_menu_stability</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>favourites_persistence</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>favourites_filtering</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>interoperability_email</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>search_results_display</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>state_management</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>contact_list_interaction</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr><tr><td>interoperability_messaging</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.0%"></span></div></td></tr></table><h2 class="brk">4 · What the agent learned — findings</h2>
+<p>A <i>finding</i> is a typed, deduplicated claim the investigator wrote into the graph.
+Findings are deduplicated semantically, so a repeat observation increments a counter rather
+than creating a new row. This campaign produced <b>198</b> of them.</p>
+<table><tr><th style="width:23%">Kind</th><th class="num">Count</th><th>What it means</th>
+<th style="width:17%"></th></tr><tr><td class="mono"><b>SUSPECTED_DEFECT</b></td><td class="num">26</td>
+<td>App behaved in a way that looks wrong. Needs a human to confirm.</td><td><div class="bar"><span class="bneutral" style="width:47.3%"></span></div></td></tr><tr><td class="mono"><b>SPEC_VIOLATION</b></td><td class="num">15</td>
+<td>App contradicts a written requirement in the SRS.</td><td><div class="bar"><span class="bneutral" style="width:27.3%"></span></div></td></tr><tr><td class="mono"><b>SPEC_GAP</b></td><td class="num">2</td>
+<td>The SRS does not say what should happen here.</td><td><div class="bar"><span class="bneutral" style="width:3.6%"></span></div></td></tr><tr><td class="mono"><b>UNEXPECTED_BEHAVIOUR</b></td><td class="num">12</td>
+<td>Surprising, but not clearly a defect.</td><td><div class="bar"><span class="bneutral" style="width:21.8%"></span></div></td></tr><tr><td class="mono"><b>CONFIRMED_BEHAVIOUR</b></td><td class="num">55</td>
+<td>App worked as expected — evidence the feature is sound.</td><td><div class="bar"><span class="bneutral" style="width:100.0%"></span></div></td></tr><tr><td class="mono"><b>CONTROL_DISCOVERED</b></td><td class="num">15</td>
+<td>A UI control the agent had not previously mapped.</td><td><div class="bar"><span class="bneutral" style="width:27.3%"></span></div></td></tr><tr><td class="mono"><b>UNVERIFIED</b></td><td class="num">31</td>
+<td>The run could not settle the question either way.</td><td><div class="bar"><span class="bneutral" style="width:56.4%"></span></div></td></tr><tr><td class="mono"><b>AGENT_DIFFICULTY</b></td><td class="num">42</td>
+<td>Our testing agent struggled. Says nothing about the app.</td><td><div class="bar"><span class="bneutral" style="width:76.4%"></span></div></td></tr></table>
+<p><b>Lifecycle.</b> Findings that pose a question start <span class="mono">open</span> and
+are closed when a later run settles them — after three inconclusive attempts they are marked
+<span class="mono">inconclusive</span> rather than retried forever. Status now:
+<b>91</b> resolved, <b>65</b> open, <b>42</b> n/a.
+<span class="mono">n/a</span> covers kinds that are not questions, such as
+AGENT_DIFFICULTY.</p><h3>4.1 SUSPECTED_DEFECT — all 26</h3>
+<p>App behaved in a way that looks wrong. Needs a human to confirm.</p>
+<table><tr><th style="width:44%">Claim</th><th style="width:15%">Screen</th>
+<th class="num">Sev</th><th class="num">Seen</th><th>Evidence</th></tr><tr><td>A contact saved with a whitespace-only name does not appear anywhere in the Contact List despite a success toast, suggesting possible persistence or display inconsistency.</td><td>Contact List</td>
+<td class="num">medium</td><td class="num">6</td>
+<td style="font-size:8pt;color:#5b7383">Steps 7-11: after save toast, agent navigated to Contact List and performed 4 swipes (top and bottom); only &#x27;Alice&#x27;/&#x27;Alice Smith&#x27; and B/C sections visible; whitespace contact not…</td></tr><tr><td>Import gives only a transient &#x27;will be imported shortly&#x27; toast with no completion confirmation or error reporting; the agent had to manually verify results on the Contact List to learn the outcome.</td><td>Organize</td>
+<td class="num">low</td><td class="num">4</td>
+<td style="font-size:8pt;color:#5b7383">steps 20-22: after tapping Import, only toast &#x27;contacts.vcf will be imported shortly.&#x27; appeared; step 22&#x27;s wait produced no completion feedback; agent had to navigate to Contact…</td></tr><tr><td>No search entry point is reachable from the Contact List top bar: clicking the Button at (673,5,762,94), &#x27;View labels&#x27;, &#x27;Show list filters&#x27;, &#x27;All contacts&#x27;, and swiping down all failed to open search.</td><td>Contact List</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 1-14, 19-21: ~10 clicks on element 15 / coordinates (717,50), plus clicks on &#x27;All contacts&#x27;, &#x27;View labels&#x27;, &#x27;Show list filters&#x27;, hamburger, and a swipe-down, none opened a…</td></tr><tr><td>A contact saved with an emoji-prefixed display name (&#x27;👋 Müller&#x27;) is not visible anywhere in the Contact List after scrolling through all sections (A through &#x27;#&#x27;), despite a confirmed save toast.</td><td>Contact List</td>
+<td class="num">high</td><td class="num">2</td>
+<td style="font-size:8pt;color:#5b7383">steps 5-9, 31-36: repeated full scrolls through sections B, C, D, E, J, K, N, S, T and &#x27;#&#x27;; contact never appeared. Step 4 confirmed save via toast. Step 6: the Contact List…</td></tr><tr><td>Typed text does not persist in the &#x27;Search contacts&#x27; EditText: after clicking the field and typing (&#x27;👋 Müller&#x27; or &#x27;Müller&#x27;), the field still shows the placeholder with no text and no error.</td><td>Contact List</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 22-29: clicked &#x27;Search contacts&#x27; (index 6) and typed &#x27;👋 Müller&#x27; then &#x27;Müller&#x27; three times; each time the field remained empty with placeholder &#x27;Search contacts&#x27; visible.</td></tr><tr><td>Contact &#x27;123 Doe&#x27; has a malformed phone number &#x27;+1+1 555-123-4567&#x27; (doubled country-code prefix) stored and displayed on the detail screen, suggesting a data-quality defect possibly from import.</td><td>Contact Detail Screen</td>
+<td class="num">medium</td><td class="num">2</td>
+<td style="font-size:8pt;color:#5b7383">steps 2 and 4: baseline phone shown as &#x27;+1+1 555-123-4567&#x27; on detail screen and in the edit screen&#x27;s Mobile phone EditText. steps 31, 33, 35: contact detail consistently shows…</td></tr><tr><td>Multiple duplicate &#x27;TestUser&#x27; contacts (with the same invalid email) now exist in the Contact List from repeated saves across runs; the app creates duplicates silently on manual re-save of identical contact data.</td><td>Contact List</td>
+<td class="num">medium</td><td class="num">7</td>
+<td style="font-size:8pt;color:#5b7383">step 15: after scrolling up, the agent observed multiple &#x27;TestUser&#x27; contacts from previous failed tests; steps 2-3 and 12-13 each saved another identical contact without any…</td></tr><tr><td>Saving a new contact with first name, last name, company, phone, email and job title filled in persists only the first name and a corrupted phone (&#x27;+1+1 123&#x27;); last name, company, email and job title are silently lost.</td><td>Add contact photo</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 9-23: agent filled Alice/Smith/OldCorp/phone/5550001111/alice@old.com/Manager and clicked Save. Steps 26-28: opened the saved contact and found only &#x27;Alice&#x27; with phone…</td></tr><tr><td>The phone field prepends &#x27;+1&#x27; to typed input producing &#x27;+1+1 123&#x27;, corrupting the stored number instead of composing a single valid number.</td><td>Add contact photo</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 14-15: phone field already showed &#x27;+1&#x27;; agent typed &#x27;5550001111&#x27;. Step 27: saved contact displayed phone &#x27;+1+1 123&#x27;.</td></tr><tr><td>In the edit form, tapping &#x27;Job title&#x27; in the &#x27;Choose fields to add&#x27; dialog adds a Notes field that receives the typed text instead of a Title field; text typed as &#x27;Manager&#x27; landed in Notes while Title stayed empty.</td><td>Add contact photo</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 46-48: agent clicked &#x27;Job title&#x27; in the dialog, then typed &#x27;Manager&#x27;; step 48 thought confirms &#x27;Manager&#x27; was typed into the Notes field and the Title field was empty.</td></tr><tr><td>The delete confirmation dialog states &#x27;This contact will be permanently deleted from your device&#x27;, indicating no recoverable deletion path exists in this app build.</td><td>Contact List #10</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 19: dialog text read &#x27;This contact will be permanently deleted from your device&#x27;; agent cancelled, then re-deleted (steps 20-21) and no recovery area was found anywhere…</td></tr><tr><td>Selecting &#x27;contacts.vcf&#x27; in the file picker opened via Organize &gt; &#x27;Import from file&#x27; raises an export-style &#x27;Choose where to save contacts&#x27; dialog instead of importing, reproducibly (3 attempts).</td><td>Organize</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 26-27, 31-32, 38-39, 41: each &#x27;Import from file&#x27; click opened DocumentsUI; clicking contacts.vcf each time showed &#x27;Choose where to save contacts&#x27; (an export dialog), not an…</td></tr><tr><td>The Contact List appears to resist scroll-to-top: repeated upward swipes (duration 1.0-3.0s, some ~2000px) never moved the view past the &#x27;T&#x27; section, so alphabetical jump or a working top anchor may be needed.</td><td>Contact List</td>
+<td class="num">low</td><td class="num">4</td>
+<td style="font-size:8pt;color:#5b7383">steps 9-19: eight consecutive swipe-up gestures on the contact list, each reporting the list still starting at &#x27;T&#x27;. steps 14, 40: index-bar clicks at (1051,1167) left view in…</td></tr><tr><td>A whitespace-only search query (&#x27; &#x27;) yields a completely blank results area with no explicit &#x27;no contacts found for query&#x27; empty-state message, though the full contact list is correctly not displayed.</td><td>Contact List</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 11-13: field contains &#x27; &#x27;, results area completely empty, wait 1.0s produced no message; agent completed with success=False noting the missing empty-state message.</td></tr><tr><td>A contact save can fail silently: the first creation attempt of &#x27;PermaDelete_Test&#x27; showed no error, yet the contact was absent from search results afterwards, forcing the agent to re-create it; the save eventually succeeded on the third…</td><td>Add contact photo</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 1-6 created and saved; steps 13-14 and 24-25 search for &#x27;PermaDelete_Test&#x27; returned no results; step 32 third save attempt succeeded.</td></tr><tr><td>Duplicate detection is effectively absent: no match path (manual re-save of identical data, exact name+phone re-creation after deletion, case-variant names, or vCard import with identical phone numbers) ever triggers a duplicate…</td><td>Contact List</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">generalised from 4 findings during TC-025 Multiple duplicate &#x27;TestUser&#x27; contacts (with the same invalid email) now exist in the Contact List from repeated saves across runs; the…</td></tr><tr><td>A &#x27;Recent contacts&#x27; cache still shows the deleted contact &#x27;PermaDelete_Test&#x27; after permanent deletion, even though the live list and search return zero results.</td><td>Contact List</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 15: after deletion, the search screen showed &#x27;PermaDelete_Test&#x27; under &#x27;Recent contacts&#x27; (cached), while search results were empty.</td></tr><tr><td>The &#x27;Choose details to share&#x27; screen defaults to only Name, Phone and Email checked; Title/Company and Notes are unchecked, so a default share would silently omit those fields from the .vcf.</td><td>Contact Detail Screen &gt;…</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 40-41: agent opened &#x27;Choose details to share&#x27; and observed Name, Phone, Email checked but Title/Company and Notes unchecked, requiring manual &#x27;Select all&#x27; before sharing.</td></tr><tr><td>Sharing the contact to Gmail opens the Gmail welcome/sign-in screen instead of a compose window with the .vcf attached, so the Gmail share path does not complete for an un-signed-in account without any in-app explanation.</td><td>Contact Detail Screen &gt;…</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 26-27: selecting Gmail in the chooser &#x27;opened unexpectedly&#x27; to a Gmail welcome screen with no compose/attachment; steps 37-38 reproduced this on a second attempt.</td></tr><tr><td>Clicking the three-dot overflow menu (&#x27;…&#x27;) on the Contact List produced no visible menu or any other UI response.</td><td>Contact List</td>
+<td class="num">medium</td><td class="num">2</td>
+<td style="font-size:8pt;color:#5b7383">step 8: clicked Text &#x27;…&#x27; at (96,520); step 9 thought states &#x27;The three-dot menu click didn&#x27;t open anything visible&#x27;. steps 2-4, 8-9, 11-12, 15, 17: click(index 82),…</td></tr><tr><td>The contact list row for &#x27;👋 Müller&#x27; shows no badge, color coding, or other visual indication of the assigned &#x27;Custom Label&#x27; association.</td><td>Contact List</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 23, 26-27, 31, 33, 37, 41, 45, 49: agent repeatedly returned to the Contact List after confirming the label on the detail screen and observed no label indicator on the row…</td></tr><tr><td>Pressing the system BACK button on the Organize screen terminates the Contacts app and sends the user to the Files app (com.google.android.documentsui, Downloads) instead of returning focus to the Contact List; the app must be relaunched.</td><td>Organize</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 5-7: baseline Contact List shown (step 4), navigated to Organize via bottom tab (step 5), pressed BACK (step 6); step 7 records app terminated into Files app Downloads,…</td></tr><tr><td>Placeholder-level hypothesis only: the eight Contact List findings span distinct subsystems (persistence/display of saved contacts, search input handling, scroll anchoring, empty-state UX, duplicate detection, cache invalidation, and the…</td><td>Contact List</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">generalised from 8 findings during TC-040 A contact saved with a whitespace-only name does not appear anywhere in the Contact List despite a success toast, suggesting possible…</td></tr><tr><td>The &#x27;Show list filters&#x27; button on the Contact List does not open any filter menu when clicked, blocking access to the Favourites filter entirely.</td><td>Contact List</td>
+<td class="num">high</td><td class="num">2</td>
+<td style="font-size:8pt;color:#5b7383">steps 14, 17, 20, 23, 26, 30, 34, 37, 44, 50: button clicked via index and at exact coordinates (click_at 823,49-50) with no menu ever appearing; also &#x27;All contacts&#x27; text tapped…</td></tr><tr><td>The Contact List&#x27;s search/filter entry points (search bar, &#x27;Show list filters&#x27;, &#x27;View labels&#x27;, top-bar button) do not open any UI when activated, so every objective that depends on search, filtering, or label/deletion management is…</td><td>Contact List</td>
+<td class="num">high</td><td class="num">2</td>
+<td style="font-size:8pt;color:#5b7383">generalised from 6 findings during TC-045 Whether the saved &#x27;👋 Müller&#x27; contact renders identically in the Contact List (not just the detail screen) was never verified, because…</td></tr><tr><td>A contact edit that appeared to save successfully (phone +1 555-123-4567 and test@example.com, action buttons enabled) did not persist: reopening DiscardTest shortly after showed &#x27;Add phone number&#x27;/&#x27;Add email&#x27; and all action buttons…</td><td>Contact Detail</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 2-8: fields typed and saved, step 8 shows active Call/Message buttons; step 9 BACK to Contact List; step 11: reopened detail shows no phone/email and grayed-out actions,…</td></tr></table><h3>4.2 SPEC_VIOLATION — all 15</h3>
+<p>App contradicts a written requirement in the SRS.</p>
+<table><tr><th style="width:44%">Claim</th><th style="width:15%">Screen</th>
+<th class="num">Sev</th><th class="num">Seen</th><th>Evidence</th></tr><tr><td>The app saves a contact whose display name is only whitespace (7 spaces) with no validation error, violating FR-VAL-02.</td><td>Add contact photo</td>
+<td class="num">high</td><td class="num">2</td>
+<td style="font-size:8pt;color:#5b7383">Steps 3-7: typed 7 spaces into First name, valid phone &#x27;+1 555-123-4567&#x27;, tapped Save; toast &#x27;+1 555-123-4567 saved&#x27; shown, no error message displayed. steps 7-9: first/last name…</td></tr><tr><td>No error message identifying the offending field is shown when a whitespace-only name is saved, violating FR-VAL-10.</td><td>Add contact photo</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 6-7: Save tapped; result was a success toast, not a field-specific validation error.</td></tr><tr><td>Importing a vCard whose email address exactly matches an existing contact completes silently: no duplicate resolution dialog is shown and no duplicate is created (FR-DUP-04 not implemented or not triggered for vCard import).</td><td>Organize</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 17-22: contacts.vcf containing &#x27;Existing User&#x27; (email test@example.com, set in steps 5-7) was imported to &#x27;Device only&#x27;; after tapping Import, only toast &#x27;contacts.vcf will…</td></tr><tr><td>Clickable contact row containers (for Contact A, Contact B, DiscardTest, Doe, Existing User, Jane, Jane Smith, John, JOHN) expose no accessibility label matching their visible text, violating FR-A11Y-01/FR-A11Y-02.</td><td>Contact List</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Step 1 analysis of UI state: rows at indices 30, 38, 43, 48, 53, 61, 69, 74, 79, 84, 89 are clickable Views with no label; TextViews inside contain names but containers expose…</td></tr><tr><td>Clickable avatar views on contact rows have no accessibility labels.</td><td>Contact List</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Step 1: avatar views (indices 27-28, 32-33, etc.) identified as clickable with no accessibility labels.</td></tr><tr><td>The app allows saving a contact with only a display name (&#x27;Test User&#x27;) and no phone or email; Save succeeds with a &#x27;Test User saved&#x27; toast and no validation error, violating FR-VAL-04 and FR-VAL-10.</td><td>Add contact photo</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Prior-run result carried in add_memory at step 1: save succeeded, toast &#x27;Test User saved&#x27;, no validation error shown. This run&#x27;s steps (1-50) never re-attempted the save, so…</td></tr><tr><td>Importing a vCard with phone numbers identical to existing contacts creates duplicate records silently; no duplicate resolution dialog with merge/keep options is shown (FR-DUP-04 violated).</td><td>Contact List</td>
+<td class="num">high</td><td class="num">3</td>
+<td style="font-size:8pt;color:#5b7383">steps 6-12: imported contacts.vcf via Organize &gt; Import from file; step 12 observed +1-555-123-4567 contacts grew from 2 to 4 and +11-234-567-890 from 2 to 4 with no dialog at…</td></tr><tr><td>The app saves a contact with the invalid email &#x27;user@@domain.com&#x27; (multiple &#x27;@&#x27; symbols) with no field-level error and shows a &#x27;TestUser saved&#x27; toast; save succeeds where it should be rejected.</td><td>Add contact photo</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 8-13: entered &#x27;TestUser&#x27; in First name, &#x27;user@@domain.com&#x27; in Email, clicked Save; detail screen showed contact with the invalid email and a &#x27;TestUser saved&#x27; toast, no…</td></tr><tr><td>Editing an existing contact with invalid email &#x27;user@@domain.com&#x27; and clicking Save also succeeds with no validation error, so the defect is reproducible from both Create and Edit flows.</td><td>Add contact photo</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 1-3: opened &#x27;Edit contact&#x27; for TestUser, clicked Save, save succeeded and navigated to detail screen with the invalid email, no field error shown.</td></tr><tr><td>No &#x27;Deleted Contacts&#x27;/&#x27;Trash&#x27;/&#x27;Recently deleted&#x27; section exists in the app: the Organize screen (Calling cards, Contact ringtones, Manage SIM, Import/Export, Blocked numbers, Settings) and Settings both lack the option, so FR-DEL-02…</td><td>Organize</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 12-14, 22-28: agent checked Organize three times and Settings twice after deletion; neither screen contains any deleted-contacts entry point.</td></tr><tr><td>Creating a contact whose name differs from an existing contact only by case (&#x27;alpha&#x27; vs &#x27;Alpha&#x27;) saves silently with no duplicate resolution dialog, violating FR-DUP-01.</td><td>Add contact photo</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 4-9: &#x27;Alpha&#x27; saved with phone +1 555-123-4567; steps 24-27: new contact &#x27;alpha&#x27; typed in First name, no phone/email, Save succeeded with no duplicate dialog; agent…</td></tr><tr><td>No &#x27;Recently Deleted&#x27;, trash, or contact-recovery section exists in the app; a confirmed deletion (&#x27;1 contact deleted&#x27; toast) is permanent with no way to restore the contact (FR-DEL-01/02/03 unfulfillable).</td><td>Organize</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 6-9: Organize menu shows only Calling cards, Contact ringtones, Manage SIM, Import from file, Export to file, Blocked numbers, Settings; Settings shows Your info, Accounts,…</td></tr><tr><td>Re-creating a contact with the exact same name (&#x27;PermaDelete_Test&#x27;) and phone (&#x27;+1 555-012-3456&#x27;) immediately after deletion succeeds silently (&#x27;PermaDelete_Test saved&#x27;) with no duplicate detection or rejection, violating FR-DEL-04&#x27;s…</td><td>Add contact photo</td>
+<td class="num">medium</td><td class="num">3</td>
+<td style="font-size:8pt;color:#5b7383">steps 40-46: FAB, same first name and phone typed, Save clicked; toast &#x27;PermaDelete_Test saved&#x27; with no duplicate dialog or error. steps 2-7: contact created with name…</td></tr><tr><td>A custom label assigned to a contact&#x27;s phone number is visible on the contact detail screen but the labels sheet shows the label with a count of 0 and filtering by it returns &#x27;No contacts with this label&#x27;, so label-to-contact association…</td><td>Contact List</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 16-22: label set via spinner &#x27;Custom&#x27; + dialog and saved; step 22 confirms &#x27;Custom Label&#x27; visible under phone on detail. Steps 28, 34-35, 38-39, 42-43, 46-47, 50: labels…</td></tr><tr><td>The contact editor&#x27;s Save performs no input validation in either the Create or Edit flow: whitespace/empty display names, contacts with no phone or email, and malformed emails (&#x27;user@@domain.com&#x27;) are all accepted with a success toast and…</td><td>Add contact photo</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">generalised from 5 findings during TC-033 The app saves a contact whose display name is only whitespace (7 spaces) with no validation error, violating FR-VAL-02. No error message…</td></tr></table><h3>4.3 SPEC_GAP — all 2</h3>
+<p>The SRS does not say what should happen here.</p>
+<table><tr><th style="width:44%">Claim</th><th style="width:15%">Screen</th>
+<th class="num">Sev</th><th class="num">Seen</th><th>Evidence</th></tr><tr><td>The discard-confirmation dialog offers &#x27;Save&#x27; and &#x27;Discard&#x27; rather than the spec&#x27;s &#x27;Cancel&#x27; and &#x27;Discard&#x27;; &#x27;Save&#x27; preserves input and keeps the user on the edit screen, functionally equivalent to &#x27;Cancel&#x27;.</td><td>Add contact photo</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 4: dialog buttons observed as &#x27;Save&#x27; (index 9) and &#x27;Discard&#x27; (index 12); no button labelled &#x27;Cancel&#x27; in the dialog.</td></tr><tr><td>No user-defined label management (view/edit/delete labels) is reachable from the Organize tab or Settings; only a &#x27;View labels&#x27; read-only sheet and the per-contact &#x27;Add to label&#x27; dialog were found, leaving no discovered path to delete a…</td><td>Organize</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 2-3: Settings shows Accounts/Import-Export/Block numbers/Settings/About with no Labels; step 1-6: Organize lacks a Labels option; step 6: Close sheet after viewing labels;…</td></tr></table><h3>4.4 UNEXPECTED_BEHAVIOUR — all 12</h3>
+<p>Surprising, but not clearly a defect.</p>
+<table><tr><th style="width:44%">Claim</th><th style="width:15%">Screen</th>
+<th class="num">Sev</th><th class="num">Seen</th><th>Evidence</th></tr><tr><td>The import dialog announced &#x27;Import 88 contacts&#x27; although the exported contacts.vcf was created by exporting a single contact, an unexplained count mismatch between export and import.</td><td>Import 88 contacts</td>
+<td class="num">medium</td><td class="num">3</td>
+<td style="font-size:8pt;color:#5b7383">steps 13-16: export of the Device account produced contacts.vcf via SAVE; step 20: import dialog shows &#x27;Import 88 contacts&#x27; for that file, far more than the one contact created…</td></tr><tr><td>A contact with no name and only the phone &#x27;+1-555-1234&#x27; is visible in the Contact List under the &#x27;#&#x27; section, showing nameless phone-only contacts are persisted and listed.</td><td>Contact List</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 28-29: contact with &#x27;+1-555-1234&#x27; and no name opened from list.</td></tr><tr><td>Long-pressing a contact row in the Contact List does not open any multi-select/delete mode; five long-presses on the same &#x27;Alice Smith&#x27; row produced no visible state change.</td><td>Contact List</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 17, 19, 22, 23, 25, 36: six long-presses on element 28 (&#x27;Alice Smith&#x27;); no selection mode, no toolbar, no dialog appeared after any of them.</td></tr><tr><td>The app shows &#x27;Sign in&#x27; at the top of Settings/Contact List, meaning no Google account is linked; the agent hypothesises the missing &#x27;Recently deleted&#x27; feature is account-gated, though this is unproven.</td><td>Organize</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 28: agent observed &#x27;Sign in&#x27; at top of Settings and inferred cloud-backed trash requires an account; no signed-in-state comparison was performed.</td></tr><tr><td>Duplicate detection is not triggered by a case-insensitive display-name match alone; this run settles that name-only similarity does not invoke the dialog, narrowing the open question about what criteria (e.g., phone match) are required.</td><td>Add contact photo</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 24-27: &#x27;alpha&#x27; with no phone/email saved with no dialog despite existing &#x27;Alpha&#x27;; phone-field match question (F-f902044f) remains untested here.</td></tr><tr><td>Assigning a custom label from the edit screen&#x27;s phone-label spinner opens a &#x27;Custom label name&#x27; dialog asking to type the label name, rather than listing already-created custom labels; the agent had to retype &#x27;Custom Label&#x27;, suggesting…</td><td>Add contact photo</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 16-21: clicking the phone label spinner and choosing &#x27;Custom&#x27; opened a &#x27;Custom label name&#x27; text dialog where &#x27;Custom Label&#x27; had to be retyped (steps 19-20) even though it…</td></tr><tr><td>Pressing BACK from the Organize tab exits the Contacts app entirely (landing in Files / home) rather than returning to the Contacts tab, forcing the agent to relaunch the app via home screen twice.</td><td>Organize</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 3-7 and 10-13: both BACK presses left the app (&#x27;exited the Contacts app into Files&#x27;), requiring open_app, HOME, and launcher-icon clicks to return.</td></tr><tr><td>The &#x27;#&#x27; section sits at the END of the Contact List (observed after the last letter section &#x27;T&#x27;), not at the top before &#x27;A&#x27;; the topmost section of the list is &#x27;A&#x27;.</td><td>Contact List</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 15-16: top of list shows only the &#x27;A&#x27; section; steps 17-30: swipes passed A, B, C, D, E, J, K, N, P, S, T; step 31: &#x27;#&#x27; header appears &#x27;at the bottom of the screen&#x27; after…</td></tr><tr><td>The contact form&#x27;s phone field shows a fixed &#x27;+1&#x27; prefix and appends typed text after it: typing &#x27;1-234-567-890&#x27; produced the saved number &#x27;+11-234-567-890&#x27;.</td><td>Add contact photo</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 7: focused phone field shows &#x27;+1&#x27; pre-filled; step 8: typed &#x27;1-234-567-890&#x27; (clear=False); steps 9-10 and 32-33: saved and listed number is &#x27;+11-234-567-890&#x27;.</td></tr><tr><td>Voice search is reachable only through the search compose view (opened via Organize&#x27;s &#x27;Search contacts&#x27; field), not from the Contact List&#x27;s own open_search_bar entry point, which the agent could not activate from the list.</td><td>Organize</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 41-43: agent reached &#x27;Start voice search&#x27; only after opening Organize and tapping &#x27;Search contacts&#x27;; earlier attempts via Contact List top-bar/search entries (steps 4,10)…</td></tr><tr><td>A pre-existing contact named &#x27;Duplicate Test&#x27; (with a space) is listed separately from &#x27;DuplicateTest&#x27; entries, showing the list distinguishes names by whitespace rather than merging near-identical names.</td><td>Contact List</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 17: D section shows three &#x27;DuplicateTest&#x27; rows plus a separate &#x27;Duplicate Test&#x27; row.</td></tr><tr><td>After the Call action, BACK landed the agent on the Contact List rather than the Contact Detail it was launched from, requiring re-navigation to the contact.</td><td>Contact List</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 8: Call from DiscardTest detail; step 9: single BACK; step 10 thought: &#x27;I&#x27;m back on the Contact List&#x27; and had to re-open the contact (step 10 click) instead of returning to…</td></tr></table><h2 class="brk">5 · Every test case</h2>
+<p>All 50 tests in execution order. "Why" quotes the agent's own reasoning about what
+happened on the device.</p><div class="case f">
+<h4>1. TC-001 — Validate rejection of whitespace-only display name with preserved input state</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area access_control · 13 device steps
+ · 241s · 19:19
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-VAL-02</span> <span class="tag">FR-VAL-10</span> <span class="tag">FR-VAL-11</span></p><p class="why"><b>Why it failed:</b> FR-VAL-02 validation NOT implemented. The app accepted a whitespace-only display name (7 spaces) without displaying any error message. The save appeared to succeed (toast: &quot;+1 555-123-4567 saved&quot;), but the contact is not visible in the contacts list. The app failed to: (1) reject the save due to whitespace-only name, (2) display an error message identifying the field at fault (FR-VAL-10), and (3) preserve form data…</p><p class="why"><b>Agent's account:</b> Objective refuted. The app accepted a whitespace-only display name (7 spaces) with a valid phone number and saved it successfully with no validation error, violating FR-VAL-02, FR-VAL-10, and FR-VAL-11. The saved contact was not visible in the Contact List afterwards, raising a possible persistence/display issue. The run used the Create Contact form (reported as &#x27;Add contact photo&#x27; screen), not the assumed screen name. Screen hint was wrong; actually…</p></div><div class="case f">
+<h4>2. TC-002 — Verify duplicate detection triggers when importing a vCard with an email matching an existing contact&#x27;s email</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area duplicate_detection · 24 device steps
+ · 311s · 19:25
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-DUP-03</span> <span class="tag">FR-EXP-06</span></p><p class="why"><b>Why it failed:</b> The duplicate resolution dialog (FR-DUP-04) was NOT triggered when importing a vCard containing an email address identical to an existing contact. After importing contacts.vcf (which contained &quot;Existing User&quot; with email test@example.com), the app completed the import silently without displaying any duplicate comparison UI. The contact list showed only one &quot;Existing User&quot; entry, and the contact details remained…</p><p class="why"><b>Agent's account:</b> Objective refuted. The run established a clean baseline (contact &#x27;Existing User&#x27; with email test@example.com), exported it to contacts.vcf, and re-imported it. The import completed silently with no duplicate resolution dialog (FR-DUP-04), no duplicate entry, and no modification of the existing contact. The requirement was not met; additionally, the import dialog claimed 88 contacts despite the export containing one contact, which is unexplained.…</p></div><div class="case f">
+<h4>3. TC-003 — Verify accessibility labels match visible text for controls on the Contact List when populated with test data</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area accessibility_labels · 4 device steps
+ · 160s · 19:29
+  · <span class="mono">NAVIGATION_FAILURE</span>
+  · Agent limitation <span class="tag">FR-A11Y-01</span> <span class="tag">FR-A11Y-02</span></p><p class="why"><b>Why it failed:</b> Accessibility compliance check FAILED. The Contact List screen has multiple interactive elements without proper accessibility labels:  1. Contact row containers (e.g., rows for &quot;Contact A&quot;, &quot;Contact B&quot;, &quot;DiscardTest&quot;, &quot;Doe&quot;, &quot;Existing User&quot;, &quot;Jane&quot;, &quot;Jane Smith&quot;, &quot;John&quot;, &quot;JOHN&quot;) are clickable Views but lack accessibility labels. While TextViews display the contact names, the row containers themselves don&#x27;t expose…</p><p class="why"><b>Agent's account:</b> Objective refuted. The run audited accessibility labels on the Contact List and found contact row containers and avatar views lack labels matching their visible text, failing FR-A11Y-01/FR-A11Y-02. FAB, nav tabs, and filter buttons were correctly labelled. Navigation controls like app_bar_compose_view and search were not explicitly assessed for labels. Findings: 1 confirmed_behaviour, 2 spec_violation, 1 unverified. (4 new, 0 reinforced)</p></div><div class="case f">
+<h4>4. TC-004 — Verify contact save rejection when no phone or email is provided despite valid name</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area contact_creation · 5 device steps
+ · 813s · 19:43
+  · <span class="mono">NAVIGATION_FAILURE</span>
+  · Agent limitation </p><p class="why"><b>Why it failed:</b> Validation failed. The Contacts app (com.google.android.contacts) allowed saving a contact with only a display name (&quot;Test User&quot;) and no phone number or email address. The save succeeded — the app displayed &quot;Test User saved&quot; and navigated to the contact detail screen. No validation error message was shown, and the Save button was not disabled. This does NOT comply with FR-VAL-04 and FR-VAL-10, which require the app…</p><p class="why"><b>Agent's account:</b> Objective refuted. This run did not itself execute a fresh save-without-contact-info attempt: the agent spent nearly all steps looping on the Contact List toolbar and &#x27;Scroll to Contact settings&#x27; without reaching the Create Contact form. The refutation rests on the prior run&#x27;s recorded result (save of &#x27;Test User&#x27; with no phone/email succeeded, no validation error), which this run merely carried forward in memory. Screen hint was wrong; actually used:…</p></div><div class="case f">
+<h4>5. TC-005 — Verify accessibility focus indicators and interaction feedback on contact list rows during keyboard navigation</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area accessibility_behavior · 35 device steps
+ · 732s · 19:55
+  · <span class="mono">NAVIGATION_FAILURE</span>
+  · Agent limitation <span class="tag">FR-A11Y-02</span></p><p class="why"><b>Why it failed:</b> Task incomplete: The precondition &quot;External keyboard or accessibility service with keyboard navigation is connected/active&quot; is not met. Keyboard is hidden and no accessibility service is active. Cannot test keyboard/accessibility focus indicators on contact rows.  Observed behavior: - Normal touch navigation: Clicking a row immediately navigates to detail screen with no intermediate focus indicator visible on the…</p><p class="why"><b>Agent's account:</b> Objective unclear. The run aborted before testing: the agent determined it had no tool to enable an external keyboard or accessibility service with keyboard navigation, so no focus indicators, focus continuity, or flicker behaviour was ever exercised. The only established facts are the unmet precondition and the agent&#x27;s early-failure decision; nothing new about the app itself. Findings: 1 agent_difficulty, 1 unverified. (2 new, 0 reinforced)</p></div><div class="case ">
+<h4>6. TC-006 — Verify import completion feedback and data consistency after importing a large vCard batch without network sync</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area async_operation_handling · 15 device steps
+ · 229s · 20:00
+ 
+  <span class="tag">FR-DUP-06</span> <span class="tag">FR-EXP-05</span></p><p class="why"><b>Agent's account:</b> Objective refuted. The import completed and new entries appeared in the Contact List, but the app never displayed an explicit &#x27;X contacts imported&#x27; confirmation - only a transient &#x27;will be imported shortly&#x27; toast, so the core success-feedback requirement is not met. The agent also never verified the total imported count or that all 88 records exist, and visible repeated &#x27;Alice Smith&#x27;/&#x27;Bob Jones&#x27; entries were never confirmed to be intended unique contacts…</p></div><div class="case ">
+<h4>7. TC-007 — Verify SQL injection metacharacters in search input are sanitized and do not alter list state or expose hidden records</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area search_security · 31 device steps
+ · 865s · 20:15
+ 
+  <span class="tag">FR-SRCH-11</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed that three SQL injection payloads (&#x27; OR 1=1 --, &#x27;; SELECT * FROM contacts; --, UNION SELECT username,password FROM users --) typed into the search bar returned empty results with no crash, error dialogs, or data leakage, and the contact list remained intact afterwards. Search was not reachable from the Contact List top bar; the agent only found it via the Organize tab, after ~10 wasted clicks. Findings: 3…</p></div><div class="case f">
+<h4>8. TC-008 — Verify persistence of non-Latin script and emoji in display name after save and re-entry</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area character_encoding · 36 device steps
+ · 664s · 20:27
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-VAL-13</span> <span class="tag">FR-VAL-14</span></p><p class="why"><b>Why it failed:</b> Contact &#x27;👋 Müller&#x27; was created and saved successfully. The detail screen correctly displays &#x27;👋 Müller&#x27; with emoji and non-Latin characters (FR-VAL-13/FR-VAL-14 satisfied for detail view). However, the contact is not visible in the contact list after scrolling through all sections (A through #). The contact list does not render contacts with emoji-prefixed display names, so FR-VAL-13/FR-VAL-14 cannot be verified for…</p><p class="why"><b>Agent's account:</b> Objective unclear. The run created a contact named &#x27;👋 Müller&#x27;, confirmed it saved with a correct toast and renders intact on the detail screen, but could not verify it in the Contact List: after scrolling every section (A–#) the contact never appeared. Repeated attempts to use the top-bar search button had no effect, and typed text never persisted in the &#x27;Search contacts&#x27; field, so the list-view half of the objective is unresolved. Findings: 1…</p></div><div class="case ">
+<h4>9. TC-009 — Verify duplicate detection triggers for imported vCard matching existing phone number</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area duplicate_detection · 12 device steps
+ · 155s · 20:30
+ 
+  <span class="tag">FR-DUP-02</span> <span class="tag">FR-DUP-06</span> <span class="tag">FR-DUP-08</span></p><p class="why"><b>Agent's account:</b> Objective refuted. Importing contacts.vcf containing phone numbers identical to existing contacts did not trigger the FR-DUP-04 duplicate resolution dialog; the import completed silently and duplicate records were created (counts of shared-number contacts doubled). The run also revealed an unexplained count mismatch (dialog announced &#x27;Import 88 contacts&#x27; though the file was exported from a single contact) and a transient import toast with no completion…</p></div><div class="case ">
+<h4>10. TC-010 — Verify data preservation and recovery after abandoning an edit via back navigation (FR-EDIT-04)</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area contact_editing · 8 device steps
+ · 111s · 20:33
+ 
+  <span class="tag">FR-EDIT-04</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed the abandon-edit flow: editing the phone field to &#x27;999&#x27; and pressing system Back raised an unsaved-changes dialog, and Discard returned to the detail screen with original values intact. It also surfaced a &#x27;Choose contact to edit&#x27; dialog showing two entries for &#x27;123 Doe&#x27;, corroborating duplicate contact records, and a malformed phone number &#x27;+1+1 555-123-4567&#x27;. Screen hint was wrong; actually used: Contact Detail…</p></div><div class="case f">
+<h4>11. TC-011 — Verify validation error specificity and input preservation when saving a contact with an invalid email format (FR-VAL-10/FR-VAL-11)</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area edit_validation · 10 device steps
+ · 491s · 20:42
+  · <span class="mono">NAVIGATION_FAILURE</span>
+  · Agent limitation </p><p class="why"><b>Why it failed:</b> The save action did NOT fail. After entering display name &quot;TestUser&quot; and invalid email &quot;user@@domain.com&quot;, clicking Save succeeded — the contact was created and the app navigated to the contact detail screen showing &quot;TestUser saved&quot;. No field-level error message appeared for the email field. The invalid email &quot;user@@domain.com&quot; was accepted without validation rejection. This does not meet FR-VAL-10 (field-level…</p><p class="why"><b>Agent's account:</b> Objective refuted. The run confirmed twice (edit and fresh create) that the app accepts an email with multiple &#x27;@&#x27; symbols (&#x27;user@@domain.com&#x27;), saving successfully with no field-level error, violating FR-VAL-09/10/11. It also revealed the email field is hidden behind an &#x27;Add more info&#x27; / Email control, and that prior failed tests left multiple duplicate &#x27;TestUser&#x27; contacts in the list. Findings: 1 agent_difficulty, 1 control_discovered, 2…</p></div><div class="case f">
+<h4>12. TC-012 — Verify duplicate resolution dialog triggers when importing vCard with matching phone number and user selects &#x27;Keep Both&#x27;</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area duplicate_resolution · 50 device steps
+ · 676s · 20:54
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-DUP-04</span> <span class="tag">FR-DUP-05</span> <span class="tag">FR-DUP-11</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The run set up the correct precondition (ExistingUser with +1555-999-0000, verified) and exported all contacts to a vCard, but hit the 50-step limit immediately after starting the second import, so the duplicate-resolution dialog was never observed. Along the way it re-confirmed silent duplication on import/save and surfaced a corrupted stored phone number (&#x27;+1+1 555-123-4567&#x27;). Findings: 1 agent_difficulty, 1 control_discovered, 1…</p></div><div class="case ">
+<h4>13. TC-013 — Verify contact list renders unicode escape sequences as literal text instead of decoded characters</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area character_encoding · 8 device steps
+ · 119s · 20:57
+ 
+  <span class="tag">FR-VAL-13</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed the objective: a contact whose stored name contains unicode escape sequences displays them as literal &#x27;\u00a0\u00a0\u00a0&#x27; text in both the Contact List and the detail view, with a stable UI. It also incidentally showed the &#x27;👋 Müller&#x27; contact visible in the Contact List, contradicting an earlier suspected defect, and confirming the emoji name renders in the list. Findings: 1 agent_difficulty, 3 confirmed_behaviour.…</p></div><div class="case f">
+<h4>14. TC-014 — Verify duplicate detection triggers when creating a contact with a phone number matching an existing list entry</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area duplicate_detection · 20 device steps
+ · 249s · 21:02
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-DUP-01</span> <span class="tag">FR-DUP-06</span></p><p class="why"><b>Why it failed:</b> The duplicate resolution dialog did not appear when saving a new contact (&quot;Duplicate Test&quot;) with phone number +11234567890, which is identical to an existing contact (&quot;!!! Doe&quot;). The save completed silently without any merge/keep options dialog. Both contacts now exist as separate entries. The expected behavior (modal dialog offering merge or keep options) was not observed.</p><p class="why"><b>Agent's account:</b> Objective refuted. Saving a new contact with a phone number identical to an existing contact completed silently with a toast and no merge/keep dialog, creating a separate duplicate record. The run also showed the saved duplicate was not visible in the main Contact List, only in Recent contacts. This confirms silent duplicate creation on manual re-save. Findings: 2 suspected_defect, 1 unverified. (1 new, 2 reinforced)</p></div><div class="case f">
+<h4>15. TC-015 — Verify merge preserves unique fields from both contacts and resolves name conflict by preferring the newer entry</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area duplicate_resolution · 50 device steps
+ · 574s · 21:13
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-DUP-07</span> <span class="tag">FR-DUP-08</span> <span class="tag">FR-DUP-09</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never reached the duplicate resolution dialog or merge flow. It established that saving a fully-filled contact form persists almost nothing: only the first name and a corrupted phone (&#x27;+1+1 123&#x27;) survived, losing last name, company, email and job title. The agent then burned its step budget trying to repair the contact in Edit mode and hit the 50-step cap. Screen hint was wrong; actually used: Add contact photo / Contact List.…</p></div><div class="case f">
+<h4>16. TC-016 — Verify deletion confirmation dialog displays correct affected contact name and prevents accidental deletion of wrong record</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area contact_deletion · 40 device steps
+ · 902s · 21:29
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-EDIT-06</span></p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (40/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never reached deletion, so the confirmation-dialog naming requirement (FR-EDIT-06) is untested. It did confirm twice that a successfully saved &#x27;Bob Jones&#x27; (toast &#x27;Bob Jones saved&#x27;) never appears in the Contact List, whose alphabet index shows only &#x27;A&#x27;. Long-press on a contact row failed to enter multi-select mode, and the agent looped repeatedly on search/label taps with no effect. Findings: 1 agent_difficulty, 2…</p></div><div class="case ">
+<h4>17. TC-017 — Verify persistence of all populated fields (Name, Phone, Email, Company, Job Title, Notes) upon save and verify visibility on detail screen</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area contact_details_management · 19 device steps
+ · 194s · 21:33
+ 
+  <span class="tag">FR-ADD-03</span> <span class="tag">FR-ADD-06</span> <span class="tag">FR-EDIT-02</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. A contact was created with all seven fields filled (First/Last name, Company, Job Title, Phone, Email, Notes) and the Detail Screen displayed every value exactly as entered, with no data loss or mapping errors. This directly contradicts the earlier report of silent field loss (F-3c01dd43) for this flow. It also shows the &#x27;Job title&#x27; dialog entry correctly creates a Title field in the Create flow, unlike the reported Edit-flow defect.…</p></div><div class="case f">
+<h4>18. TC-018 — Verify duplicate detection triggers for phone number match when display name is intentionally different to test FR-DUP-02 logic</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area duplicate_detection · 48 device steps
+ · 695s · 21:45
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-DUP-02</span> <span class="tag">FR-DUP-04</span></p><p class="why"><b>Why it failed:</b> Duplicate detection (FR-DUP-02/FR-DUP-04) failed. Created contact &quot;DupTestUser999&quot; with phone +1 555-0199 (matching existing &quot;TestUser Verification&quot; contact). Expected: duplicate resolution dialog with merge/keep options. Actual: contact saved silently as new entry. Both contacts now exist separately in the list, confirming duplicate detection did not trigger.</p><p class="why"><b>Agent's account:</b> {&quot;run_verdict&quot;: {&quot;objective_outcome&quot;: &quot;refuted&quot;, &quot;screen_hint_accurate&quot;: true, &quot;actual_screen&quot;: &quot;Contact List&quot;, &quot;summary&quot;: &quot;The run created a contact &#x27;DupTestUser999&#x27; with a phone number matching the existing &#x27;TestUser Verification&#x27; contact and confirmed the app saved it silently with no duplicate resolution dialog. This directly answers the earlier open question: duplicate detection is not triggered by phone-number match alone in manual creation. The…</p></div><div class="case f">
+<h4>19. TC-019 — Verify deleted contact appears in recovery area with retention timestamp and is restorable intact (FR-DEL-01, FR-DEL-02, FR-DEL-03)</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area deletion_recovery · 29 device steps
+ · 346s · 21:52
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence </p><p class="why"><b>Why it failed:</b> Contact &quot;RecoveryTest_User&quot; was successfully created and deleted from the main list. However, the &quot;Recently deleted&quot; / &quot;Deleted contacts&quot; / &quot;Trash&quot; section is NOT available in this app instance. The Organize screen (the only place this feature would appear) does not list it, and Settings also lacks it. The root cause is that no Google account is signed in (the app shows &quot;Sign in&quot; at top right). Google Contacts…</p><p class="why"><b>Agent's account:</b> Objective refuted. The run created &#x27;RecoveryTest_User&#x27; with phone +1 555-123-4567 and deleted it from the list (confirmed by &#x27;1 contact deleted&#x27; toast and absence from the list). However, no &#x27;Deleted Contacts&#x27;/&#x27;Trash&#x27;/&#x27;Recently deleted&#x27; section exists anywhere in the app (Organize and Settings both lack it), and the delete dialog explicitly warns deletion is permanent. FR-DEL-01/02/03 could not be validated; the assumed &#x27;Deleted Contacts / Recovery Area&#x27;…</p></div><div class="case f">
+<h4>20. TC-020 — Verify import of malformed vCard leaves contact store unchanged and reports error (FR-EXP-07)</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area import_contacts · 42 device steps
+ · 901s · 22:07
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-EXP-04</span> <span class="tag">FR-EXP-07</span></p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (42/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never achieved its objective: no malformed vCard was ever created or imported. Instead, it surfaced a new suspected defect: selecting &#x27;contacts.vcf&#x27; in the file picker opened via &#x27;Import from file&#x27; triggers an export-style &#x27;Choose where to save contacts&#x27; dialog (reproduced 3x), so the import flow may be mis-wired. The baseline contact &#x27;Baseline User&#x27; saved with a toast-equivalent confirmation could never be located in the…</p></div><div class="case ">
+<h4>21. TC-021 — Verify duplicate detection triggers for case-insensitive name match when phone and email are intentionally left empty or invalid</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area duplicate_detection · 41 device steps
+ · 694s · 22:20
+ 
+  <span class="tag">FR-VAL-04</span> <span class="tag">FR-DUP-01</span></p><p class="why"><b>Agent's account:</b> Objective refuted. The run created &#x27;Alpha&#x27; (with phone) and then &#x27;alpha&#x27; (lowercase, no phone/email) and no duplicate resolution dialog appeared; the lowercase contact was saved silently, refuting FR-DUP-01&#x27;s case-insensitive name-match detection. Verification of both contacts in the list was blocked because the agent could not scroll past the &#x27;#&#x27; section or activate search. The run also strengthens the earlier duplicate-creation finding. Findings: 1…</p></div><div class="case f">
+<h4>22. TC-022 — Verify Search returns no results for whitespace-only query and displays named empty state instead of full list</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area search_clearing · 13 device steps
+ · 206s · 22:24
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-SRCH-08</span> <span class="tag">FR-SRCH-10</span></p><p class="why"><b>Why it failed:</b> The search with a whitespace-only query (&quot;   &quot;) does not display the unfiltered contact list — the results area is empty, confirming the contact list is filtered. However, the app does NOT show an explicit empty state message naming the query as having no matches. Instead, it shows a completely blank results area with no message. The expected result requires &quot;an empty state message indicating no contacts were found…</p><p class="why"><b>Agent's account:</b> Objective refuted. A whitespace-only query (&#x27;   &#x27;) was entered into the search field; the results area went blank instead of showing the full contact list, but no explicit empty-state message naming the query as having no matches was shown. The expected empty-state message is absent, so the objective was not met. Reaching the search field also required ~8 failed clicks before it activated. Findings: 1 agent_difficulty, 1 confirmed_behaviour, 1…</p></div><div class="case ">
+<h4>23. TC-023 — Verify search input validation when voice recognition returns malformed or non-contact text</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area search_input_validation · 13 device steps
+ · 161s · 22:27
+ 
+  <span class="tag">FR-SRCH-06</span> <span class="tag">FR-SRCH-10</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed the voice search overlay opens and dismisses cleanly via back, restoring the search view with no artifacts or frozen state. Typing invalid text &#x27;!!!invalid@@@&#x27; returned a match (&#x27;Jane&#x27; with invalid-email) without crashing, and clearing text restored recent contacts. However, actual voice recognition was never exercised - the overlay only showed &#x27;Try saying something&#x27; and was dismissed without recognized text being…</p></div><div class="case f">
+<h4>24. TC-024 — Verify existence and functionality of Deleted Contacts recovery area after deletion</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area deletion_recovery · 13 device steps
+ · 195s · 22:31
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-DEL-01</span> <span class="tag">FR-DEL-02</span> <span class="tag">FR-DEL-03</span></p><p class="why"><b>Why it failed:</b> The &quot;Recently Deleted&quot; (or equivalent recovery) feature does not exist in this version of Google Contacts (com.google.android.contacts). I successfully deleted a contact (&quot;555-123-4567&quot;) and received a &quot;1 contact deleted&quot; confirmation toast, confirming deletion works. However, after thoroughly checking the Organize menu, Settings menu, and main contact list, there is no &quot;Recently Deleted&quot; section, trash bin, or…</p><p class="why"><b>Agent's account:</b> Objective refuted. The agent successfully deleted a contact (&#x27;555-123-4567&#x27;) with a &#x27;1 contact deleted&#x27; toast, but no &#x27;Recently Deleted&#x27; or trash/recovery section exists anywhere in the app: the Organize menu, Settings menu, and main list were exhaustively checked. FR-DEL-01/02/03 cannot be satisfied; deletion is permanent. The deleted contact&#x27;s duplicates remained visible in the list. Screen hint was wrong; actually used: Organize / Contact List.…</p></div><div class="case f">
+<h4>25. TC-025 — Verify permanent deletion removes contact from all views and prevents recovery via import</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area deletion_permanent · 49 device steps
+ · 567s · 22:40
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence </p><p class="why"><b>Why it failed:</b> FR-DEL-04 partially failed. Contact &#x27;PermaDelete_Test&#x27; was permanently deleted and is absent from the Contact List and search results. However, re-creating a contact with the same name and phone number did NOT trigger duplicate detection — Google Contacts silently allowed re-creation (&quot;PermaDelete_Test saved&quot;). The record is not permanently locked; the same identifier can be re-imported without rejection. This…</p><p class="why"><b>Agent's account:</b> Objective unclear. Deletion of &#x27;PermaDelete_Test&#x27; worked and the contact was immediately absent from the Contact List and search results, but re-creating a contact with the identical name and phone number succeeded silently with no duplicate detection, so FR-DEL-04&#x27;s rejection/duplicate-detection expectation is not met. The run also exposed that the first save attempt silently failed despite a success toast, requiring three creation attempts. Duplicate…</p></div><div class="case ">
+<h4>26. TC-026 — Verify permanent deletion behavior and absence of recovery UI when contact is removed via settings</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area deletion_recovery · 16 device steps
+ · 188s · 22:44
+ 
+  <span class="tag">FR-DEL-01</span> <span class="tag">FR-DEL-02</span> <span class="tag">FR-DEL-03</span> <span class="tag">FR-DEL-04</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed the full permanent-deletion flow: creating &#x27;PermaDelete_Test&#x27;, deleting it via Contact settings with a &#x27;permanently deleted&#x27; confirmation dialog, verifying no recovery options in Organize or Settings, and confirming zero search results. It also confirms the open question about duplicate detection: the same contact was re-created earlier with no rejection, and this run&#x27;s deletion left no trace. Findings: 1…</p></div><div class="case ">
+<h4>27. TC-027 — Verify vCard Export Intent Resolution and File Integrity for Multi-Field Contact</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area export_contacts · 48 device steps
+ · 667s · 22:56
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective unclear. The run confirmed the share/export flow works end-to-end at the UI level: Share contact opens a share sheet, an intent chooser appears with &#x27;!¡! Doe.vcf&#x27; and valid handlers, and sharing to Messages succeeded. However, the core objective — verifying the .vcf file content contains all fields exactly — was never achieved, and the run revealed that Title/Company and Notes are unchecked by default in &#x27;Choose details to share&#x27;, a…</p></div><div class="case f">
+<h4>28. TC-028 — Verify empty state presentation in Deleted Contacts area when no records exist</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area deletion_recovery · 10 device steps
+ · 135s · 22:58
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-DEL-05</span></p><p class="why"><b>Why it failed:</b> The &quot;Deleted Contacts&quot; section does not exist in this version of Google Contacts (com.google.android.contacts). I explored all available screens: Organize tab (Calling cards, Contact ringtones, Manage SIM, Import from file, Export to file, Blocked numbers, Settings), Settings, Contacts dropdown (All contacts, Device), and the overflow menu. None contain a &quot;Deleted Contacts&quot; or &quot;Recently Deleted&quot; option. This…</p><p class="why"><b>Agent's account:</b> Objective refuted. The run could not verify the Deleted Contacts empty state because no Deleted Contacts entry point exists anywhere in the explored navigation paths (Organize, Settings, All contacts dropdown, overflow menu). This confirms F-b9a61b45 and extends it to the dropdown and overflow menu. The overflow menu click produced no visible UI, which may itself be a defect or an agent interaction issue. Screen hint was wrong; actually used: Organize.…</p></div><div class="case f">
+<h4>29. TC-029 — Verify three-dot overflow menu visibility and functionality on Contact List with populated data</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area contact_list_display · 18 device steps
+ · 503s · 23:08
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence </p><p class="why"><b>Why it failed:</b> The overflow menu (&quot;...&quot;) is visible in the Contact List screen but is not tappable or functional. Multiple attempts to click or long-press the element at various coordinates (81,528), (96,402), (81,340) failed to open any menu. The expected result was not achieved - tapping the overflow menu does not reveal actionable items like Sort, Filter, or Settings.</p><p class="why"><b>Agent's account:</b> Objective refuted. The objective was refuted: no functional overflow menu was found on the Contact List. The only &#x27;…&#x27; element visible (a left-side TextView) ignored nine click/long-press attempts across multiple coordinates, while the top-right corner holds a working filter icon rather than an overflow dot, and an &#x27;All contacts&#x27; account-source dropdown was discovered as a separate control. Because no menu ever opened, the objective&#x27;s checks that the menu…</p></div><div class="case ">
+<h4>30. TC-030 — Verify absence of Deleted Contacts recovery UI and functionality in Organize menu</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area deletion_recovery · 7 device steps
+ · 93s · 23:14
+ 
+  <span class="tag">FR-DEL-01</span> <span class="tag">FR-DEL-02</span> <span class="tag">FR-DEL-03</span> <span class="tag">FR-DEL-04</span> <span class="tag">FR-DEL-05</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed the Organize menu contains exactly the seven expected entries with no Deleted Contacts/Trash/Recovery option, and that deleting a contact (&#x27;!!! Doe&#x27;) shows a permanent-deletion confirmation dialog with only Cancel/Delete, a &#x27;1 contact deleted&#x27; toast, and no recovery prompt or retention area. It also re-confirmed known delete behaviour. Findings: 1 agent_difficulty, 2 confirmed_behaviour. (1 new, 2 reinforced)</p></div><div class="case f">
+<h4>31. TC-031 — Verify creation of user-defined label and assignment to a newly created contact</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area labels_creation · 50 device steps
+ · 565s · 23:24
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-FILT-05</span> <span class="tag">FR-FILT-06</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective refuted. The run created a custom label &#x27;Custom Label&#x27; and assigned it to a phone number of contact &#x27;👋 Müller&#x27;; the label is visible on the contact detail screen. However, the labels sheet persistently reports &#x27;Custom Label: 0 contacts&#x27; and filtering by it shows &#x27;No contacts with this label&#x27;, so FR-FILT-05/06 are not satisfied. The agent looped the verify/reassign cycle ~8 times without success and hit the 50-step limit. Findings: 1…</p></div><div class="case ">
+<h4>32. TC-032 — Verify &#x27;Organize&#x27; menu accessibility focus and navigation after high-frequency failure</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area accessibility_labels · 22 device steps
+ · 338s · 23:30
+ 
+  <span class="tag">FR-CON-03</span></p><p class="why"><b>Agent's account:</b> Objective unclear. The run functionally verified the Organize control (which is a bottom-nav tab, not a top action-bar button): it opens a sheet with all 7 expected options, and &#x27;Manage SIM&#x27; navigates to a Select contacts screen and back without crashing. Keyboard focus testing was impossible with the available tools (type only inserts literal text), so that part of the objective remains unverified. Incidentally, the search EditText did accept focus and…</p></div><div class="case ">
+<h4>33. TC-033 — Verify Contact List displays phone numbers as display name when no valid name is present and handles alphabetical grouping correctly</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area contact_list_display · 33 device steps
+ · 590s · 23:40
+ 
+  <span class="tag">FR-LIST-01</span> <span class="tag">FR-LIST-03</span> <span class="tag">FR-LIST-09</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed its objective: a contact saved with empty name fields and phone &#x27;+11-234-567-890&#x27; renders in the Contact List with the phone number as the row label, correctly grouped under the &#x27;#&#x27; section, with no blank row, placeholder or crash. The &#x27;#&#x27; section sits at the end of the list (after &#x27;T&#x27;), so it is reachable only by scrolling through the alphabet. The run also showed the empty-name save itself succeeds with no…</p></div><div class="case ">
+<h4>34. TC-034 — Verify discard confirmation dialog appears when leaving unsaved contact creation with back navigation</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area contact_creation · 4 device steps
+ · 57s · 23:50
+ 
+  <span class="tag">FR-ADD-10</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run opened the Create Contact screen from the Contact List FAB, typed &#x27;DiscardTest&#x27; into First name, and tapped Cancel. A modal dialog &#x27;Your changes have not been saved&#x27; appeared with &#x27;Discard&#x27; and &#x27;Save&#x27; options, so unsaved data is never silently discarded. The dialog labels differ from the spec (&#x27;Save&#x27; instead of &#x27;Cancel&#x27;) but are functionally equivalent. Screen hint was wrong; actually used: Add contact photo. Findings: 1…</p></div><div class="case f">
+<h4>35. TC-035 — Verify alphabetical section headers sort non-Latin scripts and symbols correctly relative to Latin characters</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area contact_list_sorting · 46 device steps
+ · 901s · 00:06
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-LOC-05</span> <span class="tag">FR-LOC-06</span></p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (46/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run confirmed the &#x27;#&#x27; section is positioned at the top of the Contact List, before Latin-letter sections, matching the expected collation. It also showed the non-Latin contact 张三 renders in the list, but newly saved contacts &#x27;#John&#x27; and &#x27;Alice&#x27; never appeared despite success toasts. Full verification of C/D/E/J ordering and the non-Latin header block was blocked by scroll resistance and a non-functional search entry point.…</p></div><div class="case f">
+<h4>36. TC-036 — Verify navigation behavior when pressing BACK from Organize sheet exits app rather than returning to contact list</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area navigation · 16 device steps
+ · 299s · 00:12
+  · <span class="mono">NAVIGATION_FAILURE</span>
+  · Agent limitation </p><p class="why"><b>Why it failed:</b> FAIL: Pressing the system BACK button while the Organize menu sheet is open in Contacts (com.google.android.contacts) causes the application to TERMINATE rather than dismissing the sheet and returning to the Contact List. This was confirmed in two separate test runs — after pressing BACK from the Organize screen, the system navigated to the Files app (Downloads). The app can be relaunched, but the BACK button does…</p><p class="why"><b>Agent's account:</b> Objective confirmed. This run reproduced the defect: pressing system BACK while on the Organize screen terminates the Contacts app and lands the user in the Files app, instead of returning to the Contact List. The failure was confirmed in two separate runs per the agent&#x27;s report, with a Contact List baseline established before the BACK press. Findings: 2 confirmed_behaviour, 1 suspected_defect. (3 new, 0 reinforced)</p></div><div class="case ">
+<h4>37. TC-FILT-09-LABEL-ASSIGN — (untitled)</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area labels_assignment · 25 device steps
+ · 254s · 00:16
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective confirmed. The run fully verified the multi-label objective: two new labels (Label A, Label B) were created and simultaneously assigned to contact &#x27;#John&#x27; without deselecting each other, both persisted on the detail screen after save, and filtering by each label individually returned the contact. It also contradicts an earlier suspected defect that label counts show 0 and label filtering returns no contacts. Findings: 3 confirmed_behaviour, 1…</p></div><div class="case ">
+<h4>38. TC-037 — Verify search state stability and list integrity after aborting voice recognition mid-session</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area search · 5 device steps
+ · 75s · 00:18
+ 
+  <span class="tag">FR-SRCH-09</span> <span class="tag">FR-PERF-03</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed that canceling the voice recognition dialog via system back closes the modal cleanly, restores the Contact List with all contacts intact, and leaves the search field empty and ready for input. Only the back-button cancellation path was tested; outside-tap and timeout paths remain unverified. Findings: 1 confirmed_behaviour, 1 control_discovered, 1 unverified. (3 new, 0 reinforced)</p></div><div class="case f">
+<h4>39. TC-038 — Verify label deletion does not cascade-delete associated contacts (FR-FILT-08)</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area labels_deletion · 42 device steps
+ · 901s · 00:34
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence </p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (42/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run successfully created a contact &#x27;TestLabelContact&#x27; (+1 555-123-4567) and assigned the existing label &#x27;Label A&#x27; via the Add to label dialog, with a save toast. It then could not verify the core objective: the contact was never located again (list appeared stuck on &#x27;A&#x27; contacts), the search control never opened, and label deletion was never performed. Contact survival after label deletion remains unverified. Screen hint was wrong;…</p></div><div class="case ">
+<h4>40. TC-039 — Verify persistence of multi-line notes field content and visibility on detail screen after save (FR-EDIT-03)</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area contact_detail_management · 15 device steps
+ · 167s · 00:38
+ 
+  <span class="tag">FR-VAL-03</span> <span class="tag">FR-VAL-14</span> <span class="tag">FR-EDIT-03</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run achieved its objective: a contact with first name &#x27;Test&#x27;, last name &#x27;Contact&#x27;, phone +1 555-123-4567 and a 4-line notes field containing special characters (@, #, $, +, ***) was saved and the detail screen showed all content intact with line breaks preserved. Two incidental navigation mishaps occurred (mis-clicked save coordinate opened a menu; a tap to dismiss it landed on Help &amp; feedback), but both were recovered via BACK…</p></div><div class="case ">
+<h4>41. TC-040 — Verify search state integrity and list visibility after voice recognition sheet times out or is cancelled via outside-tap</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area search · 25 device steps
+ · 562s · 00:48
+ 
+  <span class="tag">FR-SRCH-10</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The voice recognition sheet was opened, left to reach its timeout terminal state (&#x27;Didn&#x27;t catch that. Try speaking again.&#x27;), and dismissed via system BACK; the Contact List was then verified intact, scrollable, and with the search field reset to the &#x27;Search contacts&#x27; placeholder. Tapping the bottom FrameLayout did not dismiss the overlay (only BACK did). Search icon clicks in the toolbar repeatedly produced no effect, again…</p></div><div class="case ">
+<h4>42. TC-041 — Verify Organize menu stability and content rendering after high-frequency failure state</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area organize_menu_stability · 16 device steps
+ · 169s · 00:52
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective confirmed. All 7 Organize options were verified visible, formatted, and clickable with no crashes or frozen states across 7 round-trip interactions. No new defects found; the Organize screen behaved correctly throughout. Findings: 4 confirmed_behaviour. (3 new, 1 reinforced)</p></div><div class="case f">
+<h4>43. TC-042 — Verify persistence of favourite status after application restart and re-entry</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area favourites_persistence · 50 device steps
+ · 654s · 01:03
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation </p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The contact was successfully marked as favourite and the state survived a full app kill and restart: the detail star showed &#x27;Remove from Favorites&#x27; and the list entry showed a filled star after reopening. However, the core objective check — that the contact appears in the Favourites filter — was never completed because the &#x27;Show list filters&#x27; control never opened any menu despite ~12 click attempts. Findings: 1 agent_difficulty, 1…</p></div><div class="case f">
+<h4>44. TC-043 — Verify &#x27;Show list filters&#x27; button interaction and Favourites filter accessibility when Contact List contains data</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area favourites_filtering · 38 device steps
+ · 678s · 01:15
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-FILT-03</span> <span class="tag">FR-FILT-09</span></p><p class="why"><b>Why it failed:</b> The &#x27;Show list filters&#x27; button is visible on the Contact List toolbar (index 18, bounds 797,23,850,76), but clicking it does not open a filter menu. After multiple attempts with regular clicks, precise coordinate clicks, and long press, no filter selection UI appeared. The Organize tab was also checked but contains no filter options. Unable to verify the &#x27;Favourites&#x27; filter functionality as the filter menu control…</p><p class="why"><b>Agent's account:</b> Objective refuted. The run confirms the &#x27;Show list filters&#x27; control on the Contact List is non-functional: despite ~20 clicks, precise-coordinate taps, a long press, and a CheckBox click, no filter menu ever appeared, so the Favourites filter could not be reached. The Organize screen was repeatedly checked and contains no filter options. The filter-menu defect previously suspected (F-8e056d09) is now confirmed with much stronger evidence; Favourites…</p></div><div class="case f">
+<h4>45. TC-044 — Verify share intent cancellation returns to contact detail without data loss or navigation drift</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area interoperability_email · 1 device steps
+ · 120s · 01:18
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence </p><p class="why"><b>Why it failed:</b> Error: Connection error.</p></div><div class="case f">
+<h4>46. TC-045 — Verify Search Result List Integrity and Row Count Matches Contact Store After Repeated Rapid Typing</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area search_results_display · 50 device steps
+ · 724s · 02:43
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-SRCH-06</span> <span class="tag">FR-SRCH-07</span> <span class="tag">FR-PERF-02</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never reached the search UI: after creating Bob, Charlie, David, and Eve contacts, the agent clicked the top-bar search control and &#x27;All contacts&#x27; title ~20 times with no search UI appearing, so rapid-query search behaviour (count mismatch, duplicates, data loss) was never tested. The run is a pure coverage failure on the objective; it only confirms the already-known search-entry defect and adds agent-difficulty evidence.…</p></div><div class="case f">
+<h4>47. TC-046 — Verify external app return state integrity after voice search sheet times out while contact detail is open</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area state_management · 45 device steps
+ · 902s · 02:59
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-INT-04</span></p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (45/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never triggered the timed-out voice recognition overlay from the Contact Detail screen, so the objective (state restoration after overlay dismissal) was never tested. The agent looped repeatedly between Contact List and Bob Jones&#x27; detail screen searching for a voice input trigger, and only found &#x27;Start voice search&#x27; inside the search compose view reached via Organize. The run establishes that Contact Detail has no voice-search…</p></div><div class="case ">
+<h4>48. TC-047 — Verify Contact List Integrity and Duplicate Visibility After Creating Multiple Identical Records via FAB</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area contact_list_display · 22 device steps
+ · 304s · 03:05
+ 
+  <span class="tag">FR-LIST-01</span> <span class="tag">FR-DUP-01</span> <span class="tag">FR-DUP-02</span> <span class="tag">FR-DUP-03</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run created three identical &#x27;DuplicateTest&#x27; contacts sequentially via the FAB; each save succeeded with a toast and no merge dialog, and the Contact List rendered all three as separate rows. Only one of the three rows was opened to verify its detail screen, so the other two rows&#x27; clickability remains unverified. This also independently confirms that duplicate names are accepted silently. Findings: 2 confirmed_behaviour, 1…</p></div><div class="case f">
+<h4>49. TC-048 — Verify Contact List row distinctness and detail isolation when multiple identical-name contacts exist with different phone numbers</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area contact_list_interaction · 5 device steps
+ · 893s · 03:20
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-VAL-14</span> <span class="tag">FR-EDIT-08</span></p><p class="why"><b>Why it failed:</b> Error: Connection error.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run established a baseline of identically-named contact groups on the Contact List and opened the first &#x27;DiscardTest&#x27; row&#x27;s detail (no phone number, &#x27;Add phone number&#x27; shown). It navigated back cleanly and tapped the second &#x27;DiscardTest&#x27; row, but the run ended before inspecting that detail screen, so row-level distinctness was never verified. Findings: 2 confirmed_behaviour, 2 unverified. (3 new, 1 reinforced)</p></div><div class="case f">
+<h4>50. TC-049 — Verify interoperability action behavior when no handler is available for a specific field type</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area interoperability_messaging · 22 device steps
+ · 307s · 03:26
+  · <span class="mono">PRECONDITION_NOT_MET</span>
+  · Environment </p><p class="why"><b>Why it failed:</b> Test precondition not met: The device has both a dialer (Phone app) and messaging app (Google Messages) configured and functional. Clicking &quot;Call&quot; on the contact detail screen successfully opened the Phone app, and clicking &quot;Message&quot; successfully opened Google Messages. Since both apps are available, the &quot;no handler available&quot; scenario cannot be tested on this device. The instructions prohibit opening system…</p><p class="why"><b>Agent's account:</b> Objective unclear. The run could not verify FR-INT-05&#x27;s missing-handler branch because the device has both a working dialer and messaging app; Call and Message both launched correctly with their handlers present (positive-path confirmed). The run also exposed that an apparently successful contact edit (phone + email saved, actions enabled) did not persist when the detail screen was reopened minutes later, forcing the agent to redo the edit. Findings: 1…</p></div><h2 class="brk">6 · Limitations</h2>
+<p>Stated plainly, because they bound every number above.</p>
+<table><tr><th style="width:28%">Limitation</th><th>Consequence</th></tr>
+<tr><td><b>No ground truth</b></td><td>The app has no known, seeded defect list, so we
+cannot compute recall. We know what the agent found; we cannot say what it missed. This is
+the single biggest gap.</td></tr>
+<tr><td><b>No ablation</b></td><td>Every component — graph memory, tools, the finding
+lifecycle — is on. We have not measured what each contributes, so we cannot attribute the
+results to any one design choice.</td></tr>
+<tr><td><b>10 of 30 failures are ours</b></td><td>The 50-step executor budget
+and navigation reliability, not the app, cap the usable yield of a campaign.</td></tr>
+<tr><td><b>Findings are LLM-authored</b></td><td>A SUSPECTED_DEFECT is a model's judgement
+from a device trajectory, not a verified bug. The "suspected" is load-bearing and each one
+still needs a human.</td></tr>
+<tr><td><b>Single app, single run</b></td><td>One application, one campaign, no
+repetition. Nothing here establishes variance between runs.</td></tr>
+<tr><td><b>Provider variance</b></td><td>Inference is routed through OpenRouter, where
+different providers served the same model with order-of-magnitude differences in latency
+and token usage, adding noise to any cost or timing figure.</td></tr>
+</table>
+<footer>Generated from the Neo4j campaign graph by
+<span class="mono">scripts/build_campaign_report.py</span> · project
+<span class="mono">contacts</span> · campaign since
+<span class="mono">2026-09-20T19:19:00</span> · 50 executions, 198 findings.</footer>
+</body></html>
