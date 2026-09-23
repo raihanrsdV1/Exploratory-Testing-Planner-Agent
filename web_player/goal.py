@@ -57,8 +57,11 @@ def build_goal(test_case: dict) -> str:
     # data it expected to be absent is present, or vice versa.
     parts.append(
         "The browser keeps cookies and state from earlier tests in this batch. If "
-        "the test needs data that is missing, CREATE it as your first steps. Do not "
-        "abandon the test because data is missing."
+        "the test needs data that is missing, create it only when the available UI "
+        "actions and guardrails permit it within this test's budget. Otherwise finish "
+        "with success=false and 'Precondition not met', naming the missing data. "
+        "You cannot upload files, drag-and-drop, inspect downloaded files, or solve CAPTCHAs. "
+        "Do not search repeatedly for a workaround for an unsupported action."
     )
 
     parts.append(cfg.web_input_block())

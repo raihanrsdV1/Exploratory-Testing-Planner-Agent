@@ -10,12 +10,15 @@ mods = sorted(f for f in os.listdir(HERE)
               if f.startswith("test_") and f.endswith(".py"))
 fails = []
 for m in mods:
-    r = subprocess.run([PY, os.path.join(HERE, m)], capture_output=True, text=True)
+    r = subprocess.run([PY, os.path.join(HERE, m)], capture_output=True,
+                       text=True, encoding="utf-8", errors="replace",
+                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
     tail = [l for l in r.stdout.splitlines() if "checks passed" in l]
     print(f"{m:<26} {tail[-1] if tail else 'no summary'}"
           f"{'' if r.returncode == 0 else '   <-- FAILED'}")
     if r.returncode != 0:
         fails.append(m)
+        print("\n".join((r.stdout + "\n" + r.stderr).splitlines()[-25:]))
 print()
 print(f"{len(mods) - len(fails)}/{len(mods)} modules passed")
 sys.exit(1 if fails else 0)

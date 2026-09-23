@@ -19,6 +19,12 @@ from urllib.parse import urljoin, urlparse
 
 from . import snapshot
 
+ACTION_FIELDS = {
+    "click": ("ref",), "fill": ("ref", "text"), "press": ("ref", "key"),
+    "select": ("ref", "value"), "goto": ("url",), "back": (),
+    "scroll": ("direction",), "wait": ("seconds",), "finish": ("success", "reason"),
+}
+
 # The action reference injected into the system prompt verbatim.
 ACTION_SPEC = """\
 click        {"action":"click","ref":"e12"}                      activate a control
@@ -258,12 +264,14 @@ class Dispatcher:
 
 async def _goto_settled(page, url: str, cfg) -> None:
     """Navigate and give the app a chance to render before anyone observes it."""
+    await page.goto(url, timeout=cfg.WEB_NAV_TIMEOUT_MS, wait_until="domcontentloaded")
     try:
-        await page.goto(url, timeout=cfg.WEB_NAV_TIMEOUT_MS, wait_until="networkidle")
-    except Exception:
-        # networkidle never arrives on a page that polls. Land the navigation the
-        # cheap way instead of failing the action outright.
-        await page.goto(url, timeout=cfg.WEB_NAV_TIMEOUT_MS, wait_until="domcontentloaded")
+        await page.wait_for_load_state("networkidle", timeout=min(1500, cfg.WEB_NAV_TIMEOUT_MS))
+    except Exception as exc:
+        if not _is_timeout(exc):
+            raise
+        # A streaming/polling page may never go idle. Do not reload it a second
+        # time: that cancels requests and discards freshly rendered state.
 
 
 def fixture_path(name: str, allowed) -> str:

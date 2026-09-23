@@ -62,3 +62,27 @@ pids/
 *.swo
 .env.bak.*
 .env.*.bak
+
+# BookStack benchmark session (live admin cookie)
+bookstack-auth.json
+*-auth.json
+
+# ── Capstone report ───────────────────────────────────────────────────────────
+# LaTeX build artefacts. The compiled template.pdf IS tracked, deliberately.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.toc
+*.synctex.gz
+
+# Pre-anonymisation run reports. These still name the application under test;
+# only the anonymised webapp-*.pdf versions beside them may be published.
+report/extra_report/dataghurhi-*.pdf
+
+# ── Android build output ──────────────────────────────────────────────────────
+*.apk

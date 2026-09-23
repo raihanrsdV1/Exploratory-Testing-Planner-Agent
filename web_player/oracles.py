@@ -19,6 +19,7 @@ They are collected always and used two ways:
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from dataclasses import dataclass, field
 
 
@@ -30,7 +31,7 @@ class Findings:
     page_errors: list[str] = field(default_factory=list)
     http_failures: list[str] = field(default_factory=list)   # 5xx — the app broke
     http_client_errors: list[str] = field(default_factory=list)  # 4xx — often expected
-    request_failures: list[str] = field(default_factory=list)  # no response at all (aborted, blocked) — never a 5xx
+    request_failures: list[str] = field(default_factory=list)  # no response at all — never a 5xx
     dialogs: list[str] = field(default_factory=list)  # native alert/confirm/prompt — the site's own messages
 
     def is_empty(self) -> bool:
@@ -115,6 +116,7 @@ class Collector:
     def reset(self) -> None:
         """Start a fresh set of findings — called between test cases."""
         self.findings = Findings()
+        self.dialogs = []
 
     # ── handlers (never raise: a listener that throws kills the page) ─────────
 
@@ -145,6 +147,8 @@ class Collector:
                 self.registry.record(response.request.method, response.url, status)
             if status < 400:
                 return
+            if urlsplit(response.url).netloc != urlsplit(self.cfg.WEB_BASE_URL).netloc:
+                return
             entry = f"{status} {response.request.method} {_short_url(response.url)}"
             bucket = (self.findings.http_failures if status >= 500
                       else self.findings.http_client_errors)
@@ -156,11 +160,13 @@ class Collector:
         try:
             # Blocked/aborted requests are mostly ad-blockers and analytics; only
             # a same-origin failure says anything about the app under test.
-            if not request.url.lower().startswith(self.cfg.WEB_BASE_URL.lower()):
+            if urlsplit(request.url).netloc != urlsplit(self.cfg.WEB_BASE_URL).netloc:
                 return
             failure = getattr(request, "failure", None) or "request failed"
-            # No response came back, so this is not a server error — navigating
-            # away mid-stream aborts requests routinely.
+            # Navigating away mid-stream cancels requests routinely: that is noise,
+            # not evidence. What is left got no response, so it is still never a 5xx.
+            if "ERR_ABORTED" in failure or "NS_BINDING_ABORTED" in failure:
+                return
             self._add(self.findings.request_failures,
                       f"FAILED {request.method} {_short_url(request.url)} ({failure})")
         except Exception:
@@ -219,4 +225,8 @@ class Collector:
 
 
 def _short_url(url: str, limit: int = 120) -> str:
+    parsed = urlsplit(url)
+    query = [(k, "[REDACTED]" if any(s in k.lower() for s in ("token", "key", "password", "secret", "auth")) else v)
+             for k, v in parse_qsl(parsed.query, keep_blank_values=True)]
+    url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), ""))
     return url if len(url) <= limit else url[:limit] + "…"

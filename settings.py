@@ -534,6 +534,7 @@ APP_FAULT = frozenset({"ASSERTION_FAILURE", "CRASH", "APP_UNRESPONSIVE",
                        # threw, or one of its own requests came back 5xx.
                        "PAGE_ERROR", "HTTP_ERROR"})
 AGENT_FAULT = frozenset({"TIMEOUT", "ELEMENT_NOT_FOUND", "NAVIGATION_FAILURE",
+                         "VERDICT_UNVERIFIED",
                          "NAVIGATION_LIVELOCK",
                          # Web-only: the DOM moved under us between snapshot
                          # and act. Ours to re-observe, not a defect.
@@ -648,6 +649,14 @@ WEB_STALL_STEPS = _int("WEB_STALL_STEPS", 6)
 WEB_LLM_PROVIDER = _str("WEB_LLM_PROVIDER", EXECUTOR_LLM_PROVIDER)
 WEB_LLM_MODEL = _str("WEB_LLM_MODEL", EXECUTOR_LLM_MODEL)
 WEB_LLM_MAX_TOKENS = _int("WEB_LLM_MAX_TOKENS", 1500)
+# Constrain the EXECUTOR's replies with a JSON schema. Off by default: with
+# grammar-constrained decoding the configured executor model degenerates into
+# numeric noise ("-1.0000000000000002e+308") on every single step, which reads
+# downstream as "the model returned invalid JSON" and loses the whole run. The
+# free-form reply plus llm.parse_action is what actually works. Turn this on only
+# for a model you have verified returns a usable action object under a schema.
+WEB_LLM_JSON_SCHEMA = _bool("WEB_LLM_JSON_SCHEMA", False)
+WEB_VERIFY_VERDICTS = _bool("WEB_VERIFY_VERDICTS", True)
 
 # ── Guardrails ───────────────────────────────────────────────────────────────
 # An exploratory agent on a website is one click away from ending its own run or

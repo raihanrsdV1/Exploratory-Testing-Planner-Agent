@@ -16,6 +16,7 @@ import re
 import time
 
 import requests
+from .actions import ACTION_FIELDS
 
 _RETRY_TOKENS = ("429", "500", "502", "503", "504", "too many requests",
                  "overloaded", "timed out", "timeout",
@@ -40,6 +41,18 @@ _MAX_ATTEMPTS = 4
 # A terse model answers a browser step in ~200 tokens; 8000 is already generous.
 _MAX_BUDGET = 8000
 
+# Required keys prevent valid-but-useless JSON such as {} from consuming turns.
+# Nullable inactive fields keep this schema compatible with strict providers.
+_ACTION_PROPERTIES = {
+    "action": {"type": "string", "enum": list(ACTION_FIELDS)},
+    **{k: {"type": ["string", "null"]} for k in
+       ("thought", "ref", "text", "url", "key", "value", "direction", "reason")},
+    "seconds": {"type": ["number", "null"]},
+    "success": {"type": ["boolean", "null"]},
+}
+_ACTION_SCHEMA = {"type": "object", "properties": _ACTION_PROPERTIES,
+                  "required": list(_ACTION_PROPERTIES), "additionalProperties": False}
+
 
 class LLMError(RuntimeError):
     """Any failure to obtain a usable reply from the executor model.
@@ -56,9 +69,12 @@ class LLMError(RuntimeError):
 class ChatClient:
     """Provider-agnostic chat. ``chat(messages)`` returns the assistant text."""
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, model: str | None = None, response_schema: dict | None = None):
         self.provider = (cfg.WEB_LLM_PROVIDER or "openrouter").lower()
-        self.model = cfg.WEB_LLM_MODEL
+        self.model = model or cfg.WEB_LLM_MODEL
+        self.response_schema = ((response_schema or _ACTION_SCHEMA)
+                                if getattr(cfg, "WEB_LLM_JSON_SCHEMA", False) else None)
+        self.reasoning_effort = getattr(cfg, "EVALUATOR_REASONING_EFFORT", "low") if response_schema else ""
         self.max_tokens = cfg.WEB_LLM_MAX_TOKENS
         if self.provider == "openrouter":
             self.api_key = cfg.OPENROUTER_API_KEY
@@ -72,10 +88,14 @@ class ChatClient:
                 f"{'OPENROUTER_API_KEY' if self.provider == 'openrouter' else 'GEMINI_API_KEY'}."
             )
 
-    def chat(self, messages: list[dict]) -> str:
+    def chat(self, messages: list[dict], timeout_s: float = 180) -> str:
         last: Exception | None = None
         budget = self.max_tokens
+        deadline = time.monotonic() + timeout_s
         for attempt in range(1, _MAX_ATTEMPTS + 1):
+            self.request_timeout = max(0.1, min(180, deadline - time.monotonic()))
+            if time.monotonic() >= deadline:
+                raise LLMError("Model backend call exceeded the remaining test deadline")
             try:
                 return (self._openrouter(messages, budget) if self.provider == "openrouter"
                         else self._gemini(messages, budget))
@@ -89,7 +109,7 @@ class ChatClient:
                     # prompt does not change between attempts. Give it more room.
                     budget = min(budget * 2, _MAX_BUDGET)
                     continue
-                time.sleep(2 ** attempt)
+                time.sleep(min(2 ** attempt, max(0, deadline - time.monotonic())))
         raise _as_llm_error(last)
 
     def _openrouter(self, messages: list[dict], budget: int | None = None) -> str:
@@ -102,8 +122,12 @@ class ChatClient:
                      "HTTP-Referer": "https://github.com/exploratory-testing-planner-agent",
                      "X-Title": "Exploratory Testing Planner Agent"},
             json={"model": self.model, "messages": messages,
-                  "max_tokens": budget or self.max_tokens, "temperature": 0.2},
-            timeout=180,
+                  "max_tokens": budget or self.max_tokens, "temperature": 0.2,
+                  **({"response_format": {"type": "json_schema", "json_schema": {
+                      "name": "browser_response", "strict": True, "schema": self.response_schema}},
+                      "provider": {"require_parameters": True}} if self.response_schema else {}),
+                  **({"reasoning": {"effort": self.reasoning_effort}} if self.reasoning_effort else {})},
+            timeout=getattr(self, "request_timeout", 180),
         )
         if resp.status_code != 200:
             raise LLMError(f"OpenRouter {resp.status_code}: {resp.text[:300]}")
@@ -150,8 +174,9 @@ class ChatClient:
             f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent",
             headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
             json={"contents": contents,
-                  "generationConfig": {"maxOutputTokens": budget or self.max_tokens, "temperature": 0.2}},
-            timeout=180,
+                  "generationConfig": {"maxOutputTokens": budget or self.max_tokens, "temperature": 0.2,
+                                       "responseMimeType": "application/json"}},
+            timeout=getattr(self, "request_timeout", 180),
         )
         if resp.status_code != 200:
             raise LLMError(f"Gemini {resp.status_code}: {resp.text[:300]}")
@@ -224,6 +249,11 @@ def parse_action(text: str) -> dict:
         if isinstance(obj, dict):
             normalised = _normalise_keys(obj)
             if normalised.get("action"):
+                if normalised["action"] == "finish":
+                    if not isinstance(normalised.get("success"), bool):
+                        return {"action": "_error", "reason": "finish.success must be a JSON boolean, not a string"}
+                    if not str(normalised.get("reason") or "").strip():
+                        return {"action": "_error", "reason": "finish needs a reason naming observed evidence"}
                 return normalised
     # Keep the reply. A 23% parse-failure rate was undiagnosable because the text
     # that failed was discarded, leaving only a generic message in the trace.

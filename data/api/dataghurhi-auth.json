@@ -1,16 +1,17 @@
 {
+  "project": "dataghurhi-auth",
   "endpoints": {
     "/api/collaborator/all-invitations": {
       "methods": {
         "GET": 200
       },
-      "seen": 32
+      "seen": 49
     },
     "/api/collaborator/all-projects": {
       "methods": {
         "GET": 200
       },
-      "seen": 23
+      "seen": 36
     },
     "/api/fetch-survey-user/:slug": {
       "methods": {
@@ -52,7 +53,7 @@
       "methods": {
         "GET": 200
       },
-      "seen": 56
+      "seen": 59
     },
     "/api/profile/match-password": {
       "methods": {
@@ -64,19 +65,19 @@
       "methods": {
         "GET": 200
       },
-      "seen": 33
+      "seen": 50
     },
     "/api/project/:id": {
       "methods": {
         "GET": 200
       },
-      "seen": 9
+      "seen": 11
     },
     "/api/project/:id/collaborators": {
       "methods": {
         "GET": 200
       },
-      "seen": 9
+      "seen": 11
     },
     "/api/project/:id/create-survey": {
       "methods": {
@@ -88,17 +89,24 @@
       "methods": {
         "GET": 200
       },
-      "seen": 9
+      "seen": 11
     },
     "/api/project/:id/surveys": {
       "methods": {
         "GET": 200
       },
-      "seen": 196
+      "seen": 373
     },
     "/api/project/create-project": {
       "methods": {
+        "GET": 500,
         "POST": 201
+      },
+      "seen": 7
+    },
+    "/api/question-bank": {
+      "methods": {
+        "GET": 200
       },
       "seen": 1
     },
@@ -106,7 +114,7 @@
       "methods": {
         "GET": 404
       },
-      "seen": 9
+      "seen": 13
     },
     "/api/submit-survey/:slug": {
       "methods": {
@@ -119,6 +127,12 @@
         "GET": 200
       },
       "seen": 7
+    },
+    "/api/surveytemplate/save": {
+      "methods": {
+        "PUT": 201
+      },
+      "seen": 1
     },
     "/api/surveytemplate/settings/:id": {
       "methods": {
@@ -138,6 +152,5 @@
       },
       "seen": 6
     }
-  },
-  "project": "dataghurhi-auth"
+  }
 }

@@ -1,0 +1,62 @@
+{
+  "name": "bookstack",
+  "kind": "web",
+  "project": "bookstack",
+  "display_name": "BookStack",
+  "description": "BookStack v25.02.1 wiki application, WebTestPilot benchmark instance running locally in Docker on port 8081. Disposable: the whole database can be rebuilt from seed.sql.",
+  "web": {
+    "base_url": "http://localhost:8081",
+    "browser": "chromium",
+    "headless": true,
+    "slow_mo_ms": 100,
+    "viewport": "1280x800",
+    "same_origin_only": true,
+    "blocked_texts": [
+      "log out",
+      "logout",
+      "sign out",
+      "change password",
+      "update password",
+      "delete account",
+      "delete user",
+      "remove user",
+      "delete my account"
+    ],
+    "blocked_url_patterns": [
+      "/logout",
+      "/settings/users",
+      "/settings/maintenance",
+      "/my-account/auth"
+    ],
+    "storage_state": "bookstack-auth.json",
+    "fail_on_page_error": false,
+    "fail_on_http_5xx": true,
+    "console_ignore": [],
+    "account_probes": [],
+    "account_probe_bearer_key": "",
+    "fixture_files": [],
+    "login": {
+      "url": "http://localhost:8081/login",
+      "user": "",
+      "password": "",
+      "hint": "The browser already carries an administrator session; do not sign in or out.",
+      "role": "signed-in administrator on a disposable local BookStack instance"
+    }
+  },
+  "knowledge": {
+    "srs_path": "./data/inputs/bookstack-spec.md",
+    "figma_path": "",
+    "defects_path": ""
+  },
+  "run": {
+    "rounds": 30,
+    "max_steps": 60,
+    "timeout": 420,
+    "clean_slate": false,
+    "self_heal": true
+  },
+  "model": {
+    "provider": "",
+    "model": ""
+  }
+}

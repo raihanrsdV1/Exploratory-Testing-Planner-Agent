@@ -26,15 +26,24 @@ _MAX_ATTEMPTS = 4
 _PERMANENT = ("not set in .env", "not installed")
 
 
-def next_testcase(max_new_tokens: int = 8000, account_state: str = "") -> dict:
+def next_testcase(max_new_tokens: int = 8000, account_state: str = "",
+                  excluded_titles=None, feedback: str = "") -> dict:
     """Ask the planner for the next test case, scoped to the web platform."""
+    from .planning import contract, guidance, rejection_errors
+    constraints = contract(cfg)
+    excluded = list(excluded_titles or [])
+    correction = feedback
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         resp = requests.post(
             f"{GATEWAY_URL}/agent/next-testcase",
             json={
                 "project": cfg.PROJECT,
                 "app_name": cfg.WEB_SITE_NAME,
-                "objective": "generate next high-value non-duplicate test case",
+                "objective": "generate next high-value non-duplicate test case" + guidance(constraints)
+                             + "\nRecent execution feedback: " + correction
+                             + "\nDo not repeat these titles: " + str(excluded[-50:]),
+                "executor_constraints": constraints,
+                "excluded_titles": excluded[-100:],
                 "top_k": cfg.TOP_K,
                 "max_new_tokens": max_new_tokens,
                 "max_retrieval_rounds": 2,
@@ -48,7 +57,18 @@ def next_testcase(max_new_tokens: int = 8000, account_state: str = "") -> dict:
         )
         if resp.status_code != 503:
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            candidate = data.get("next_testcase") or {}
+            errors = data.get("planning_errors") or rejection_errors(candidate, constraints, excluded)
+            if not errors:
+                return data
+            correction = "; ".join(errors)
+            if candidate.get("title"):
+                excluded.append(candidate["title"])
+            print(f"  Planner proposal rejected before browser execution: {correction}")
+            if attempt == _MAX_ATTEMPTS:
+                raise RuntimeError("Planner could not produce a feasible unique test: " + correction)
+            continue
 
         if attempt >= _MAX_ATTEMPTS or any(t in resp.text.lower() for t in _PERMANENT):
             resp.raise_for_status()

@@ -26,6 +26,8 @@ Two things this loop does that a naive version does not:
 from __future__ import annotations
 
 import hashlib
+import asyncio
+import json
 import os
 import sys
 import time
@@ -35,6 +37,7 @@ from . import actions as actions_mod
 from . import llm as llm_mod
 from . import snapshot
 from . import trace
+from . import review
 
 # Occurrences of one (page, action) pair before warning, then before giving up.
 _LIVELOCK_WARN = 2
@@ -121,6 +124,10 @@ Rules:
   repeated clicking tells nobody anything and the run is discarded.
 - Call finish as soon as you can judge the expected result, with success true or
   false and a specific reason naming what you actually observed.
+- A pass requires EVERY assertion and prerequisite in the test. If a prerequisite
+  is missing, finish with success=false and 'Precondition not met'. Never redefine
+  the objective or report a partial check as a pass. If an expected result is
+  impossible to observe with your tools, report it as blocked, not successful.
 """
 
 
@@ -140,6 +147,10 @@ class WebAgent:
         self.page = page
         self.cfg = cfg
         self.client = client
+        self.reviewer = None
+        if isinstance(client, llm_mod.ChatClient) and getattr(cfg, "WEB_VERIFY_VERDICTS", True):
+            reviewer_model = getattr(cfg, "EVALUATOR_MODEL", "") if client.provider == "openrouter" else client.model
+            self.reviewer = llm_mod.ChatClient(cfg, model=reviewer_model or client.model, response_schema=review.SCHEMA)
         self.dispatcher = actions_mod.Dispatcher(page, cfg)
         # Progress so far, readable after an exception unwinds the loop. Without
         # these the crash path logged 0 steps and an empty route for a test that
@@ -160,6 +171,15 @@ class WebAgent:
         self.events: list[str] = []
 
     async def run(self, goal: str, max_steps: int, timeout_s: float) -> AgentResult:
+        self.last_step = 0
+        self.last_urls = []
+        try:
+            return await asyncio.wait_for(self._run(goal, max_steps, timeout_s), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            return AgentResult(False, f"Timed out after {timeout_s:.0f}s at step {self.last_step}/{max_steps}.",
+                               self.last_step, urls=self.last_urls)
+
+    async def _run(self, goal: str, max_steps: int, timeout_s: float) -> AgentResult:
         started = time.time()
         history: list[str] = []
         urls: list[str] = []
@@ -188,6 +208,9 @@ class WebAgent:
         # lines are capped.
         nudged: set[str] = set()
         captcha_pauses = 0
+        previous_observation = ""
+        parse_errors = 0
+        review_corrections = 0
 
         for step in range(1, max_steps + 1):
             if time.time() - started > timeout_s:
@@ -216,25 +239,38 @@ class WebAgent:
                 if element.get("name") and element["name"] in dead_controls:
                     element["inert"] = True
             observation = snapshot.render(snap)
-            dialogs = self.collector.take_dialogs() if self.collector is not None else []
-            if dialogs:
-                nl = chr(10)
-                observation += (nl + nl + "BROWSER DIALOGS since your last "
-                                "action (already answered for you):" + nl
-                                + "  " + (nl + "  ").join(dialogs))
-                for line in dialogs:
-                    trace.outcome(f"browser dialog - {line}", ok=True)
-                # The page did answer, just not in the DOM: not a stall.
-                stall_signature = None
+            dialogs = []
+            if previous_observation:
+                history.append("Observed after the previous action: " + _evidence(snap))
+            else:
+                history.append("Initial baseline: " + _evidence(snap))
+            previous_observation = observation
+            if self.collector is not None:
+                observation += "\nBROWSER DIAGNOSTICS (observed during this test): " + self.collector.findings.summary()
+                dialogs = self.collector.take_dialogs()
+                if dialogs:
+                    snap["browser_dialogs"] = dialogs
+                    history.append("Browser dialogs: " + "; ".join(dialogs))
+                    nl = chr(10)
+                    observation += (nl + nl + "BROWSER DIALOGS since your last "
+                                    "action (already answered for you):" + nl
+                                    + "  " + (nl + "  ").join(dialogs))
+                    for line in dialogs:
+                        trace.outcome(f"browser dialog - {line}", ok=True)
+                    # The page did answer, just not in the DOM: not a stall.
+                    stall_signature = None
             content_signature = _content_signature(snap)
 
             if pending is not None:
                 idx, before, label, act_sig = pending
                 if content_signature == before and not dialogs:
-                    history[idx] += ("   <-- THIS DID NOTHING: the page was identical "
-                                     "afterwards. Do not repeat it; take another route.")
-                    if label and label not in dead_controls:
-                        dead_controls.append(label)
+                    history[idx] += ("   <-- NO VISIBLE CHANGE: the page was identical "
+                                     "afterwards. This may be the expected validation result. "
+                                     "Judge the objective before choosing another action.")
+                    # An unchanged DOM is also the expected result of validation,
+                    # focus, scrolling, copying a link, or opening another tab.
+                    # Never permanently blacklist a control from this alone — only
+                    # the repeat below, which has proven the control inert.
                     # Only an action PROVEN inert counts toward livelock. Counting
                     # every repeat punished legitimate revisiting: a draft-retention
                     # test must open a URL, navigate away and open it again, and the
@@ -257,20 +293,57 @@ class WebAgent:
                         )
                 pending = None
 
-            reply = self.client.chat(
-                self._messages(goal, history, observation, step, max_steps, dead_controls))
+            messages = self._messages(goal, history, observation, step, max_steps, dead_controls)
+            remaining = max(0.1, timeout_s - (time.time() - started))
+            kwargs = {"timeout_s": remaining} if isinstance(self.client, llm_mod.ChatClient) else {}
+            reply = await asyncio.to_thread(self.client.chat, messages, **kwargs)
             action = llm_mod.parse_action(reply)
             trace.step(step, max_steps, snap, action)
             trace.observation(snap)
 
             if action.get("action") == "finish":
-                success = bool(action.get("success"))
+                if self.reviewer is not None:
+                    remaining = max(0.1, timeout_s - (time.time() - started))
+                    review_msgs = review.messages(goal, history, observation, action)
+                    checked = review.parse(await asyncio.to_thread(
+                        self.reviewer.chat, review_msgs, timeout_s=remaining))
+                    if checked is None:
+                        # Usually the reviewer spent its token budget reasoning and
+                        # truncated before emitting its JSON. One retry is cheap.
+                        try:
+                            remaining = max(0.1, timeout_s - (time.time() - started))
+                            checked = review.parse(await asyncio.to_thread(
+                                self.reviewer.chat, review_msgs, timeout_s=remaining))
+                        except Exception:
+                            checked = None
+                    if checked is None:
+                        # Our reviewer failing says nothing about the site, and
+                        # discarding the test would throw away everything it did
+                        # observe. Keep the agent's verdict and mark it unreviewed.
+                        trace.outcome("evidence review unavailable - keeping the agent's "
+                                      "own verdict, unreviewed", ok=False)
+                        self.events.append("verdict recorded without evidence review")
+                        checked = {"decision": "accept", "reason": "evidence review unavailable"}
+                    trace.outcome("Evidence review: " + checked["decision"] + " - " + checked["reason"])
+                    if checked["decision"] == "blocked":
+                        return AgentResult(False, "Precondition not met: " + checked["reason"], step, history, urls)
+                    if checked["decision"] == "continue":
+                        review_corrections += 1
+                        if review_corrections > 2:
+                            return AgentResult(False, "Verdict unverified: " + checked["reason"], step, history, urls)
+                        history.append("EVIDENCE REVIEW: your verdict was premature. " + checked["reason"])
+                        continue
+                success = action.get("success") is True
                 reason = str(action.get("reason") or "no reason given").strip()
                 history.append(f"finish(success={success}): {reason}")
                 trace.outcome(f"FINISH success={success}: {reason}", ok=success)
                 return AgentResult(success, reason, step, history, urls)
 
             if action.get("action") == "_error":
+                parse_errors += 1
+                if parse_errors >= 3:
+                    return AgentResult(False, "Model backend returned three invalid JSON actions; no reliable action can be executed.",
+                                       step, history, urls)
                 history.append(
                     f"step {step}: your last reply was not a JSON action and was "
                     f"discarded ({action.get('reason', '')}). Reply with ONE JSON "
@@ -279,6 +352,7 @@ class WebAgent:
                 trace.outcome(f"model reply was not a JSON action — reprompting "
                               f"| {action.get('reason', '')}"[:300], ok=False)
                 continue
+            parse_errors = 0
 
             # Identifies (page state, action). Counted two ways, deliberately:
             #
@@ -311,6 +385,12 @@ class WebAgent:
                     "you are repeating this because what the test needs is not on "
                     'this page, finish with "Precondition not met:" and name what is '
                     "missing instead of trying once more."
+                )
+                history.append(
+                    "If you are searching for a feature instead: this route has already been "
+                    "checked. Do not reopen the same dialog or repeat this route. Choose a "
+                    "different visible control, or finish with 'Precondition not met' and "
+                    "name the feature you could not reach."
                 )
                 trace.outcome("nudge: this repetition may already be the answer", ok=True)
             if cycles[signature] >= _CYCLE_ABORT:
@@ -462,8 +542,10 @@ class WebAgent:
 
     def _messages(self, goal: str, history: list[str], observation: str,
                   step: int, max_steps: int, dead: list[str] | None = None) -> list[dict]:
-        recent = [h if len(h) <= 320 else h[:317] + "..." for h in history[-12:]]
+        recent = [h if len(h) <= 600 else h[:597] + "..." for h in history[-24:]]
         log = "\n".join(recent) if recent else "(nothing yet — this is your first action)"
+        if history and history[0].startswith("Initial baseline:") and len(history) > 24:
+            log = history[0][:1200] + "\n" + log
         if dead:
             # Refs change every turn, so these are remembered by label. Without it
             # the agent forgets a control was inert as soon as the note scrolls out
@@ -500,7 +582,19 @@ def _signature(snap: dict, action: dict) -> str:
     This is NOT a persisted state identity — the Live App Model is deliberately
     out of scope for the web player. It lives and dies inside one agent run.
     """
-    return f"{_content_signature(snap)}||{action.get('action')}:{action.get('ref', '')}:{action.get('text', '')}"
+    kind = action.get("action")
+    fields = {"action": kind, **{k: action[k] for k in actions_mod.ACTION_FIELDS.get(kind, ()) if k in action}}
+    ref = fields.pop("ref", None)
+    if ref:
+        el = snapshot.find(snap, ref) or {}
+        fields["target"] = [el.get("role", ""), el.get("name", ""), el.get("href", "")]
+        # Equal labels may name different rows. Preserve their relative occurrence,
+        # while ignoring ref numbers that shift when unrelated elements appear.
+        peers = [e for e in snap.get("elements", []) if
+                 (e.get("role"), e.get("name"), e.get("href")) ==
+                 (el.get("role"), el.get("name"), el.get("href"))]
+        fields["target"].append(next((i for i, e in enumerate(peers) if e.get("ref") == ref), 0))
+    return _content_signature(snap) + "||" + json.dumps(fields, sort_keys=True, ensure_ascii=False)
 
 
 def _content_signature(snap: dict) -> str:
@@ -511,6 +605,15 @@ def _content_signature(snap: dict) -> str:
     page that isn't responding to any of them.
     """
     page = snap.get("url", "") + "|" + "|".join(
-        f"{e.get('ref')}{e.get('name')}{e.get('value', '')}" for e in snap.get("elements") or []
+        f"{e.get('role')}{e.get('name')}{e.get('value', '')}{e.get('disabled', False)}" for e in snap.get("elements") or []
     ) + "|" + "|".join(snap.get("messages") or []) + "|" + "|".join(snap.get("texts") or [])
+    page += "|" + "|".join(snap.get("headings") or []) + "|" + str(snap.get("dialog_open", False))
+    page += "|" + "|".join(snap.get("browser_dialogs") or [])
     return hashlib.sha1(page.encode("utf-8", "replace")).hexdigest()
+
+
+def _evidence(snap):
+    fields = [f"{e.get('name', '')}={e.get('value', '')!r}" for e in snap.get("elements", [])
+              if "value" in e and e.get("role") != "password"]
+    return ("URL=" + snap.get("url", "") + "; " + "; ".join(
+        (snap.get("messages") or []) + (snap.get("headings") or []) + fields[:8] + (snap.get("texts") or [])[:4]))[:1200]

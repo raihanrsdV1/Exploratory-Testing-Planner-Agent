@@ -16,6 +16,8 @@ from __future__ import annotations
 import os
 import time
 
+from .actions import _goto_settled
+
 class BrowserSession:
     """Async context manager owning the Playwright objects."""
 
@@ -91,18 +93,7 @@ class BrowserSession:
         threw at the navigation timeout and cost a whole test case before it had
         taken a single step.
         """
-        try:
-            await self.page.goto(
-                self.cfg.WEB_BASE_URL,
-                wait_until="networkidle",
-                timeout=self.cfg.WEB_NAV_TIMEOUT_MS,
-            )
-        except Exception:
-            await self.page.goto(
-                self.cfg.WEB_BASE_URL,
-                wait_until="domcontentloaded",
-                timeout=self.cfg.WEB_NAV_TIMEOUT_MS,
-            )
+        await _goto_settled(self.page, self.cfg.WEB_BASE_URL, self.cfg)
 
     async def screenshot(self, name: str) -> str:
         """Best-effort screenshot; returns the path written, or '' on failure."""

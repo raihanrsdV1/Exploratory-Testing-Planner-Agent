@@ -13,6 +13,15 @@ exact mistake the Android side already had to fix twice.
 """
 
 from __future__ import annotations
+import re
+
+
+def incomplete_reason(reason: str) -> bool:
+    """A claimed pass cannot coexist with an explicitly unmet prerequisite."""
+    return bool(re.search(
+        r"precondition.{0,90}(?:not met|not satisfied|wasn't met|was not met)|"
+        r"(?:cannot|could not|couldn't|unable to) (?:verify|test|complete)|"
+        r"(?:was|were|is) not (?:tested|verified)", reason or "", re.I))
 
 # Category -> recovery descriptor. ``retry`` decides whether one adaptive
 # re-attempt is worth the budget; a category whose cause will not change on a
@@ -91,6 +100,8 @@ def classify(reason: str, success: bool = False) -> str:
     if success:
         return ""
     r = (reason or "").lower()
+    if "verdict unverified" in r:
+        return "VERDICT_UNVERIFIED"
 
     # 0. Our own toolchain failed. Checked FIRST because these messages carry
     #    HTTP statuses ("403", "503") that every later rule would misread as the

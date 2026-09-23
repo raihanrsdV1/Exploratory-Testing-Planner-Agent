@@ -24,6 +24,8 @@ class ChatRequest(BaseModel):
 
 
 class NextTestCaseRequest(BaseModel):
+    executor_constraints: dict = Field(default_factory=dict)
+    excluded_titles: list[str] = Field(default_factory=list)
     model_config = ConfigDict(json_schema_extra={"example": {
         "project": "my-app",
         "app_name": "the app under test",

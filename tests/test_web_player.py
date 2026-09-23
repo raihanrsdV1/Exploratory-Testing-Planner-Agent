@@ -56,7 +56,8 @@ class _FakeChatClient:
 
     def chat(self, messages):
         self.turn += 1
-        return f'{{"thought":"t","action":"scroll_down","text":"attempt-{self.turn}"}}'
+        direction = ("down", "up", "top", "bottom")[(self.turn - 1) % 4]
+        return f'{{"thought":"t","action":"scroll","direction":"{direction}"}}'
 
 
 async def _check_wandering_guard():
@@ -392,10 +393,10 @@ def main():
     finally:
         _ag.snapshot.observe = real
 
-    check("the no-op is named on the action's own line",
-          "THIS DID NOTHING" in prompt, True)
-    check("the dead control is remembered by label",
-          "CONTROLS THAT DO NOTHING" in prompt and "Preview" in prompt, True)
+    check("the unchanged observation is named on the action's own line",
+          "NO VISIBLE CHANGE" in prompt, True)
+    check("unchanged DOM alone does not permanently blacklist a control",
+          "CONTROLS THAT DO NOTHING" in prompt, False)
     check("and the run still terminates rather than spinning", res.steps < 10, True)
     check("attributed to the agent, not the app",
           failures.classify(res.reason), "NAVIGATION_LIVELOCK")
@@ -668,8 +669,7 @@ def main():
     bsrc = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "web_player", "browser.py"), encoding="utf-8").read()
     reset = bsrc.split("async def reset_to_base")[1].split("async def")[0]
-    check("reset_to_base tries networkidle", "networkidle" in reset, True)
-    check("and falls back to domcontentloaded", "domcontentloaded" in reset, True)
+    check("reset_to_base uses the shared bounded navigation helper", "_goto_settled" in reset, True)
 
     print("two batches cannot run at once")
     # Two concurrent batches shared the knowledge graph, the site and the trace
@@ -996,9 +996,18 @@ def main():
         url = "https://shop.example.com/app/api/stream/1"
         method = "GET"
         failure = "net::ERR_ABORTED"
+
+    class _ResetRequest:
+        url = "https://shop.example.com/app/api/items"
+        method = "GET"
+        failure = "net::ERR_CONNECTION_RESET"
     col = Collector(page=None, cfg=_FakeCfg)
     col._on_request_failed(_AbortedRequest())
-    check("the collector files it as a request failure", len(col.findings.request_failures), 1)
+    check("a cancelled request is noise and is not recorded at all",
+          len(col.findings.request_failures), 0)
+    col._on_request_failed(_ResetRequest())
+    check("a request that genuinely failed is recorded",
+          len(col.findings.request_failures), 1)
     check("…and not as a server error", col.findings.http_failures, [])
 
     print("the live account summary tells the planner what already exists")

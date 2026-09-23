@@ -75,6 +75,7 @@ async def _check_dialog_reaches_the_model():
 
         def __init__(self):
             self.dialogs = []
+            self.findings = Findings()
 
         def take_dialogs(self):
             seen, self.dialogs = list(self.dialogs), []
@@ -114,7 +115,8 @@ def _check_honest_bail_out():
           "cannot find" in prompt, True)
     check("it says that is not a defect", "not a defect" in prompt, True)
     # The two interventions that fire before a livelock abort must name the exit.
-    src = inspect.getsource(agent_mod.WebAgent.run)
+    # run() is a thin timeout wrapper; the loop itself lives in _run().
+    src = inspect.getsource(agent_mod.WebAgent.run) + inspect.getsource(agent_mod.WebAgent._run)
     check("the wandering warning offers the exit",
           src.count('Precondition not met:') >= 2, True)
 

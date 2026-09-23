@@ -141,6 +141,7 @@ def run_agent_tools(req_args: dict) -> dict:
     brief = rag_client.get_brief_context(project)
     recent_tests = brief.get("recent_tests", []) if isinstance(brief, dict) else []
     done_titles = [str(t.get("title", "")).strip() for t in recent_tests if t.get("title")]
+    done_titles += list(req_args.get("excluded_titles") or [])
     screens = brief.get("screen_index", []) if isinstance(brief, dict) else []
     coverage_map = coverage_mod.compute_coverage_map(recent_tests, screens)
 
@@ -204,6 +205,9 @@ def run_agent_tools(req_args: dict) -> dict:
             if fn == "propose_test_case":
                 last_proposal = args
                 ok, errors = proposal_mod.validate(project, args, done_titles)
+                from web_player.planning import rejection_errors
+                errors = errors + rejection_errors(args, req_args.get("executor_constraints") or {}, done_titles)
+                ok = not errors
                 trace.append({"turn": turns, "action": "propose", "accepted": ok,
                               "errors": errors, "title": args.get("title", "")})
                 if ok:
@@ -234,13 +238,10 @@ def run_agent_tools(req_args: dict) -> dict:
     # ── Terminal fallbacks: never return nothing ────────────────────────────
     if accepted is None and last_proposal is not None:
         # The model proposed but could not satisfy validation within its budget.
-        # Take the best effort rather than losing the round, and say so — an
-        # unvalidated test is worse than a validated one but far better than a
-        # skipped planning round.
-        accepted = proposal_mod.normalize(last_proposal)
+        # Preserve the rejection: executing it would waste a browser round.
         degradations.record(
             "planner_proposal_unvalidated", degradations.MAJOR,
-            detail=f"accepted after {rejections} failed validations: {'; '.join(last_errors)[:300]}",
+            detail=f"rejected after {rejections} failed validations: {'; '.join(last_errors)[:300]}",
             project=project,
         )
     if accepted is None:
@@ -250,6 +251,7 @@ def run_agent_tools(req_args: dict) -> dict:
             project=project,
         )
         return {"project": project, "next_testcase": {}, "next_testcase_json": "",
+                "planning_errors": last_errors,
                 "planner_trace": trace, "finalization_mode": "no_proposal",
                 "available_sources": available, "recent_tests_count": len(recent_tests),
                 "coverage": {"total_tests": coverage_map.get("total_tests", 0)}}

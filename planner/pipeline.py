@@ -244,6 +244,9 @@ def generate_next_testcase(req: NextTestCaseRequest, authorization: str | None) 
     """
     config.check_gateway_auth(authorization)
     args = req.model_dump()
+    from web_player.planning import guidance
+    if "BROWSER EXECUTION CONTRACT" not in args["objective"]:
+        args["objective"] += guidance(args.get("executor_constraints"))
 
     if _settings.PLANNER_MODE == "tools":
         if model_client.supports_tools():

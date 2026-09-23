@@ -55,6 +55,9 @@ class AgentState(TypedDict):
     project: str
     app_name: str
     objective: str
+    executor_constraints: dict
+    excluded_titles: list
+    planning_errors: list
     top_k: int
     max_new_tokens: int
     enable_thinking: bool
@@ -488,7 +491,10 @@ def duplicate_check(state: AgentState) -> AgentState:
     """Stage 5 & 6: Check for duplicates, auto-retry if needed, and assign test case ID."""
     parsed = state["next_testcase"]
     candidate_title = str(parsed.get("title", "")) if isinstance(parsed, dict) else ""
-    blocked_titles = list(dict.fromkeys((state["done_titles"] or []) + (state["failed_titles"] or [])))
+    blocked_titles = list(dict.fromkeys((state["done_titles"] or []) + (state["failed_titles"] or []) + state.get("excluded_titles", [])))
+    from web_player.planning import rejection_errors
+    constraints = state.get("executor_constraints") or {}
+    admission_errors = rejection_errors(parsed, constraints, blocked_titles)
 
     # WP8 (307.3): Jaccard is a cheap local pre-filter; the embedding-cosine check
     # (server-side) catches semantically identical tests phrased differently.
@@ -500,7 +506,7 @@ def duplicate_check(state: AgentState) -> AgentState:
         state["debug_trace_data"]["dedup"] = {"jaccard_duplicate": jaccard_dupe, "semantic": semantic}
 
     # We do a single retry here if similar
-    if candidate_title and (jaccard_dupe or semantic.get("is_duplicate")):
+    if admission_errors or jaccard_dupe or semantic.get("is_duplicate"):
         # We re-generate but with different screens (similar to pipeline logic)
         already_picked = set(state["selected_screens"])
         alt_screens = [s["screen_name"] for s in state["figma_screens"] if s["screen_name"] not in already_picked][:2]
@@ -530,6 +536,7 @@ def duplicate_check(state: AgentState) -> AgentState:
             login_role=state.get("login_role"),
         ) + "\n\nBlocked titles (semantic overlap with any of these is FORBIDDEN):\n" + blocked
         
+        retry_prompt += "\nRejected proposal: " + "; ".join(admission_errors)
         model_data = model_client.call_model(retry_prompt, state["max_new_tokens"], state["enable_thinking"])
         raw_answer = model_data.get("answer", "")
         parsed = textutil.parse_testcase(raw_answer)
@@ -552,6 +559,18 @@ def duplicate_check(state: AgentState) -> AgentState:
                 "model_answer_raw": raw_answer,
                 "model_thinking": model_data.get("thinking", ""),
             }
+
+    remaining_errors = rejection_errors(parsed, constraints, blocked_titles)
+    if not remaining_errors and parsed.get("title"):
+        dupe = rag_client.semantic_dedup_check(state["project"], parsed["title"])
+        if dupe.get("is_duplicate"):
+            remaining_errors.append("Regenerated test is still a semantic duplicate.")
+    if remaining_errors:
+        state["next_testcase"] = {}
+        state["next_testcase_json"] = ""
+        state["finalization_mode"] = "proposal_rejected"
+        state["planning_errors"] = remaining_errors
+        return state
 
     # Stage 6: Enforce external test case ID. Require a title so an unparsed
     # ``{"raw": ...}`` blob never gets an id and is never logged as a test.
@@ -594,6 +613,9 @@ def run_agent(req_args: dict) -> dict:
         project=project,
         app_name=req_args.get("app_name", ""),
         objective=req_args.get("objective", ""),
+        executor_constraints=req_args.get("executor_constraints") or {},
+        excluded_titles=req_args.get("excluded_titles") or [],
+        planning_errors=[],
         top_k=req_args.get("top_k", 5),
         max_new_tokens=req_args.get("max_new_tokens", 8000),
         enable_thinking=req_args.get("enable_thinking", False),
@@ -691,6 +713,7 @@ def run_agent(req_args: dict) -> dict:
         "available_sources": [s["name"] for s in final_state.get("available_sources", [])],
         "next_testcase_json": final_state["next_testcase_json"],
         "next_testcase": parsed,
+        "planning_errors": final_state.get("planning_errors", []),
         "recent_tests_count": len(recent_tests),
         "failed_tests_count": len(final_state["failed_titles"]),
         "thinking": final_state["model_thinking"],
