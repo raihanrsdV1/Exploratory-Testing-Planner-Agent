@@ -1,0 +1,47 @@
+\chapter*{ABSTRACT}
+\addcontentsline{toc}{chapter}{Abstract}
+
+An automated tool can tell you that an application crashed. It cannot tell you
+that the application quietly charged the wrong price, because it has no idea
+what the right price was. That gap, between detecting a failure and detecting a
+\emph{wrong answer}, is why graphical user interface testing is still done by
+people, at a cost that grows with every release, and whose hard-won knowledge of an
+application's weak points leaves with the tester.
+
+Samsung Research and Development Institute Bangladesh posed the problem and
+asked for a demanding change: to move from \emph{directed} testing, where an
+agent is given an objective, to \emph{exploratory} testing, where the agent
+decides what is worth testing next, infers what correct behaviour would be, and
+is better informed next time. The objective stops being an input
+and becomes an output, and a failure becomes ambiguous between a real defect, a
+limitation of the agent, and an environment that simply blocked it.
+
+The system built in response is an autonomous exploratory testing agent
+organised around one persistent knowledge graph. Three stateless
+language-model roles (a planner that writes the next test case, an executor that
+drives the application, and an investigator that distils each run into
+findings) communicate only through that graph. It grows from a requirements
+specification, a design export and a defect history, and from the agent's own
+observations, so it works where no documentation exists. One planner and one
+graph drive both Android and the web. All eight of the partner's requirement
+families were delivered, plus ten derived on contact with a real
+application. Among them are a fault attribution taxonomy that stops the
+agent's own failures being reported as defects, and a safety boundary
+around irreversible actions.
+
+Validation combined a regression suite, live campaigns against a production
+commerce application and a website, and a reading of seven research
+systems. The agent models an application it has never seen, cites the
+requirement each test covers, and costs about one US cent per test, orders of
+magnitude below published figures. Autonomy and requirement coverage
+remain modest and are reported unadjusted. The review also yielded a finding
+that constrains every claim in this field, this project's included: none of the
+seven systems reports precision or recall for defect detection, and the two that
+do injected their faults by hand, because without a specification there is no
+oracle beyond a crash, and without an oracle no ground truth. Grounding the
+agent in a specification attacks that problem directly; the seeded-defect
+experiment that would close it is the most valuable work remaining.
+
+\vspace{0pt}
+\noindent\textbf{Keywords:} exploratory testing; GUI test automation; LLM agents; knowledge graphs.
+\clearpage

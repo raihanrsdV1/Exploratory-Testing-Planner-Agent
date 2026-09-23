@@ -1,0 +1,310 @@
+% Chapter 7 -- Rubric: PO12 (12.1)
+\chapter{Conclusion}
+\label{ch:conclusion}
+
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+
+\subsection*{Achievement against the objectives}
+
+\Cref{sec:objectives} stated eight objectives, each with the check that would
+settle it. \Cref{tab:objectives} reports the outcome of each check.
+\Cref{ch:evaluation} carries the evidence; this section states the verdict and
+does not repeat the argument.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.42\hsize}Y>{\hsize=1.40\hsize}Y>{\hsize=1.18\hsize}Y@{}}
+  \caption{Outcome against each stated objective}
+  \label{tab:objectives}\\
+  \toprule
+  Objective & Outcome & Status \\
+  \midrule
+  \endfirsthead
+  \caption[]{Outcome against each stated objective \emph{(continued)}}\\
+  \toprule
+  Objective & Outcome & Status \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  O1 Knowledge graph &
+    A project-scoped property graph ingests a requirements specification, a design export and a defect history independently of one another, and is additionally grown from the agent's own observations of the running application. Each source was verified by ingesting it alone and querying the resulting nodes and relationships. &
+    Met. \\
+  \addlinespace
+  O2 Self-selected, non-duplicate, requirement-citing tests &
+    No test objective enters the loop from outside. Proposals are rejected structurally and as duplicates, with an embedding-cosine check behind a lexical pre-filter. Requirement citation is enforced at both construction paths after a defect that allowed decorated identifiers to bypass it. &
+    Met. \\
+  \addlinespace
+  O3 Autonomous execution on two platforms with three-way attribution &
+    Test cases execute unattended against a physical Android device through the accessibility service and against a live web application through a browser, returning a verdict with an explicit application, agent or environment attribution. &
+    Met in capability. \guidance{TODO (ch.5): insert the measured autonomy rate from \Cref{ch:evaluation} and state plainly whether the campaign target was reached.} \\
+  \addlinespace
+  O4 Closed learning loop &
+    Execution outcomes persist as deduplicated findings, navigation paths, error patterns and strategy scores, and are read back into the next round's prompt. The loop was verified by showing that a proposal changes when, and only when, the corresponding knowledge is present in the graph. &
+    Met. \\
+  \addlinespace
+  O5 The partner's eight requirement families &
+    All eight families and both non-functional requirements are implemented, with the traceability matrix in \Cref{tab:partner-req}. Two carry honest qualifications: defect intelligence (ETA-REQ-301) has been exercised on synthetic data only, and cross-dimensional transfer (ETA-REQ-304) is implemented but unvalidated. &
+    Met, with two qualifications. \\
+  \addlinespace
+  O6 Application-agnostic &
+    Application-specific values arrive through configuration rather than code, enforced by a repository-wide generality audit, and the same unmodified system was run against more than one application on two different platforms. &
+    Met. \\
+  \addlinespace
+  O7 Measured cost within budget &
+    Cost per executed test is reconciled against the provider's billing record rather than estimated, and the expensive roles were moved to cheaper model tiers after the quality cost of doing so had been measured. &
+    Met. \guidance{TODO (ch.5): insert the final cost-per-test figure and the billing reconciliation from \Cref{ch:evaluation}.} \\
+  \addlinespace
+  O8 Operator surface &
+    A dashboard shows the live session, coverage, the growing application model and the planner trace; a run report exports as a PDF whose numbers are computed from the graph while the language model supplies prose only. &
+    Met. \\
+\end{xltabular}
+\endgroup
+
+\subsection*{What the project establishes}
+
+Four claims are supported by the work.
+
+First, an agent can select its own test objectives from a specification and a
+learned model of a running application, execute them without supervision, and
+do so at a unit cost low enough that the budget stops being the binding
+constraint on a campaign. This is the capability the industry partner asked for,
+and it is the part of the problem that the reviewed literature attempts least
+often: of the seven systems examined in \Cref{ch:research}, five are handed
+their objective and only one generates its own.
+
+Second, the eight requirement families of ETA-TR-2026-001 are implementable as
+one coherent system rather than as eight separate features. Defect history,
+navigation memory, experiential learning, dimensional partitioning, self-healing,
+risk scoring, quality metrics and anomaly detection share a single graph, a
+single attribution vocabulary and a single planner, and each is reachable from
+the others. That integration, rather than any individual mechanism, is what
+makes the learning loop close.
+
+Third, the architecture is not tied to one application or one interface
+technology. The same planner, the same graph and the same attribution taxonomy
+drove campaigns against two Android applications, including a production
+commerce platform with live users, and against four web targets ranging from a
+survey platform to a demonstration storefront to an encyclopaedia. Adding a
+target is a validated configuration file, not a code change.
+
+Fourth, evidence integrity can be made a structural property rather than a
+matter of diligence. Silent fallbacks are forbidden and recorded across process
+boundaries; fault attribution has exactly one definition in the source tree, so
+an agent limitation cannot drift into being reported as an application defect;
+and a model-provider outage is classified as an environment fault rather than as
+a discovery. None of the seven reviewed systems distinguishes these three cases
+at all (gap G4), and the absence shows in their results.
+
+\subsection*{What this kind of testing delivers}
+
+It is worth being explicit about what an exploratory agent is for, because the
+most convenient metric is not the most valuable output.
+
+\emph{Defects nobody wrote a test for.} The whole point of exploration is to
+reach behaviour that was never anticipated, which is precisely the behaviour no
+benchmark contains. That is an awkward property to measure and an excellent
+property to have, and it is why the field has fallen back on crash counts rather
+than abandoning the technique.
+
+\emph{A map of where an interface is hard to use.} An agent that reads the same
+accessibility layer as assistive technology, and that records every point at
+which it could not find a control, could not reach a screen, or circled a flow
+without progressing, produces something more useful than a pass rate: a list of
+the places where the application is genuinely difficult to navigate. A wizard
+that traps the agent is a wizard that will confuse a user, and a control the
+agent cannot see is one a screen reader cannot see either
+(\Cref{sec:society}). The three-way attribution taxonomy is what makes this
+readable, because it separates those observations from defect reports instead of
+mixing them together.
+
+\emph{Durable artefacts that outlive the campaign.} A run leaves behind a
+navigable model of the application's screens and transitions, readable test
+cases that each cite the requirement they cover, deduplicated findings carrying
+an independent-observation count, and a coverage report against the requirement
+set. Requirement coverage in particular is a number none of the reviewed systems
+can report at all, because none of them ingests a specification.
+
+\subsection*{The open measurement, and why it is the field's rather than this
+project's}
+
+One figure is not yet available: the proportion of the defects actually present
+in a target that the agent found, and the proportion of its reports that were
+spurious. \Cref{subsec:measurement} sets out why. Computing precision and recall
+requires faults whose location is known in advance, and the two reviewed systems
+that report such figures obtained them by injecting faults by
+hand~\cite{auitestagent}, because naturally occurring defects in a mature
+application are neither catalogued nor conveniently placed.
+
+The useful observation is that specification grounding attacks the root of that
+problem rather than working around it. Where a crash-only oracle can measure
+nothing but crashes, an agent that knows what the application was supposed to do
+has, in principle, an oracle for every requirement it can cite. Turning that
+principle into a measured precision and recall is the experiment described in F1
+below, and it is a contribution the field is missing rather than a gap peculiar
+to this implementation.
+
+\subsection*{Boundaries of the evidence}
+
+Three boundaries should be read alongside the results in \Cref{ch:evaluation}.
+The evidence base is a set of campaigns across the six targets named above
+rather than a standard benchmark suite, so comparisons with published figures
+are indicative rather than like-for-like. The system is scoped to local,
+developer-operated execution on a trusted host, so its behaviour in shared
+infrastructure is outside what was evaluated. And every result is conditioned on
+a budget, because exploratory testing has no natural stopping point
+(difficulty D2), which makes coverage a quantity that is reported at a given
+spend rather than one that is ever complete.
+
+\guidance{TODO (ch.5): revisit this whole section once \Cref{ch:evaluation} is
+final. Three things need reconciling with the measured results: the two
+\guidance{} slots in \Cref{tab:objectives} (autonomy rate for O3, cost figure
+for O7); the list of six targets above, which should name only those that
+actually carried a full campaign and say how many rounds each ran; and the
+opening claim about unit cost, which must match the reconciliation reported in
+\Cref{ch:evaluation}. If the campaign against the target with documented defects
+returns usable data, add it here as direct evidence on the open measurement
+above and update F1 accordingly.}
+
+\subsection*{Future work}
+
+The items below are ordered by what they would add to the evidence, not by
+effort.
+
+\begin{enumerate}[label=\textbf{F\arabic*.},leftmargin=3.0em]
+  \item \textbf{A defect-injection evaluation harness.} \Cref{subsec:measurement}
+    shows that this field cannot report precision or recall because it has no
+    labelled ground truth, and that the only two systems reporting such figures
+    obtained them by injecting faults by hand~\cite{auitestagent}. A reusable
+    harness that seeds a catalogue of functional faults into a build, runs an
+    agent against seeded and clean variants, and scores the result would turn a
+    one-off manual expedient into shared measurement infrastructure. It is the
+    most valuable extension available, because it is the one that would let any
+    agent of this kind state what fraction of real defects it finds.
+
+  \item \textbf{A second oracle tier that inspects durable state.} The system
+    currently derives its expectation from the specification and checks it
+    against what the interface displays. A complementary tier would verify the
+    effect instead of the appearance, by inspecting application or database
+    state after a test completes, in the manner of state-checking benchmark
+    environments~\cite{androidworld,appworld}. It would not cover every
+    assertion, but where it applies it removes the agent from its own
+    assessment and catches unintended side effects that no screen shows.
+
+  \item \textbf{Synthesis of a deterministic regression suite.} An exploratory
+    campaign produces exactly the raw material a scripted suite is written from:
+    a confirmed behaviour, the shortest path that reaches it, and the assertion
+    that distinguishes right from wrong. Promoting confirmed findings into
+    generated, replayable test scripts would join the two halves of
+    \Cref{tab:alternatives} that this report treats as complementary, letting
+    the agent discover and a deterministic suite defend.
+
+  \item \textbf{Extension to further device profiles.} The dimensional model
+    (ETA-REQ-304) is built to partition knowledge by profile, platform and
+    application, and the partner's interest is in transfer across all three.
+    Extending execution to watch, television and tablet profiles, where the
+    input modality changes to a rotary control or a directional pad, is the
+    natural next axis and would put the transfer mechanism under real load.
+
+  \item \textbf{Cached and selective visual grounding.} The system already
+    reads pixels as well as structure: the executor is given a screenshot
+    alongside the accessibility tree at every step, the planner receives a
+    screenshot of the state it is writing a test for, and a perceptual hash
+    settles screen identity when the accessibility tree is too thin to do so.
+    What is missing is not the capability but its economics. An image is sent
+    with every step whether or not that step needed one, and nothing derived
+    from it is kept, so the same screen is interpreted afresh on every visit.
+    The extension is to make the input selective and the output durable: attach
+    an image only when the structural signature is ambiguous, and persist what
+    the model reads from it, a screen caption and names for the controls the
+    accessibility tree leaves unnamed, onto the corresponding node in the
+    application model. That converts a recurring per-step image cost into a
+    one-off per-screen cost, and it promotes a visual interpretation into shared
+    knowledge that later rounds and other roles can read instead of re-deriving.
+
+  \item \textbf{On-device and smaller-model execution.} Every execution
+    currently depends on a hosted model reachable over the network. Running the
+    executor on a small local model would remove that dependency and with it the
+    per-test charge, the network latency and the need to send interface content
+    off the device at all, which matters for testing applications whose screens
+    contain data that cannot leave the organisation. Comparable work has already
+    placed a seven-billion-parameter model on the handset
+    itself~\cite{autodroid}.
+
+  \item \textbf{Parallel execution and continuous-integration triggering.} The
+    architecture already separates planning from execution across processes, so
+    a single planner could drive several devices at once, and a campaign could
+    be triggered by a build rather than by an operator. This is what would move
+    the system from a tool an engineer runs to a service a pipeline consumes.
+
+  \item \textbf{A learned device-control policy.} The system adapts through
+    graph memory, strategy scores and prompt construction, which keeps it usable
+    with hosted models it does not control. Training a policy directly from
+    interaction outcomes is the alternative, and the reported gains are
+    large~\cite{digirl}. It is the natural successor to this architecture rather
+    than a competitor to it.
+\end{enumerate}
+
+\section{Continuous Engagement and Self-directed Learning}
+\label{sec:lessons}
+
+None of the following was taught in coursework. Each was identified as a gap
+during the project and closed by the team.
+
+\paragraph{Technologies learned independently.} Graph data modelling in Neo4j,
+including Cypher, uniqueness constraints and vector indexes used alongside
+lexical retrieval. LangGraph for orchestrating a multi-step agent as an explicit
+state machine rather than as a chain of calls. The Android accessibility service
+and ADB as a control surface, and the companion on-device application needed to
+make text entry reliable. Playwright for browser automation, including the
+accessibility-annotated snapshot and file-chooser handling. Tool-calling and
+structured-output modes on hosted language models. Sentence embeddings for
+semantic deduplication. React with Vite for the operator dashboard, and \LaTeX{}
+for this report.
+
+\paragraph{Literature engaged with.} Seven recent systems were read in full and
+are analysed in \Cref{ch:research}: four GUI testing
+systems~\cite{gptdroid,droidagent,auitestagent,xuatcopilot} and three task
+automation agents whose memory mechanisms transfer to the testing
+problem~\cite{autodroid,appagent,appagentx}. A wider set of benchmark
+environments and grounding models was surveyed alongside them. The foundational
+definition of exploratory testing was taken from its
+source~\cite{kaner} rather than from a secondary description.
+
+\paragraph{Standards and practice consulted.} ISO/IEC/IEEE 29119 for testing
+vocabulary and documentation~\cite{iso29119}, ISO/IEC 25010 for the quality
+model~\cite{iso25010}, ISO/IEC/IEEE 29148 for requirements
+traceability~\cite{iso29148}, and the OWASP guidance for language-model
+applications for prompt injection and credential
+handling~\cite{owaspllm}. None of these was part of the syllabus.
+
+\paragraph{Engineering practices adopted during the project.} Three working
+principles were arrived at during the project rather than brought to it, and
+each changed the system more than any single paper did.
+
+\emph{Degradation must be observable.} A component that falls back quietly
+produces a result that looks acceptable and measures something other than what
+it claims. The team therefore made degradation a first-class recorded event,
+propagated across process boundaries, on the principle that a system whose
+output is a correctness judgement may not be allowed to fail silently. This is
+the origin of NFR-D2.
+
+\emph{A measurement is built upward, not divided downward.} An aggregate divided
+by a count conceals every assumption that went into the aggregate. The project's
+unit cost was therefore established by instrumenting a single execution end to
+end and reconciling upward against the provider's record, rather than by
+apportioning a total, and the same discipline is why coverage is reported
+against an enumerated requirement set rather than inferred.
+
+\emph{A property that matters is machine-checked.} Application-agnosticism is
+easy to intend and hard to verify by reading, because an author reviews the code
+they remember writing. The team wrote an automated audit that sweeps the whole
+source tree for application-specific vocabulary, on the general principle that a
+requirement worth stating is a requirement worth testing, including when the
+system under test is one's own.

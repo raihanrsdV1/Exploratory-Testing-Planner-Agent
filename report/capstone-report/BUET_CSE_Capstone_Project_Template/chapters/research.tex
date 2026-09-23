@@ -1,0 +1,555 @@
+% Chapter 2 -- Rubric: PO1 (1.1), PO2 (research literature), feeds PO3 and PO11
+\chapter{Preliminary Research}
+\label{ch:research}
+
+\section{Literature Review}
+\label{sec:literature}
+
+Seven primary systems were read in full and form the evidentiary basis of this
+review: four are GUI \emph{testing}
+systems~\cite{gptdroid,droidagent,auitestagent,xuatcopilot} and three are GUI
+\emph{task-automation} agents~\cite{autodroid,appagent,appagentx} whose memory
+and grounding mechanisms transfer directly to the testing problem. Every figure
+quoted below was taken from those papers. The review is organised around four
+questions: how the field arrived at language-model agents, what those agents
+demonstrably add, how the resulting claims are measured, and what the
+literature leaves open.
+
+\subsection{From Random Input to Learned Exploration}
+\label{subsec:lineage}
+
+Automated Android GUI testing has passed through three generations. The first
+drives the application with pseudo-random events; Android's own Monkey is the
+canonical example and remains the universal baseline~\cite{monkey}. The second
+is systematic or model-based: DroidBot builds a UI transition graph and
+greedily prioritises unexplored widgets~\cite{droidbot}. The third is
+learning-based: Humanoid trains a deep network on real human interaction traces
+to bias action selection toward human-like paths~\cite{humanoid}, and a
+parallel line applies reinforcement learning with curiosity rewards to reach
+novel states.
+
+Liu et al.\ summarise the limitations of the learning-based generation
+precisely~\cite{gptdroid}: these methods require large interaction datasets
+that are difficult to collect; they generalise poorly to applications they were
+not trained on, while applications evolve continuously; and the environment is
+non-deterministic. Their own example is that deleting the last item from a list
+produces an empty list on which the delete control no longer works, which
+defeats a learned policy.
+
+A second, more fundamental criticism runs through the whole lineage and is the
+one this project takes as its starting point. All three generations optimise
+\emph{structural} objectives: activity coverage, widget coverage, code coverage.
+Yoon et al.\ point out that this is not what practitioners
+want~\cite{droidagent}: an empirical study of Android developers found that the
+dominant test-design strategy is to follow the usage model of the application,
+that developers prefer test cases targeting individual features and use cases,
+and that, asked what form they would like generated tests to take, they chose
+natural language over test-API scripts, with expected outputs and use-case
+steps included. Coverage is a proxy that the people who consume the results did
+not ask for~\cite{coppola}.
+
+\subsection{The Language-Model Agent Wave}
+\label{subsec:llmwave}
+
+Between 2023 and 2025 the field reorganised around large-language-model agents.
+\Cref{tab:llm-systems} summarises the seven systems reviewed.
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.52\hsize}Y>{\hsize=1.02\hsize}Y>{\hsize=1.46\hsize}Y@{}}
+  \caption{The seven primary systems reviewed: goal, core mechanism, and the basis on which each was evaluated}
+  \label{tab:llm-systems}\\
+  \toprule
+  System & Goal and mechanism & Evaluation basis and headline result \\
+  \midrule
+  \endfirsthead
+  \caption[]{The seven primary systems reviewed \emph{(continued)}}\\
+  \toprule
+  System & Goal and mechanism & Evaluation basis and headline result \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  GPTDroid \cite{gptdroid} & GUI \emph{testing} framed as a question-and-answer task; functionality-aware memory prompting carries testing knowledge across the whole session. &
+    93 Android applications carrying 143 previously confirmed crash bugs. 75\% activity and 66\% code coverage against 57\% for the best baseline; 95 of the known bugs detected, 31\% more than the best baseline, and 35\% faster. Separately, 53 previously unknown crashes on Google Play, of which 35 were confirmed or fixed. \\
+  \addlinespace
+  DroidAgent \cite{droidagent} & GUI \emph{testing} with four cooperating agents (Planner, Actor, Observer, Reflector) over short-term, long-term and spatial memory; sets its own natural-language task goals. &
+    15 applications from the Themis benchmark \cite{themis}, two-hour budget each. 61\% activity coverage against 51\% for Humanoid; 13.9 features covered per application against 7.3. Of 374 self-generated tasks, 85\% judged viable and 59\% completed by manual labelling. Five crashes found. Cost \$13--\$22 per application, mean \$18.10. \\
+  \addlinespace
+  AUITestAgent \cite{auitestagent} & GUI \emph{function testing} driven by a natural-language test requirement; deliberately decouples interaction from verification and extracts verification evidence along three dimensions of the interaction log. &
+    30 authored interaction tasks over 8 popular applications; 77\% completion. Verification measured on 40 tasks built from 20 \emph{manually injected} anomalies: 95\% oracle accuracy on correct behaviour, 85\% on anomaly detection, 90\% recall at a 4.5\% false-positive rate. Field-deployed at Meituan: 4 new functional bugs across 10 regression rounds in two months, saving 1.5 person-days per round. \\
+  \addlinespace
+  XUAT-Copilot \cite{xuatcopilot} & Automating the \emph{test-script generation} stage of an existing industrial user-acceptance-testing pipeline; three agents for action planning, state checking and parameter selection, plus reflection. &
+    450 WeChat Pay test cases, all of which had already passed with human-written scripts. $Pass@1$ of 88.55\% and $Complete@1$ of 93.03\%, against 22.65\% and 25.25\% for a single-agent variant carrying the same combined prompt. \\
+  \addlinespace
+  AutoDroid \cite{autodroid} & \emph{Task automation}: combines model commonsense with app-specific knowledge mined by automated dynamic analysis; UI transition memory, memory injection, and query optimisation. &
+    DroidTask benchmark: 158 tasks over 13 applications. With GPT-4, 90.9\% action accuracy and 71.3\% task completion, 36--40 percentage points above the language-model baselines. Query cost reduced from \$18.76 to \$10.17 per thousand GPT-4 queries by halving prompt length. \\
+  \addlinespace
+  AppAgent \cite{appagent} & \emph{Task automation} from screenshots alone; an exploration phase writes a knowledge-base document per application, either autonomously or by watching a human demonstration. &
+    45 tasks over 9 applications. Success rate 2.2\% with a raw action space, 48.9\% with a designed action space and no document, 73.3\% with an autonomously explored document, 84.4\% from watching demonstrations, and 95.6\% from a hand-written document. \\
+  \addlinespace
+  AppAgentX \cite{appagentx} & \emph{Task automation} with an evolutionary memory: repeated low-level action sequences are abstracted into high-level shortcuts, implemented over Neo4j for graph storage and a vector index for retrieval. &
+    AppAgent benchmark (50 tasks, 9 applications), each repeated five times. Success rate 16.9\% with no memory, 70.8\% with chain-structured memory, 71.4\% with memory plus evolution, while average steps fell from 9.1 to 5.7 and tokens per task from 9.26k to 4.94k. \\
+\end{xltabular}
+\endgroup
+
+\subsection{What the Evidence Agrees On}
+\label{subsec:agreement}
+
+Three findings recur across systems that were built independently, by different
+groups, on different benchmarks. Because they agree, they can be treated as
+established rather than as any one paper's claim.
+
+\paragraph{Persistent memory is the single largest lever, and it is worth more
+than the model.} The ablations are unusually consistent. AppAgentX reports
+16.9\% success with no memory and 70.8\% with chain-structured memory, a
+four-fold improvement from memory alone, before any other
+enhancement~\cite{appagentx}. AppAgent reports 2.2\% with a raw action space
+and no document, rising to 73.3\% once an exploration phase has written one, on
+the same underlying model~\cite{appagent}. Removing the explored-functionality
+memory from GPTDroid costs it 51\% of its activity coverage, from 0.75 to 0.37,
+the largest single contribution of any of its modules~\cite{gptdroid}.
+AutoDroid's entire thesis is that app-specific knowledge mined by dynamic
+analysis, injected into the prompt, is what separates 71.3\% task completion
+from the 31--35\% of the unaugmented baselines~\cite{autodroid}. This is the
+strongest single justification available for the knowledge-graph architecture
+selected in \Cref{sec:alternatives}.
+
+\paragraph{Decomposing the agent into roles beats one large prompt.} XUAT-Copilot
+gives the cleanest measurement, because its single-agent variant is constructed
+by concatenating all three agents' prompts into one: $Pass@1$ falls from
+88.55\% to 22.65\%~\cite{xuatcopilot}. The authors attribute the collapse to
+long prompts inducing forgetting, hallucination and inefficient planning.
+DroidAgent reaches the same architecture independently with four
+roles~\cite{droidagent}, and AUITestAgent makes the separation of interaction
+from verification its central design claim~\cite{auitestagent}.
+
+\paragraph{The bottleneck is the oracle, not the actuator.} Across the seven
+systems, \emph{interacting} with an application is largely solved: completion
+rates cluster between 71\% and 95\%. \emph{Judging} the result is not. The
+sharpest evidence is AUITestAgent's baseline, a competent general-purpose model
+prompted directly: it reaches 0.90 oracle accuracy when the application is
+behaving correctly and 0.30 when an anomaly is present, and the authors name
+the cause: ``its tendency to output a `no anomaly'
+judgment''~\cite{auitestagent}. A verifier that is accurate only when there is
+nothing to find is not a verifier; it is a silent pass. This single observation
+motivated two design decisions in this project: the separate investigator role
+(DR-06) and the prohibition on silent fallbacks (NFR-D2).
+
+A fourth observation is weaker but practically important: \textbf{cost is
+rarely reported, and where it is reported it is substantial.} DroidAgent spends
+a mean of \$18.10 per application for a two-hour budget and states in its
+threats to validity that ``given the monetary constraints linked to API
+requests, we could not conduct multiple runs''~\cite{droidagent}. That is, the
+cost of the method prevented the authors from establishing the reproducibility
+of their own result. AutoDroid treats query cost as a first-class engineering
+target and halves it by compressing the UI representation~\cite{autodroid}. Of
+the remaining five systems, only AUITestAgent and AppAgentX report token
+consumption at all.
+
+\subsection{How This Literature Is Measured, and Why It Reports Almost No Precision or Recall}
+\label{subsec:measurement}
+
+The most consequential finding of this review is methodological. Across all
+seven systems, defect-finding ability is established in one of three ways, none
+of which supports a precision, recall or $F_1$ figure.
+\Cref{tab:measurement} sets out what each regime can and cannot establish.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.62\hsize}Y>{\hsize=1.08\hsize}Y>{\hsize=1.30\hsize}Y@{}}
+  \caption{The three evaluation regimes in the reviewed literature, and the limit of each}
+  \label{tab:measurement}\\
+  \toprule
+  Regime & Used by & What it can and cannot establish \\
+  \midrule
+  \endfirsthead
+  \caption[]{The three evaluation regimes \emph{(continued)}}\\
+  \toprule
+  Regime & Used by & What it can and cannot establish \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  Structural coverage proxies (activity, widget, code, feature) &
+    GPTDroid, DroidAgent, and every pre-LLM baseline &
+    Establishes that more of the application was reached. Cannot establish that anything was \emph{checked}: an activity can be covered by a control that opens it and a back press, which DroidAgent documents Humanoid doing. Feature coverage is stronger but, absent a specification, must be defined by hand: DroidAgent's feature list was fixed ``until the consensus of three authors''. \\
+  \addlinespace
+  Known-crash benchmarks &
+    GPTDroid on Themis \cite{themis} plus 73 further applications: 93 applications, 143 bugs &
+    Gives a genuine denominator and therefore a genuine recall, 95 of 143. Its limit is stated by the authors themselves: ``same as the benchmark, all bugs are crash bugs.'' A crash is the only defect a tool can recognise without knowing what the application was supposed to do, so the entire quantitative bug-finding literature measures crash detection. Functional defects (a wrong total, an order routed to the wrong seller) are outside the benchmark by construction. \\
+  \addlinespace
+  Wild-bug counts &
+    GPTDroid (53 new, 35 confirmed or fixed); AUITestAgent (4 in two months at Meituan) &
+    Strong evidence of practical usefulness, and a precision of sorts can be computed from the confirmation rate. Recall is unobtainable in principle: nobody knows how many defects a production application contains, so there is no denominator. \\
+\end{xltabular}
+\endgroup
+
+Only two of the seven papers report precision and recall at all, and it is
+instructive that both had to manufacture their ground truth to do so.
+
+AUITestAgent needed to measure verification ability on commercial applications,
+and states the obstacle plainly: ``as the apps we selected are not open-source
+and bugs are not common in the online versions of these mature commercial apps,
+we needed a robust method to effectively measure AUITestAgent's performance in
+executing function verification''~\cite{auitestagent}. Their solution was to
+\emph{inject} defects: two authors analysed 50 recent historical anomalies at
+Meituan, distilled them into three categories, and manually created 20
+corresponding anomaly manifestations, each paired with one correct and one
+anomalous interaction trace. Only against that artificial ground truth could
+they report 90\% recall at a 4.5\% false-positive rate.
+
+DroidAgent reports precision 0.72, recall 0.77 and $F_1$ 0.74, but for its
+\emph{Reflector's self-assessment}, not for defect detection~\cite{droidagent}.
+The measurement is of whether the agent correctly judged that it had completed
+its own task, scored against three authors' manual labels. It is a measure of
+self-knowledge, which is valuable and which this project also needs, but it
+says nothing about how many defects were missed.
+
+The pattern is therefore a chain of dependencies, and it is worth stating
+explicitly because it determines what this project can and cannot claim:
+\emph{without a specification there is no oracle beyond a crash; without an
+oracle there is no labelled ground truth; without ground truth there is no
+precision, recall or $F_1$, only coverage proxies, crash counts, and human
+consensus.} Every subjective judgement in this literature (DroidAgent's three
+authors agreeing on a feature list, its manual labelling of 374 tasks, the
+confirmation of 35 of 53 reported Google Play bugs by their developers) exists
+to substitute for a ground truth that the absence of a specification made
+unavailable.
+
+This diagnosis has two direct consequences for the present project. First, it
+is the strongest argument for the specification-grounded design: ingesting a
+requirements document supplies exactly the oracle whose absence forces everyone
+else onto coverage proxies, and makes \emph{requirement coverage} reportable as
+a first-class result rather than activity coverage as a proxy. Second, it means
+that this project's own precision and recall cannot be obtained honestly
+without seeding known defects, in the manner of AUITestAgent. That experiment
+is specified but was not completed within this session, because the industry
+partner supplied neither a defect export nor a seeded build (constraint C3),
+and it is carried into \Cref{ch:conclusion} as the single most valuable piece
+of outstanding work.
+
+\subsection{What the Literature Leaves Open}
+\label{subsec:gaps}
+
+\begin{enumerate}[label=\textbf{G\arabic*.},leftmargin=3.0em]
+  \item \textbf{No specification is ever ingested.} Not one of the seven systems
+    reads a requirements document, builds a requirement graph, or reports
+    requirement coverage. AUITestAgent comes closest by accepting one
+    natural-language test requirement per test, but it holds no persistent model
+    of the requirement set and cannot say which requirements remain untested.
+  \item \textbf{Memory does not leave the application or the session.}
+    AppAgentX's shortcut chains, AutoDroid's transition memory and GPTDroid's
+    functionality memory are all per-application. No reviewed system transfers
+    what it learned about one application, device profile or platform to
+    another.
+  \item \textbf{Defect history is never a knowledge source.} None of the seven
+    reads a bug tracker, and none biases exploration toward historically fragile areas, despite defect density being among the oldest and best-established
+    predictors in software engineering.
+  \item \textbf{Failures are not attributed.} Outcomes are binary. Nothing in
+    these systems distinguishes ``the application is wrong'' from ``the agent
+    could not drive the application'' from ``the environment blocked the test'',
+    even though the three demand completely different responses and only the
+    first is a defect report.
+  \item \textbf{Web and mobile are studied in isolation.} The mobile systems
+    reviewed here share no substrate with their web equivalents, so nothing
+    learned on one platform informs the other.
+  \item \textbf{Safety is largely unaddressed, and its cost is unmeasured.}
+    Only AutoDroid treats destructive actions as a design problem, introducing
+    privacy replacement and security confirmation and reporting what they cost:
+    action accuracy falls from 92.9\% to 89.9\% and completion from 75.4\% to
+    69.9\%~\cite{autodroid}. That roughly 3--6 percentage-point safety tax is the
+    only quantification of this trade-off found in the review, and it is directly
+    relevant to a project constrained to avoid irreversible actions on a
+    production system.
+\end{enumerate}
+
+Gaps G1--G4 correspond, respectively, to this project's specification-grounded
+planner, its multi-dimensional graph partitioning (ETA-REQ-304), its
+defect-history source (ETA-REQ-301) and its three-way attribution taxonomy
+(NFR-D3); G5 corresponds to the shared planner and graph behind the Android and
+web executors (DR-04); G6 to the enforced safety boundary (DR-07). The
+combination (a specification graph that says what \emph{should} happen, a
+runtime graph that records what \emph{does}, and exploration steered by the gap
+between them) is the position this project occupies in the literature.
+
+\subsection{Additional Works Surveyed}
+\label{subsec:additional}
+
+Beyond the seven systems read in full, the team surveyed a wider set of recent
+work on generalist GUI agents, visual grounding models and agent benchmarks.
+Two strands bear directly on the argument of this chapter and are worth
+reporting; the remainder are noted only briefly.
+
+\paragraph{Benchmark environments with programmatic oracles.} The measurement
+problem of \Cref{subsec:measurement} has a partial answer that none of the
+seven testing systems uses: define success by inspecting durable application or
+system state after the fact, rather than by asking the agent, or a language
+model reading the agent's transcript, whether it succeeded. AndroidWorld builds
+116 programmatically checkable tasks across 20 real Android applications, each
+with an initialisation, a state-based success check and a teardown, and
+parameterises them dynamically so that a memorised phrasing does not
+suffice~\cite{androidworld}. AppWorld goes further for the class of behaviours
+that touch stored data: its tasks are graded by database-state unit tests,
+which accept any valid solution path while also detecting \emph{unintended
+collateral changes}, something a transcript-reading judge cannot see at
+all~\cite{appworld}.
+
+Two consequences follow. First, this is a strictly stronger oracle than
+self-report for the subset of behaviours whose effects are externally
+observable, and adopting it where possible is recorded as future work in
+\Cref{ch:conclusion}. Second, and more sobering, the scores these benchmarks
+report are low: the best baseline in AndroidWorld completes 30.6\% of
+tasks~\cite{androidworld}, and the strongest model in AppWorld solves about
+49\% of normal tasks and 30\% of challenge tasks~\cite{appworld}. Set beside
+the 71\% to 95\% completion rates that self-graded systems report
+(\Cref{tab:llm-systems}), the gap is itself evidence for this chapter's central
+claim: much of the apparent competence of GUI agents is an artefact of letting
+them mark their own work. A project whose output is a correctness judgement
+cannot afford to ignore that.
+
+\paragraph{Learning from interactive outcomes.} DigiRL argues that static
+demonstrations do not capture the stochastic behaviour encountered while
+controlling a real device, and trains a device-control policy by offline
+followed by offline-to-online reinforcement learning against a
+vision-language-model evaluator, raising a 1.5B-parameter model from 17.7\% to
+67.2\% success without additional human demonstrations~\cite{digirl}. It is the
+clearest external support for this project's premise that execution outcomes
+must change future behaviour, and it marks the boundary of the approach taken
+here: this system adapts through graph memory, strategy scores and prompt
+construction rather than by updating model weights, which keeps it applicable
+to hosted models it does not control but forgoes the gains a learned policy can
+reach.
+
+\paragraph{The remainder.} The survey also covered visual grounding and screenshot-only action models. These are nearer to this project than to most of the systems in \Cref{tab:llm-systems}, because this system already combines both signals: the executor and the planner each receive a screenshot alongside the structural description, and a perceptual hash resolves screen identity where the accessibility tree is uninformative, which is the situation constraint C4 describes. The open question they raise is not whether to use pixels but when, since an image carries a cost at every step it is attached to. The survey also covered one recent review of operating-system agents, useful for terminology and for positioning this work as a mobile agent with explicit \emph{testing} responsibilities rather than a general phone assistant.
+None of these changes the gap analysis of \Cref{subsec:gaps}.
+
+\guidance{TODO (team): the three works cited in this subsection were surveyed
+from their published abstracts and metadata by a team member, not read in full
+by the author of this chapter, and their \texttt{references.bib} entries use
+first-author-et-al form. Verify all three against the published versions before
+submission, and either read the visual-grounding and survey works and cite them
+properly or leave them uncited as they are here.}
+
+\section{Existing Solutions and Technologies}
+\label{sec:related}
+
+\Cref{sec:literature} surveyed the research. This section surveys what is
+actually deployable today, including what the industry partner already runs.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.58\hsize}Y>{\hsize=1.06\hsize}Y>{\hsize=1.36\hsize}Y@{}}
+  \caption{Deployable technologies in the automated GUI testing space}
+  \label{tab:existing}\\
+  \toprule
+  Category & Representative tools & Strengths and limitations \\
+  \midrule
+  \endfirsthead
+  \caption[]{Deployable technologies in the automated GUI testing space \emph{(continued)}}\\
+  \toprule
+  Category & Representative tools & Strengths and limitations \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  Scripted UI automation frameworks & Appium, Espresso, UI Automator, XCUITest, Selenium, Playwright &
+    The industry default. Deterministic, fast, and integrated with continuous integration. They are authoring frameworks, not test designers: every case is written and maintained by a person, and a user-interface redesign invalidates the locators wholesale. They confirm known behaviour and discover nothing. \\
+  \addlinespace
+  Device farms and execution infrastructure & Firebase Test Lab, AWS Device Farm, BrowserStack, Sauce Labs &
+    Solve the device-fragmentation half of the problem: many real devices, on demand. They execute whatever tests they are given and contribute nothing to deciding what to test. Complementary to this project rather than competing with it. \\
+  \addlinespace
+  Commercial ``AI-assisted'' testing & Testim, mabl, testRigor, Functionize, Applitools &
+    Two genuine capabilities: self-healing locators, which re-identify a control after a redesign, and visual regression, which diffs rendered screens. Both reduce maintenance cost on an existing suite. Neither authors new tests from a specification, and the visual approach has no semantic oracle: it detects that a screen changed, not that the change was wrong. \\
+  \addlinespace
+  Open-source automated explorers & Monkey \cite{monkey}, DroidBot \cite{droidbot}, Humanoid \cite{humanoid}, Stoat, Ape, Fastbot &
+    Free, unattended, and effective at finding crashes. Optimise structural coverage; no functional oracle; the output is a crash log rather than a test case a person can read or re-run deliberately. \\
+  \addlinespace
+  Research agents & The seven systems of \Cref{tab:llm-systems} &
+    Demonstrate the capabilities discussed above, but are research artefacts: several provide no replication package (DroidAgent had to re-implement GPTDroid for comparison) and none ingests a specification or defect history. \\
+  \addlinespace
+  The partner's existing system & The static-knowledge generator described in ETA-TR-2026-001 \S2 \cite{etatr} &
+    Already ingests an SRS and a Figma export into a Neo4j knowledge graph and runs a multi-stage retrieval-planning loop to generate non-duplicate test cases. Its documented limits are the starting point of this project: retrieval is token-overlap scoring only; execution memory is a verdict and a free-text note per run; and there is no path memory, no defect correlation and no cross-session learning. \\
+\end{xltabular}
+\endgroup
+
+\subsection*{The gap}
+
+Placing the research and the products side by side yields a clean statement of
+the gap. Commercial tools have adoption, reliability and integration but no
+test design: they automate execution and maintenance of tests a person wrote.
+Research agents have test design but no specification, no durable
+cross-application memory, no defect history and no fault attribution: they
+explore, and they report crashes. The partner's existing system has the
+specification and the graph but no learning: it is a static-knowledge
+generator, and a second run knows exactly what the first one knew.
+
+This project addresses the intersection: a system that keeps the partner's
+specification grounding, adds the research agents' autonomous execution, and
+closes the loop between them by persisting every execution outcome as
+structured knowledge that measurably changes the next proposal, while adding
+the two things neither side has, namely sound fault attribution and an enforced
+safety boundary.
+
+\section{Market and User Research}
+\label{sec:market}
+
+\subsection*{Who would use it}
+
+The primary users are quality-assurance engineers in organisations that ship
+graphical applications on a short release cadence, the population that today
+performs manual exploratory testing, maintains scripted suites, or both. The
+secondary users are the application developers who consume the output, whose
+requirement is not more reports but fewer false ones. A third group, relevant
+to a Bangladeshi context, is the smaller application-development firm that
+cannot staff a dedicated QA team at all and currently ships with ad-hoc manual
+checks; for them the alternative to an automated exploratory agent is not a
+cheaper tool but no systematic testing.
+
+\subsection*{Evidence of demand}
+
+Four independent sources of evidence were available to this project.
+
+\textbf{The industry partner's own commissioning document.} Samsung Research and
+Development Institute Bangladesh specified an eight-family enhancement
+programme with a stated effort estimate of 17--23 weeks and a phased dependency
+ordering~\cite{etatr}. An organisation does not scope four to six months of
+engineering against a capability it does not need; the document is the
+strongest single demand signal available to the project, and it is specific
+about \emph{which} capability, learning across executions, is the valuable
+part.
+
+\textbf{Field deployments reported in the literature.} Two of the reviewed
+systems were deployed in production organisations rather than only evaluated.
+AUITestAgent runs in Meituan's weekly regression process for a video business
+line, where its authors report a saving of 1.5 person-days per regression round
+and four new functional bugs over two months~\cite{auitestagent}. XUAT-Copilot
+has ``launched in the formal testing environment of WeChat Pay mobile app'',
+where its authors report that it ``saves a considerable amount of manpower in
+the daily development work''~\cite{xuatcopilot}. Both are large payment or
+commerce platforms committing production processes to language-model agents,
+which is a stronger signal than any published forecast.
+
+\textbf{Evidence about what users want the output to look like.} The developer
+study cited by DroidAgent is directly informative for the interface design: the
+preferred form for an automatically generated test is \emph{natural language},
+not a test-API script, and it should carry expected outputs, the steps of the
+use case, and the specific application feature under test~\cite{droidagent}.
+This project's generated test cases carry exactly those elements, and the PDF
+run report (DR-08) exists because a result that can only be read from a log
+does not reach the person who must act on it.
+
+\textbf{Direct engagement with a second application.} A production Bangladeshi
+agricultural-commerce application was supplied by the supervisor as a second
+target, with live users and a real payment and one-time-password flow. Its
+inclusion was what forced the project's generality requirement (DR-03) and its
+safety boundary (DR-07) from aspirations into enforced constraints.
+
+\subsection*{What users do instead, and what it costs them}
+
+The present alternatives are manual exploratory testing, scripted regression
+suites, and unattended crash hunting with Monkey-class tools. The first is the
+most effective and the least scalable; the second scales but only over
+behaviour someone already anticipated; the third is nearly free and finds only
+crashes. The measured saving of 1.5 person-days per regression round for a
+\emph{single} business line~\cite{auitestagent} gives an order of magnitude for
+the manual effort in play.
+
+\guidance{TODO (team): if a structured interview with the partner's QA engineers
+or a practitioner survey is conducted before submission, report its method,
+sample and findings here; that would upgrade this section from secondary
+evidence to primary. Also add any market-size figure the team can cite
+properly.}
+
+\section{Feasibility Study}
+\label{sec:feasibility}
+
+\subsection*{Technical feasibility}
+
+Feasible, and demonstrated rather than argued: the delivered system executes on
+a physical Android device and in a browser, and the individual capabilities
+have independent precedent in the literature. The two technical risks are real
+and were both encountered. The first is applications whose accessibility tree
+is thin: DroidAgent reports the same failure mode, naming applications ``whose
+widgets do not have any textual properties'' and single views containing
+distinct interactive sub-regions as the cases where its coverage
+collapses~\cite{droidagent}, which is exactly the behaviour of the
+cross-platform-toolkit application in constraint C4. The second is
+non-determinism, which is intrinsic and is managed by evaluating over
+distributions of runs rather than single runs (constraint C8).
+
+\subsection*{Economic feasibility}
+
+This is the dimension on which the project's position is strongest, and it
+needs stating carefully because the units differ. DroidAgent's cost is reported
+per application for a fixed two-hour exploration budget: \$13--\$22, mean
+\$18.10~\cite{droidagent}. AutoDroid reports per query: \$10.17--\$18.76 per
+thousand GPT-4 queries after optimisation~\cite{autodroid}. This project
+measures per \emph{executed test case}, and its figure, reported with its
+derivation in \Cref{ch:evaluation}, is of the order of one United States cent,
+because roughly nine tenths of each execution's work is performed on the device
+rather than in the model, and because the executor and investigator roles were
+deliberately moved to cheaper model tiers once the quality cost of doing so had
+been measured.
+
+The comparison is therefore indicative rather than like-for-like: a two-hour
+DroidAgent campaign and one of this project's test executions are different
+units of work. What the comparison does establish is that per-test cost is a
+tractable engineering variable rather than a fixed property of the approach,
+and that the specific failure DroidAgent reports (being unable to repeat runs
+because of API cost, and having to record that as a threat to
+validity~\cite{droidagent}) is avoidable. For a student project on a fixed
+prepaid balance (constraint C2), that difference is the difference between
+running a campaign and not running one.
+
+\subsection*{Operational feasibility}
+
+The system is operable by one engineer: a target is configured as a validated
+JSON profile through the dashboard rather than as a code change (DR-09), a
+campaign is launched and watched from the same surface, and its result is
+exported as a PDF a non-participant can read (DR-08). Two operational
+prerequisites remain and are not removable: a physical device or emulator with
+the companion accessibility service installed, and disposable test accounts
+provisioned in advance for any application behind a sign-in. The deployment
+model is the genuine operational boundary: the system is scoped to run as a
+local, developer-operated set of processes on a trusted host (constraint C7),
+so adoption into an organisation's shared infrastructure would require a
+hardening pass that this project did not take on.
+
+\subsection*{Legal and regulatory feasibility}
+
+Feasible under the instruments analysed in \Cref{sec:standards}, subject to the
+controls stated there: dedicated disposable test accounts rather than
+production user data, destructive and communicative actions blocked at the
+configuration layer, application content treated as untrusted data in every
+prompt, and credentials kept out of the planner path entirely. No regulatory
+obstacle to the project as scoped was identified.
+
+\subsection*{Conclusion and the assumptions it rests on}
+
+The project is feasible on all four dimensions. Its feasibility depends on four
+assumptions, each of which held during this work and each of which would need
+re-examination for a different target: that the application under test exposes
+an accessibility tree or a DOM; that disposable test accounts can be
+provisioned in advance for authenticated flows; that a hosted model API remains
+available at roughly current prices; and that the organisation accepts a
+reported defect as a
+\emph{candidate} requiring human confirmation rather than as a verified fault.
+The last of these is not a technical assumption but an organisational one, and
+on the evidence of \Cref{subsec:measurement} it is the assumption the entire
+field currently operates under.
