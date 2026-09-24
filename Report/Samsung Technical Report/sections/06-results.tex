@@ -34,9 +34,9 @@ every other number depends on it.
       ymin=-6, ymax=120, ytick={0,25,50,75,100},
       ylabel={per cent}, ylabel style={font=\small},
       xmin=0.4, xmax=8.6, xtick={1,2,3,4,5,6,7,8},
-      xticklabels={{12 Aug\\\scriptsize 25},{13 Aug\\\scriptsize 29},{13 Aug\\\scriptsize 25},%
-                   {29 Aug\\\scriptsize 3},{29 Aug\\\scriptsize 10},{30 Aug\\\scriptsize 25},%
-                   {Sep\\\scriptsize 45},{Sep\\\scriptsize 50}},
+      xticklabels={{C1\\\scriptsize 25},{C2\\\scriptsize 29},{C3\\\scriptsize 25},%
+                   {C4\\\scriptsize 3},{C5\\\scriptsize 10},{C6\\\scriptsize 25},%
+                   {C7\\\scriptsize 45},{C8\\\scriptsize 50}},
       xticklabel style={align=center, font=\scriptsize},
       ymajorgrids, grid style={black!12}, axis lines=left, tick style={black!40},
       legend style={at={(0.5,1.16)}, anchor=south, legend columns=2,
@@ -55,27 +55,28 @@ every other number depends on it.
     \end{axis}
   \end{tikzpicture}
   \caption[Autonomy across every instrumented campaign]{Autonomy and pass rate
-  across all eight instrumented campaigns, with the number of tests under each
-  date. The target is shaded behind the lines.}
+  across all eight instrumented campaigns in the order they were run, with the
+  number of tests under each. The target is shaded behind the lines.}
   \label{fig:autonomy}
 \end{figure}
 
-The first instrumented campaign returned a 0\,\% pass rate, which read at first
-as a catastrophic quality result. It was not. Eighty-two per cent of device
+The first instrumented campaign, C1, returned a 0\,\% pass rate, which read at
+first as a catastrophic quality result. It was not. Eighty-two per cent of device
 steps could not be parsed, so almost nothing could be attributed. The
 instrumentation worked and revealed that the evidence did not. Four fixes
-closed the gap over the following day: log reassembly so a step is written once
+closed the gap: log reassembly so a step is written once
 and completely, containment matching so a screen is recognisable without stable
 identifiers, a precondition filter so tests are not issued against states the
 application cannot be in, and a device reset so one test cannot contaminate the
-next. Two days after the 0\,\% campaign, the same target recorded 100\,\%
+next. Two campaigns later, on the same target, the system recorded 100\,\%
 autonomy and zero silent fallbacks.
 
 Autonomy then fell when the agent was pointed at AUT-1, reaching 67\,\% and then 50\,\%. We report this rather than
-presenting the August result alone, because it is the more useful fact for
+presenting the best result alone, because it is the more useful fact for
 anyone planning to deploy the system: a tuned agent does not transfer for free.
-Recovery to 68\,\% came from the structural state-identity work, and the
-September campaigns settled at 69\,\% there and 80\,\% on Contacts.
+Recovery to 68\,\% came from the structural state-identity work, and the two
+full campaigns that followed settled at 69\,\% on AUT-1 and 80\,\% on
+Contacts.
 
 \keypoint{Across all eight campaigns the pass-rate line moves far less than the
 autonomy line. What improved over this period was mostly the agent's ability to
@@ -173,7 +174,7 @@ clearest statement we can make about the value of a specification.
         width=\textwidth, height=4.4cm,
         ybar, bar width=11pt, ymin=0, ymax=58,
         ylabel={median device steps}, ylabel style={font=\small},
-        symbolic x coords={{AUT-1 Aug},{AUT-1 Sep},{Contacts}}, xtick=data,
+        symbolic x coords={{AUT-1 C6},{AUT-1 C7},{Contacts}}, xtick=data,
         xticklabel style={font=\scriptsize},
         ymajorgrids, grid style={black!12}, axis lines=left,
         tick style={black!40}, enlarge x limits=0.28,
@@ -181,8 +182,8 @@ clearest statement we can make about the value of a specification.
         legend style={at={(0.5,1.06)}, anchor=south, legend columns=2,
                       font=\scriptsize, draw=none, fill=none},
       ]
-        \addplot[fill=cPass, draw=none] coordinates {({AUT-1 Aug},10) ({AUT-1 Sep},6.5) ({Contacts},16)};
-        \addplot[fill=cApp,  draw=none] coordinates {({AUT-1 Aug},21) ({AUT-1 Sep},48) ({Contacts},32)};
+        \addplot[fill=cPass, draw=none] coordinates {({AUT-1 C6},10) ({AUT-1 C7},6.5) ({Contacts},16)};
+        \addplot[fill=cApp,  draw=none] coordinates {({AUT-1 C6},21) ({AUT-1 C7},48) ({Contacts},32)};
         \legend{Passed, Failed}
       \end{axis}
     \end{tikzpicture}
@@ -212,7 +213,7 @@ clearest statement we can make about the value of a specification.
   \end{subfigure}
   \caption[Device steps]{Left: a test that is going to pass reaches its
   checkpoint quickly, and a test that is going to fail spends its whole budget.
-  On the September AUT-1 campaign the gap is 6.5 steps against 48, with
+  On the full AUT-1 campaign the gap is 6.5 steps against 48, with
   an interaction cap of 50, so the median failing test is running to the cap
   rather than reaching a verdict. Right: navigation memory cut the overall
   median from 50 steps to 9.}
@@ -255,8 +256,8 @@ short has an application problem.
       \legend{Passed, Application failure, Lost to the agent, Environment}
     \end{axis}
   \end{tikzpicture}
-  \caption[Every test in one campaign]{All 25 tests of the 30 August campaign,
-  plotted by the steps taken and the time consumed. The dashed line is the
+  \caption[Every test in one campaign]{All 25 tests of campaign C6, plotted by
+  the steps taken and the time consumed. The dashed line is the
   900-second wall-clock cap. Steps and duration are close to proportional at
   about eleven seconds per step, which is why step count is used as the cost
   proxy throughout this report.}

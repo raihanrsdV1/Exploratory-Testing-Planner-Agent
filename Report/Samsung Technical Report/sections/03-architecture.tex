@@ -337,31 +337,31 @@ and the embedding model already runs locally.
 
 \subsubsection{How the assignment changed}
 
-The model provider has sat behind a three-way switch since June, so every
-change below was a configuration edit rather than an integration.
+The model provider has sat behind a three-way switch from stage 3 onward, so
+every change after it was a configuration edit rather than an integration.
 
 \begin{table}[H]
   \centering\footnotesize
   \setlength{\tabcolsep}{4pt}
   \begin{tabularx}{\textwidth}{@{}>{\hsize=0.36\hsize}Y>{\hsize=0.80\hsize}Y>{\hsize=0.80\hsize}Y>{\hsize=1.04\hsize}Y@{}}
     \toprule
-    Date & Planner & Player & What changed \\
+    Stage & Planner & Player & What changed \\
     \midrule
-    \mbox{2026-04-07} & \modpath{qwen3.6-plus:free} & \modpath{gemini-2.5-pro} & First end-to-end loop: a free tier and a flagship, chosen to find out whether the loop worked at all \\
+    1 & \modpath{qwen3.6-plus:free} & \modpath{gemini-2.5-pro} & First end-to-end loop: a free tier and a flagship, chosen to find out whether the loop worked at all \\
     \addlinespace
-    \mbox{2026-06-15} & \multicolumn{2}{l}{\modpath{mistral/devstral-2512} over a local tunnel} & A self-hosted backend tried as an alternative to paying per token. Not retained \\
+    2 & \multicolumn{2}{l}{\modpath{mistral/devstral-2512} over a local tunnel} & A self-hosted backend tried as an alternative to paying per token. Not retained \\
     \addlinespace
-    \mbox{2026-06-17} & \multicolumn{2}{l}{\emph{no model change}} & The provider was put behind a three-way switch, which is what made every later row configuration \\
+    3 & \multicolumn{2}{l}{\emph{no model change}} & The provider was put behind a three-way switch, which is what made every later row a configuration edit \\
     \addlinespace
-    \mbox{2026-06-18} & \modpath{xiaomi/mimo-v2.5} & \modpath{minimax/minimax-m3} & Both roles moved to mid-tier models once the loop was known to work \\
+    4 & \modpath{xiaomi/mimo-v2.5} & \modpath{minimax/minimax-m3} & Both roles moved to mid-tier models once the loop was known to work \\
     \addlinespace
-    \mbox{2026-08-13} & \modpath{qwen3.7-flash} & \modpath{qwen3-vl-32b-instruct} & The player became an explicitly vision-capable checkpoint. This is the configuration the reported campaigns were measured on \\
+    5 & \modpath{qwen3.7-flash} & \modpath{qwen3-vl-32b-instruct} & The player became an explicitly vision-capable checkpoint. This is the configuration the reported campaigns were measured on \\
     \addlinespace
-    \mbox{2026-08-30} & \modpath{qwen3.8-flash} & \modpath{qwen3.7-flash} & Both roles moved down a tier after the quality cost was measured \\
+    6 & \modpath{qwen3.8-flash} & \modpath{qwen3.7-flash} & Both roles moved down a tier after the quality cost was measured \\
     \addlinespace
-    \mbox{2026-09-06} & \modpath{qwen3.7-flash} & \textit{unchanged} & The planner moved back down; the more expensive tier had not paid for itself \\
+    7 & \modpath{qwen3.7-flash} & \textit{unchanged} & The planner moved back down; the more expensive tier had not paid for itself \\
     \addlinespace
-    \mbox{2026-09-20} & \multicolumn{2}{l}{\modpath{z-ai/glm-5.3-flash} added} & A separate investigator model and a rate-limit fallback, in a different family from the players \\
+    8 & \multicolumn{2}{l}{\modpath{z-ai/glm-5.3-flash} added} & A separate investigator model and a rate-limit fallback, in a different family from the players \\
     \addlinespace
     Current & \modpath{deepseek-v4-flash} & \modpath{qwen3.7-flash} (Android), \modpath{minimax-m3} (web) & The platforms diverged: the web player does not need vision, so it is not paying for it \\
     \bottomrule
