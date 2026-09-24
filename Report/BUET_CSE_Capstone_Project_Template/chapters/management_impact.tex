@@ -255,15 +255,14 @@ entire budget, and it is worth being explicit about why. A system of this kind
 needs a capable language model in the loop on every step; self-hosting one at
 the sizes this system depends on requires accelerator hardware the team neither
 had nor could obtain. Hosted inference through a commercial API aggregator was
-therefore not a cost optimisation chosen over self-hosting --- it was the only
-route available. The consequence is that the project's compute budget appears
+therefore not a cost optimisation chosen over self-hosting; it was the only route available. The consequence is that the project's compute budget appears
 entirely as metered API spend, with no hardware line at all, and that the
 figure is small only because the team paid for tokens rather than for
 accelerators.
 
-Everything else the project needed --- a machine to develop on, an environment
-to execute against, an application with real behaviour and a specification to
-test it against --- was obtained without cash. \Cref{tab:budget} lists each
+Everything else the project needed (a machine to develop on, an environment to
+execute against, an application with real behaviour and a specification to test
+it against) was obtained without cash. \Cref{tab:budget} lists each
 resource and how it was acquired. One convention governs the table and
 determines its total: a resource the project did not pay for is recorded at
 zero, not at an imputed market price. Assigning notional prices to
@@ -291,9 +290,9 @@ rate of BDT 120 to the United States dollar.
   \bottomrule
   \endlastfoot
 
-  Model inference --- development & Metered credit on a commercial API aggregator, purchased out of pocket across the team's accounts over the project. This covers development, debugging, repeated specification re-ingestion and regression runs, and it is the dominant cash line: iteration on the pipeline costs far more inference than running the finished pipeline does. & $\approx$ 43 \\
+  Model inference, development & Metered credit on a commercial API aggregator, purchased out of pocket across the team's accounts over the project. This covers development, debugging, repeated specification re-ingestion and regression runs, and it is the dominant cash line: iteration on the pipeline costs far more inference than running the finished pipeline does. & $\approx$ 43 \\
   \addlinespace
-  Model inference --- evaluation campaigns & A separate prepaid project balance of USD 6.50 available at handover, of which USD 2.69 was consumed across 88 device executions. This is the only figure here read directly from a provider's billing record, and it is the basis of the per-test cost below. & 2.69 \\
+  Model inference, evaluation campaigns & A separate prepaid project balance of USD 6.50 available at handover, of which USD 2.69 was consumed across 88 device executions. This is the only figure here read directly from a provider's billing record, and it is the basis of the per-test cost below. & 2.69 \\
   \addlinespace
   Android execution environment & Android emulators, running on each member's own laptop, carried the great majority of execution. This is what let five people develop and run tests in parallel without contending for a single handset, and it is also what made runs repeatable, since an emulator can be returned to a known state. One mid-range handset, already owned by a team member, covered the checks that needed real hardware, with the companion accessibility and input-method application installed (C6). & 0 \\
   \addlinespace
@@ -305,7 +304,7 @@ rate of BDT 120 to the United States dollar.
   \addlinespace
   Version control, continuous integration, observability, design export & Free tiers of hosted developer services. & 0 \\
   \addlinespace
-  Engineering effort & Five part-time members over roughly six months. Not priced; see below. & --- \\
+  Engineering effort & Five part-time members over roughly six months. Not priced; see below. & \textit{n/a} \\
   \midrule
   \textbf{Total cash expenditure} & \textbf{Approximately BDT 5{,}500.} & $\approx$ \textbf{46} \\
   \bottomrule
@@ -344,8 +343,8 @@ optimising the planner's prompt would not have been. A twenty-five-test
 campaign is therefore about USD 0.20, and a five-hundred-test nightly suite
 about USD 4.
 
-Ingesting a specification behaves in the opposite way. It costs about USD 1.80
---- the price of roughly two hundred test executions --- because extraction
+Ingesting a specification behaves in the opposite way. It costs about USD 1.80,
+the price of roughly two hundred test executions, because extraction
 runs on the most expensive model tier, splits the document into sections and
 issues one uncapped call per section, three times over for self-consistency. It
 is paid once per document rather than once per run, so it is a fixed cost in
@@ -353,13 +352,10 @@ the terms of \Cref{sec:economics} and not an operating one.
 
 Those two figures explain the gap between the two inference lines in
 \Cref{tab:budget}. Running the finished system is cheap; building it was not,
-because development re-ran the expensive half repeatedly --- every change to
-the ingestion pipeline meant re-reading the specification from scratch, and the
+because development re-ran the expensive half repeatedly: every change to the ingestion pipeline meant re-reading the specification from scratch, and the
 executor and investigator ran on a more expensive tier until the quality cost
-of moving them down had been measured. The metering controls that would close
-that gap --- an output ceiling on extraction, a lower sample count once it has
-stabilised, and a cache that refuses to re-read an unchanged document --- are
-identified in \Cref{sec:conclusion} as outstanding work. They matter more for a
+of moving them down had been measured. The metering controls that would close that gap (an output ceiling on extraction, a lower sample count once it has
+stabilised, and a cache that refuses to re-read an unchanged document) are identified in \Cref{sec:conclusion} as outstanding work. They matter more for a
 team iterating on the pipeline than for an organisation running it.
 
 \subsection{Projected Cost of Self-Hosting}
@@ -424,7 +420,7 @@ of the comparison is the part that does not change.
 counter-intuitive only until the duty cycle is examined. A test occupies its
 device for up to the 900-second wall-clock bound configured for these
 campaigns, but consumes accelerator time only in the brief interval between
-observing a screen and deciding the next action --- on the order of a hundred
+observing a screen and deciding the next action, on the order of a hundred
 seconds of inference across 10.1 steps. The rest is the emulator settling,
 animations completing and the application responding. A dedicated card
 therefore idles for the great majority of a run, and the tenant pays for that
@@ -433,8 +429,7 @@ with other tenants' work. Per-token billing is, in this specific sense, a
 better match to the workload than per-hour billing.
 
 That also identifies the condition under which the conclusion reverses. The
-card becomes economical exactly when it can be kept busy --- many emulators
-driven in parallel against one served model, which is the natural shape of a
+card becomes economical exactly when it can be kept busy: many emulators driven in parallel against one served model, which is the natural shape of a
 nightly regression fleet and not the shape of this project. A purchased card at
 high utilisation approaches the API price and would undercut it at scale; the
 same card at this project's utilisation would not.
@@ -447,7 +442,7 @@ configuration boundary of \Cref{sec:ethics} keeps the agent away from
 destructive actions, but it does not stop interface contents leaving the
 machine. An organisation with a data-residency obligation, or one testing an
 unreleased product, would have to self-host regardless of what
-\Cref{tab:selfhost} says --- and because the models in \Cref{tab:models} are
+\Cref{tab:selfhost} says, and because the models in \Cref{tab:models} are
 open-weight checkpoints rather than proprietary endpoints, that path remains
 open to them. Retaining that option was the reason the model provider was kept
 behind a swappable interface from the first prototype.
@@ -462,8 +457,7 @@ quoting and it is the strongest fact in this section: an autonomous exploratory
 testing agent was built, debugged and evaluated for under fifty dollars, by a
 team with no GPU allocation at all. The expensive input to this class of system
 is inference, and renting inference by the token has become cheap enough to be
-a rounding error rather than a barrier to entry --- which is precisely what
-makes the approach reachable for a group that could not have afforded the
+a rounding error rather than a barrier to entry, which is precisely what makes the approach reachable for a group that could not have afforded the
 hardware to self-host. The labour is deliberately left unpriced in
 \Cref{sec:budget}, and the reason carries over here. A commercial team would
 not reproduce this cost structure at all: five part-time students over a
@@ -663,8 +657,7 @@ who had done the work, which is the more informative fact about how the team
 operated.
 
 \guidance{TODO (team): each member should read their own row and correct it
-before submission, and add any contribution the version-control record does not
-show --- in particular design discussion, review of others' code, and debugging
+before submission, and add any contribution the version-control record does not show, in particular design discussion, review of others' code, and debugging
 that ended in no commit. Schedule slips are recorded against milestones in
 \Cref{tab:milestones} rather than per member; if any individual responsibility
 was not met on time, add it there with the reason.}
@@ -707,12 +700,6 @@ not resolved by argument but by making the system record which one it was.
 against an explicit severity rubric was adopted so that criticism of code
 attached to a written standard rather than to a person, and so that the
 resulting work could be scheduled rather than negotiated.
-
-\guidance{TODO (team): if any disagreement arose that was not technical, or any
-that took real effort to resolve, describe it here with what was done. This
-subsection is assessed on evidence of conflict being identified and resolved,
-and an account containing only smooth technical decisions is weaker than one
-that reports a genuine difficulty and how the team came through it.}
 
 \subsection{Leadership and Direction}
 \label{sec:leadership}
@@ -777,7 +764,20 @@ audited against the commission. The traceability matrix in
 requirements the team derived beyond it (\Cref{tab:derived-req}) are what
 contact with a real application added to a specification written in advance.
 
-\paragraph{An applied domain with live users.} The principal evaluation target
+The engagement was iterative rather than a single handover. An early iteration
+of the system was submitted to the partner for review, and the criticism that
+came back was not about missing features but about generality: the ingestion
+path was fixed, and application-specific values were hard-coded through the
+pipeline, so what had been demonstrated on one application would not move to
+another without being rewritten. The team accepted that assessment and rebuilt
+the affected parts in June, removing the hard-coded paths and identifiers and
+making ingestion modular. Requirement DR-03 and phase P3 of \Cref{fig:gantt}
+are both consequences of that review. Taking an adverse assessment from an
+industrial reviewer and reworking already-working code in response is a
+different discipline from writing the code in the first place, and it is the
+part of the partnership that changed the architecture most.
+
+\paragraph{Applied domains with live users.} The principal evaluation target
 is a production agricultural-commerce application with real farmers and sellers
 on it, and a payment and one-time-password flow. Testing it required
 understanding its domain workflow well enough to judge what correct behaviour
@@ -785,6 +785,16 @@ looked like, and required a judgement that is not a software judgement at all:
 which operations may never be exercised against other people's livelihoods.
 That analysis produced constraint C5 and requirement DR-07, and it is discussed
 as an ethical obligation rather than a technical one in \Cref{sec:codes}.
+
+Commerce was not the only domain the system was pointed at. Once the browser
+executor existed, the same planner was run against a range of other web
+applications, among them DataGhurhi, a departmental form and survey platform
+whose submission workflows share almost no interaction vocabulary with a
+marketplace. The breadth mattered for a specific reason: correct behaviour in a
+survey builder and correct behaviour in a checkout flow have nothing in common,
+so each target had to be understood in its own terms before the agent's output
+could be judged at all. A system that cannot be told what the application is
+for will report the difference between domains as though it were a defect.
 
 \paragraph{Standards, law and regulation.} \Cref{sec:standards} works through
 software-testing and quality standards, requirements-engineering practice and

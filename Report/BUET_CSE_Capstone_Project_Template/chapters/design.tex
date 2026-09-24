@@ -424,37 +424,37 @@ demands differ by more than an order of magnitude.
   \bottomrule
   \endlastfoot
 
-  Planner --- reasons over the graph, issues retrieval calls, writes the test case &
+  Planner: reasons over the graph, issues retrieval calls, writes the test case &
   \modpath{deepseek/deepseek-v4-flash} &
   Long context and dependable structured output matter more than reasoning depth: the prompt carries retrieved knowledge and the answer must parse. A fast tier is the right trade, and the planner is only about 8\% of the cost of a test. &
   \modpath{Llama-3.3-70B-Instruct}, \modpath{Mistral-Large-Instruct}, \modpath{Qwen3-235B-A22B} \\
   \addlinespace
-  Player (Android) --- decides the next device action from what is on screen &
+  Player (Android): decides the next device action from what is on screen &
   \modpath{qwen/qwen3.7-flash}; the campaigns reported in \Cref{ch:evaluation} were executed on \modpath{qwen/qwen3-vl-32b-instruct} &
   The role that must see. It reads an accessibility tree averaging 4{,}686 bytes together with a $1080\times1920$ screenshot and grounds an action in both. Invoked on every step, so it dominates cost at about 92\% of a test. &
   \modpath{Qwen2.5-VL-72B-Instruct}, \modpath{InternVL2.5-38B}, \modpath{Llama-3.2-90B-Vision} \\
   \addlinespace
-  Player (web) --- the same role against a browser &
+  Player (web): the same role against a browser &
   \modpath{minimax/minimax-m3} &
   Configured separately from the Android player because the observation differs: Playwright supplies an accessibility-annotated snapshot rather than a screenshot, so the web role does not require a vision model at all. &
   \modpath{Llama-3.3-70B-Instruct}, \modpath{DeepSeek-V3} \\
   \addlinespace
-  Investigator --- reads the trajectory against what the test intended; the web path calls it the evidence reviewer &
+  Investigator: reads the trajectory against what the test intended; the web path calls it the evidence reviewer &
   \modpath{z-ai/glm-5.3-flash} &
   Judgement over a completed trajectory, off the critical path. Deliberately a different family from the players, so that no model grades its own execution. &
   \modpath{Llama-3.3-70B-Instruct}, \modpath{Mixtral-8x22B-Instruct} \\
   \addlinespace
-  Specification extraction --- turns a requirements document into graph structure &
+  Specification extraction: turns a requirements document into graph structure &
   \modpath{qwen/qwen3-235b-a22b-2507} &
   Run once per document, but every later decision rests on the result, so accuracy is worth paying for here and nowhere else. A mixture-of-experts checkpoint gives large-model quality at a fraction of the active parameters. This single pass costs about as much as two hundred test executions (\Cref{sec:budget}). &
   \modpath{DeepSeek-V3}, \modpath{Llama-3.3-70B-Instruct} at reduced accuracy \\
   \addlinespace
-  Rate-limit fallback --- substitutes when the primary returns 429 &
+  Rate-limit fallback: substitutes when the primary returns 429 &
   \modpath{z-ai/glm-5.3-flash} &
   A campaign that dies on a provider's rate limit wastes the whole run, so a second family is configured as a fallback rather than a retry. &
   Any instruction-tuned model of the planner's class \\
   \addlinespace
-  Embeddings --- dense retrieval over the graph &
+  Embeddings: dense retrieval over the graph &
   \modpath{BAAI/bge-small-en-v1.5}, 384 dimensions, through fastembed &
   Runs locally through ONNX with no tensor framework and no per-call charge, which keeps retrieval off the cost model entirely. &
   \modpath{all-MiniLM-L6-v2} (configured fallback), \modpath{gte-small}, \modpath{e5-small-v2} \\
@@ -519,7 +519,7 @@ comparison as unsafe wherever that configuration differs.
   \addlinespace
   \mbox{2026-06-15} & \multicolumn{2}{l}{\modpath{mistral/devstral-2512} over a local tunnel} & A self-hosted backend reached through a tunnel, tried as an alternative to paying per token. Not retained. \\
   \addlinespace
-  \mbox{2026-06-17} & \multicolumn{2}{l}{\emph{no model change}} & The provider was put behind a three-way switch --- tunnel, aggregator or direct --- which is what made every later row a configuration edit rather than an integration. \\
+  \mbox{2026-06-17} & \multicolumn{2}{l}{\emph{no model change}} & The provider was put behind a three-way switch (tunnel, aggregator or direct), which is what made every later row a configuration edit rather than an integration. \\
   \addlinespace
   \mbox{2026-06-18} & \modpath{xiaomi/mimo-v2.5} & \modpath{minimax/minimax-m3} & Both roles moved to mid-tier models once the loop was known to work. \\
   \addlinespace
@@ -527,7 +527,7 @@ comparison as unsafe wherever that configuration differs.
   \addlinespace
   \mbox{2026-08-30} & \modpath{qwen3.8-flash} & \modpath{qwen3.7-flash} & The tier migration discussed in \Cref{sec:economics}: both roles moved down after the quality cost of doing so had been measured. \\
   \addlinespace
-  \mbox{2026-09-06} & \modpath{qwen3.7-flash} & --- & The planner moved back down a step; the more expensive tier had not paid for itself. \\
+  \mbox{2026-09-06} & \modpath{qwen3.7-flash} & \textit{unchanged} & The planner moved back down a step; the more expensive tier had not paid for itself. \\
   \addlinespace
   \mbox{2026-09-20} & \multicolumn{2}{l}{\modpath{z-ai/glm-5.3-flash} added} & A separate investigator model and a rate-limit fallback, both in a different family from the players. \\
   \addlinespace
@@ -543,8 +543,8 @@ provider-independent design looks like in practice. Second, and less
 comfortably, the project never held the model fixed long enough to attribute
 any improvement in results to anything else. Pass rates rose over the period
 and so did the quality of the models; this report does not separate those two
-causes, and \Cref{sec:conclusion} lists that separation --- one configuration,
-one application, one varied factor at a time --- as the experiment the project
+causes, and \Cref{sec:conclusion} lists that separation (one configuration,
+one application, one varied factor at a time) as the experiment the project
 most needs and did not run.
 
 \section{Implementation}
