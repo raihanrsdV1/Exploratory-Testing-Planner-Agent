@@ -1,0 +1,611 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Exploratory QA Agent — Campaign Report</title><style>
+@page { size: A4; margin: 16mm 14mm; }
+* { box-sizing: border-box; }
+body { font: 10.5pt/1.5 "Helvetica Neue", Helvetica, Arial, sans-serif; color: #17303d;
+  margin: 0; background: #fff; }
+h1 { font-size: 25pt; margin: 0 0 6px; letter-spacing: -.5px; }
+h2 { font-size: 15pt; margin: 26px 0 10px; padding-bottom: 5px;
+  border-bottom: 2px solid #0f7ea8; color: #0b5f7f; break-after: avoid; }
+h3 { font-size: 11.5pt; margin: 18px 0 7px; color: #0b5f7f; break-after: avoid; }
+p { margin: 0 0 9px; }
+table { width: 100%; border-collapse: collapse; margin: 9px 0 14px; font-size: 9pt; }
+th { background: #eef6fa; text-align: left; padding: 6px 7px; border-bottom: 2px solid #cfe3ee;
+  font-weight: 600; color: #0b5f7f; }
+td { padding: 5px 7px; border-bottom: 1px solid #e8eef2; vertical-align: top; }
+tr { break-inside: avoid; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cover { background: linear-gradient(140deg,#0b5f7f,#0f7ea8 55%,#0f9d76); color:#fff;
+  padding: 30mm 16mm 20mm; margin: -16mm -14mm 22px; }
+.cover p { opacity: .93; }
+.sub { font-size: 13pt; font-weight: 300; }
+.kpis { display: flex; gap: 9px; margin: 14px 0 18px; }
+.kpi { flex: 1; border: 1px solid #d6e6ee; border-top: 3px solid #0f7ea8; border-radius: 4px;
+  padding: 9px 11px; background: #fbfdfe; }
+.kpi b { display: block; font-size: 19pt; color: #0b5f7f; line-height: 1.15; }
+.kpi span { font-size: 8pt; color: #5b7383; text-transform: uppercase; letter-spacing: .4px; }
+.pass { color: #0f9d76; font-weight: 600; } .fail { color: #c0392b; font-weight: 600; }
+.bar { background: #eaf1f5; border-radius: 3px; height: 9px; width: 100%; overflow: hidden; }
+.bar span { display: block; height: 100%; }
+.bpass { background: #0f9d76; } .bfail { background: #d9704f; } .bneutral { background: #0f7ea8; }
+.note { background: #f4fbf8; border-left: 3px solid #0f9d76; padding: 9px 12px; margin: 12px 0;
+  font-size: 9.5pt; }
+.warn { background: #fff8f1; border-left: 3px solid #d9843f; padding: 9px 12px; margin: 12px 0;
+  font-size: 9.5pt; }
+.tag { display: inline-block; font-size: 7.5pt; padding: 1px 6px; border-radius: 9px;
+  background: #eef6fa; color: #0b5f7f; border: 1px solid #d6e6ee; white-space: nowrap; }
+.case { border: 1px solid #e0eaf0; border-left: 3px solid #0f9d76; border-radius: 4px;
+  padding: 9px 12px; margin: 0 0 9px; break-inside: avoid; }
+.case.f { border-left-color: #d9704f; }
+.case h4 { margin: 0 0 5px; font-size: 10pt; }
+.case .meta { font-size: 8pt; color: #5b7383; margin: 0 0 6px; }
+.case .why { font-size: 9pt; margin: 5px 0 0; }
+.case .why b { color: #0b5f7f; }
+.mono { font-family: "SF Mono", Menlo, monospace; font-size: 8pt; }
+footer { margin-top: 26px; padding-top: 9px; border-top: 1px solid #e8eef2;
+  font-size: 8pt; color: #7b8f9c; }
+.brk { break-before: page; }
+</style></head><body><div class="cover"><h1>Exploratory QA Test-Case Planner Agent</h1>
+<p class="sub">Autonomous Android testing campaign — full results</p>
+<p style="margin-top:20px"><b>Application under test:</b> AUT-1, a non-English
+Android marketplace application, tested as a black box<br>
+<b>Campaign:</b> 45 autonomous test cases, generated and executed without human input<br>
+<b>Executed:</b> 2026-09-20 &nbsp;·&nbsp; <b>Report generated:</b>
+20 Sep 2026</p></div><div class="note" style="border-left:3px solid #0b5f7f;background:#f4f9fb;
+padding:10px 13px;margin:16px 0;font-size:9.5pt">
+<b>Anonymisation.</b> This report is written so that the application under test, its
+vendor and its users cannot be identified. Screen names, control labels, locale strings,
+sample data, personal names and place names have been replaced with stable pseudonyms.
+The substitution is consistent throughout: a screen called <i>Update Organisation
+Profile</i> in one finding is the same screen everywhere it appears. Every count,
+verdict, severity, step reference and technical claim is reproduced unmodified from the
+campaign record.
+</div>
+
+<h2>0 · What the application does</h2>
+<p>AUT-1 is a two-sided marketplace for physical goods, built for Android with a
+cross-platform user-interface toolkit and operated in a non-English locale. The build
+under test was signed in throughout as a <b>seller</b>; a buyer role exists and is
+reachable through an in-app role switch.</p>
+<p>A seller maintains an <b>organisation profile</b> (display name, contact details and a
+geographic sub-area chosen from a picker) and a set of <b>listed items</b>, each carrying
+a category, a price, images and a description, which are published to a shared
+<b>marketplace</b>. A buyer browses and searches that marketplace, marks items as
+<b>favourites</b>, opens a seller's public profile, and starts a <b>chat</b> with the
+seller. Both roles share a <b>reference catalogue</b> of domain information, two
+<b>supply catalogues</b>, an image-upload feature that runs an automated analysis over a
+submitted photograph, a notification list, and a settings area that includes an in-app
+switch between two locales, L1 and L2.</p>
+<p>Two properties of the build shaped what the agent could and could not do, and they are
+relevant to reading the failure counts below. The cross-platform toolkit exposes almost no
+stable resource identifiers through the accessibility tree and reports a single activity
+on every screen, so screens must be told apart structurally rather than by name. And the
+application is in continuous production use, so account registration, one-time-password
+verification, payment and account deletion were placed out of scope and blocked in
+configuration rather than exercised.</p>
+
+<h2>1 · Executive summary</h2>
+<p>An LLM-driven agent designed 45 exploratory test cases for an Android app it had
+never seen before, ran each one on a real device, and wrote what it learned into a
+knowledge graph that shaped the next test. No human wrote a test case, a selector, or a
+script.</p>
+<div class="kpis">
+<div class="kpi"><b>45</b><span>Tests executed</span></div>
+<div class="kpi"><b class="pass">20</b><span>Passed (44%)</span></div>
+<div class="kpi"><b class="fail">25</b><span>Failed (55%)</span></div>
+<div class="kpi"><b>95</b><span>Findings about the app</span></div>
+</div>
+<div class="warn"><b>Read the pass rate carefully.</b> Of the 25 failures, only
+<b>11</b> are statements about the application — cases where the agent reached its
+checkpoint and the app did something unexpected. The other <b>14</b> are our agent
+running out of its own interaction budget or failing to navigate, which says nothing about
+the app's quality. The honest headline is <b>11 app-level failures across 45
+tests</b>, not a 55% defect rate.</div>
+<p>The campaign produced <b>163 findings</b>, of which 95 describe
+the application and 47 record our own agent's difficulties.
+It covered <b>33/106 requirements</b>
+(31%) across <b>29 feature areas</b>, and mapped
+<b>97 distinct UI states</b>. Total device time was 7.5 hours, median
+476s per test.</p><h2>2 · How the system works</h2>
+<p>Three LLM agents share one Neo4j knowledge graph. Each test makes the graph a little
+richer, so the next test is proposed from better facts.</p>
+<table><tr><th style="width:17%">Agent</th><th style="width:36%">Job</th><th>What it reads and writes</th></tr>
+<tr><td><b>Planner</b></td><td>Decides what to test next and writes the test case</td>
+<td>Calls tools over the graph — untested requirements, screens already mapped, findings
+so far, open questions, coverage gaps — then proposes a test. A validation gate rejects
+proposals that duplicate earlier work or target screens that do not exist.</td></tr>
+<tr><td><b>Executor</b></td><td>Drives the real device</td>
+<td>Receives the test case in plain language and interacts with the live app, with a
+budget of 50 steps. Emits a step-by-step trajectory.</td></tr>
+<tr><td><b>Investigator</b></td><td>Turns the trajectory into knowledge</td>
+<td>Reads the trajectory and writes <i>findings</i> — typed, deduplicated claims about the
+app — back into the graph, and marks earlier open questions resolved when a run settles
+them.</td></tr></table>
+<p>Nothing is carried in conversation history. Every planner call is stateless and rebuilt
+from the graph, so "learning" means the graph grew — not that the model remembers.</p><h2 class="brk">3 · Results</h2><h3>3.1 Outcome</h3>
+<table><tr><th>Verdict</th><th class="num">Tests</th><th class="num">Share</th><th style="width:44%"></th></tr>
+<tr><td><span class="pass">Passed</span></td><td class="num">20</td>
+<td class="num">44%</td><td><div class="bar"><span class="bpass" style="width:44.4%"></span></div></td></tr>
+<tr><td><span class="fail">Failed</span></td><td class="num">25</td>
+<td class="num">56%</td><td><div class="bar"><span class="bfail" style="width:55.6%"></span></div></td></tr></table>
+<h3>3.2 Why tests failed — and what each reason means</h3>
+<table><tr><th style="width:24%">Reason</th><th class="num">Count</th>
+<th style="width:17%">Tells us about</th><th>Interpretation</th></tr><tr><td class="mono">STEP_LIMIT_EXCEEDED</td><td class="num">12</td>
+<td style="color:#8a6d3b"><b>Agent limitation</b></td><td>The executor exhausted its interaction budget before it could assert. Not evidence of an app defect.</td></tr><tr><td class="mono">ASSERTION_FAILURE</td><td class="num">11</td>
+<td style="color:#0b5f7f"><b>App evidence</b></td><td>The agent reached its checkpoint and the app did not do what the test expected. These are the results that describe the app.</td></tr><tr><td class="mono">NAVIGATION_FAILURE</td><td class="num">2</td>
+<td style="color:#8a6d3b"><b>Agent limitation</b></td><td>The agent could not reach the screen the test targeted.</td></tr></table>
+<div class="note"><b>This split is the most important number in the report.</b> A testing
+agent that cannot finish its own test produces a failure that looks identical to a real
+defect unless you separate them. 11 of 25 failures are app evidence; the rest
+are our ceiling, and they are the clearest direction for future work.</div><h3>3.3 Coverage</h3>
+<table><tr><th>Dimension</th><th class="num">Covered</th><th class="num">Total</th>
+<th style="width:34%"></th></tr>
+<tr><td>Requirements exercised by at least one test</td><td class="num">33</td>
+<td class="num">106</td>
+<td><div class="bar"><span class="bneutral" style="width:31.1%"></span></div></td></tr>
+<tr><td>Feature areas reached</td><td class="num">29</td><td class="num">29</td>
+<td><div class="bar"><span class="bneutral" style="width:100.0%"></span></div></td></tr>
+<tr><td>Distinct UI states mapped</td><td class="num">97</td><td class="num">—</td><td></td></tr>
+</table>
+<h3>3.4 Spread across the app</h3>
+<p>An exploratory agent's failure mode is tunnelling — hammering one feature it already
+understands. Across 45 tests the agent touched <b>29 areas</b>, the largest
+taking 17% of the campaign.</p>
+<table><tr><th style="width:38%">Feature area</th><th class="num">Tests</th>
+<th class="num">Pass</th><th class="num">Fail</th><th style="width:26%"></th></tr><tr><td>org_management</td><td class="num">8</td><td class="num pass">1</td>
+<td class="num fail">7</td><td><div class="bar"><span class="bneutral" style="width:17.8%"></span></div></td></tr><tr><td>favourites</td><td class="num">5</td><td class="num pass">0</td>
+<td class="num fail">5</td><td><div class="bar"><span class="bneutral" style="width:11.1%"></span></div></td></tr><tr><td>item_record</td><td class="num">2</td><td class="num pass">0</td>
+<td class="num fail">2</td><td><div class="bar"><span class="bneutral" style="width:4.4%"></span></div></td></tr><tr><td>chat</td><td class="num">2</td><td class="num pass">0</td>
+<td class="num fail">2</td><td><div class="bar"><span class="bneutral" style="width:4.4%"></span></div></td></tr><tr><td>reference_information</td><td class="num">2</td><td class="num pass">1</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:4.4%"></span></div></td></tr><tr><td>profile_settings</td><td class="num">2</td><td class="num pass">1</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:4.4%"></span></div></td></tr><tr><td>health_check</td><td class="num">2</td><td class="num pass">1</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:4.4%"></span></div></td></tr><tr><td>org_profile</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>navigation_data_states</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>notifications</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>navigation_primary_bar</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>profile</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>navigation_detail_views</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>settings</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>favorites_management</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>error_handling</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>usability</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>supply_catalogue_a</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>auth_account_management</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>navigation_home_discovery</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>listing_images</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>navigation_location_filter</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>location</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>marketplace</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>role_isolation</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>supply_catalogue_b</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>profile_and_settings</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>navigation_list_loading</td><td class="num">1</td><td class="num pass">0</td>
+<td class="num fail">1</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr><tr><td>authentication</td><td class="num">1</td><td class="num pass">1</td>
+<td class="num fail">0</td><td><div class="bar"><span class="bneutral" style="width:2.2%"></span></div></td></tr></table><h2 class="brk">4 · What the agent learned — findings</h2>
+<p>A <i>finding</i> is a typed, deduplicated claim the investigator wrote into the graph.
+Findings are deduplicated semantically, so a repeat observation increments a counter rather
+than creating a new row. This campaign produced <b>163</b> of them.</p>
+<table><tr><th style="width:23%">Kind</th><th class="num">Count</th><th>What it means</th>
+<th style="width:17%"></th></tr><tr><td class="mono"><b>SUSPECTED_DEFECT</b></td><td class="num">30</td>
+<td>App behaved in a way that looks wrong. Needs a human to confirm.</td><td><div class="bar"><span class="bneutral" style="width:63.8%"></span></div></td></tr><tr><td class="mono"><b>SPEC_VIOLATION</b></td><td class="num">5</td>
+<td>App contradicts a written requirement in the SRS.</td><td><div class="bar"><span class="bneutral" style="width:10.6%"></span></div></td></tr><tr><td class="mono"><b>SPEC_GAP</b></td><td class="num">1</td>
+<td>The SRS does not say what should happen here.</td><td><div class="bar"><span class="bneutral" style="width:2.1%"></span></div></td></tr><tr><td class="mono"><b>UNEXPECTED_BEHAVIOUR</b></td><td class="num">14</td>
+<td>Surprising, but not clearly a defect.</td><td><div class="bar"><span class="bneutral" style="width:29.8%"></span></div></td></tr><tr><td class="mono"><b>CONFIRMED_BEHAVIOUR</b></td><td class="num">36</td>
+<td>App worked as expected — evidence the feature is sound.</td><td><div class="bar"><span class="bneutral" style="width:76.6%"></span></div></td></tr><tr><td class="mono"><b>CONTROL_DISCOVERED</b></td><td class="num">9</td>
+<td>A UI control the agent had not previously mapped.</td><td><div class="bar"><span class="bneutral" style="width:19.1%"></span></div></td></tr><tr><td class="mono"><b>UNVERIFIED</b></td><td class="num">21</td>
+<td>The run could not settle the question either way.</td><td><div class="bar"><span class="bneutral" style="width:44.7%"></span></div></td></tr><tr><td class="mono"><b>AGENT_DIFFICULTY</b></td><td class="num">47</td>
+<td>Our testing agent struggled. Says nothing about the app.</td><td><div class="bar"><span class="bneutral" style="width:100.0%"></span></div></td></tr></table>
+<p><b>Lifecycle.</b> Findings that pose a question start <span class="mono">open</span> and
+are closed when a later run settles them — after three inconclusive attempts they are marked
+<span class="mono">inconclusive</span> rather than retried forever. Status now:
+<b>69</b> resolved, <b>47</b> open, <b>47</b> n/a.
+<span class="mono">n/a</span> covers kinds that are not questions, such as
+AGENT_DIFFICULTY.</p><h3>4.1 SUSPECTED_DEFECT — all 30</h3>
+<p>App behaved in a way that looks wrong. Needs a human to confirm.</p>
+<table><tr><th style="width:44%">Claim</th><th style="width:15%">Screen</th>
+<th class="num">Sev</th><th class="num">Seen</th><th>Evidence</th></tr><tr><td>The second bottom-navigation tab renders visually as &#x27;TabLabel-A&#x27; (Record) but its accessibility label is &#x27;TabLabel-B&#x27;, and tapping it opens the reference/secondary list (Reference Catalogue) — a label/destination mismatch that misdirects navigation.</td><td>Seller Home</td>
+<td class="num">medium</td><td class="num">3</td>
+<td style="font-size:8pt;color:#5b7383">steps 14, 21, 26, 30, 38, 46: clicking index 27 (&#x27;TabLabel-B&#x27;) always landed on Reference Catalogue; steps 40, 42, 48: coordinate taps intended for the visually-labeled &#x27;TabLabel-A&#x27; tab also landed…</td></tr><tr><td>The Listed Items screen reached via &#x27;Browse Listed Items&#x27; is a browse/marketplace listing of listed items for sale with no visible add-item entry point, even after scrolling.</td><td>Marketplace List</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 2-3, 12, 17: agent swiped the listed items list twice looking for an add/FAB button and found none; steps 20, 29, 33, 36, 45: agent repeatedly concluded it is a marketplace for…</td></tr><tr><td>The run ended with only Category Y selected on the organisation info screen — the original Category X+Category Y baseline was never restored, and the run reported success=True without a restore step.</td><td>Update Organisation Profile</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 6-9: baseline Category X+Category Y established then Category X deselected; step 11: saved; steps 12-14: re-entry showed only Category Y selected; step 14: complete(success=True) with no restore…</td></tr><tr><td>Saving a organisation name containing only spaces shows a success toast (&#x27;Profile information updated successfully&#x27;) instead of a validation error, while the field reverts to the previous value — success feedback on a failed save.</td><td>Update Organisation Profile</td>
+<td class="num">medium</td><td class="num">2</td>
+<td style="font-size:8pt;color:#5b7383">steps 8-10, 18-20, 27-29: typed &#x27; &#x27;, clicked &#x27;Confirm&#x27;; step 30: field showed &#x27;«emoji» Example Organisation «emoji»&#x27; with green success toast; repeated identically at steps 10, 20, 29.…</td></tr><tr><td>The Update Organisation Profile organisation name field accepts a 160+ character value with no validation error, character-count warning, or rejection; saving succeeds with &#x27;Profile information updated successfully&#x27;.</td><td>Update Organisation Profile</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 7-10: typed 160+ char name (clear=True), tapped &#x27;Confirm&#x27; (step 9), got success message &#x27;Profile information updated successfully&#x27; with no validation feedback.</td></tr><tr><td>A saved 160+ character organisation name persists across app restart and re-navigation: the field still shows the full long text after the app was reopened and the organisation profile screen revisited.</td><td>Update Organisation Profile</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 11-14: app restarted via open_app, navigated Menu &gt; Organisation Profile, field (index 12) displayed the full long text saved in step 7.</td></tr><tr><td>The organisation name field on Update Organisation Profile performs no validation at all: it accepts empty/whitespace, special characters, emoji, and 150+ character values alike, saving them with success feedback and silently reverting or persisting…</td><td>Update Organisation Profile</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">generalised from 5 findings during TC-007 The empty-organisation-name save behaviour could not be determined: no clearing method emptied the field, so save-with-empty-name was never…</td></tr><tr><td>Pressing the system BACK button while the Seller Home navigation drawer is open terminates the app entirely (switches to the previous app, e.g. another installed app) instead of closing the drawer; the drawer&#x27;s BACK handler is missing.</td><td>Seller Home</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 3-5: drawer opened via Menu tap, system_button back pressed, result: app exited to another installed app; agent reports 4 reproducible runs including the prior run in F-71d5b133.</td></tr><tr><td>The organisation name field on Update Organisation Profile has no validation and its save flow can emit success feedback (&#x27;Profile information updated successfully&#x27;) even when the user&#x27;s edit was not what was saved (value silently reverted), so empty, whitespace…</td><td>Update Organisation Profile</td>
+<td class="num">high</td><td class="num">3</td>
+<td style="font-size:8pt;color:#5b7383">generalised from 4 findings during TC-011 The organisation name field performs no validation at all: empty, whitespace-only, special characters, emoji and 150+ character values are all…</td></tr><tr><td>The menu item &#x27;My Profile&#x27; does not open a seller profile screen; it opens the Settings screen (showing only &#x27;Seller Home&#x27;, security and general settings), so no dedicated Seller Profile screen with name/phone details is reachable…</td><td>Settings</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 2-3, 5-6, 8-9, 11-12, 14-15, 17-18, 20-21, 23-24, 29-30, 35-36, 39-40, 43-44, 47-48: every click of &#x27;My Profile&#x27; landed on Settings, never a profile screen.</td></tr><tr><td>Pressing the system BACK button while the Seller Home navigation drawer is open terminates the app to the OS home screen (the device launcher) instead of closing the drawer; reproduced in 2 additional runs this attempt, 4 total.</td><td>Seller Home</td>
+<td class="num">high</td><td class="num">2</td>
+<td style="font-size:8pt;color:#5b7383">steps 3-5: tapped Menu (index 29), drawer opened, pressed system BACK, app exited to the device launcher. steps 7-9: repeated identically with same result. Agent reports consistency…</td></tr><tr><td>On the Seller Home drawer, the &#x27;Language: L1&#x27; language button only responds near the chevron (~850,590); tapping its main text area (675,714) does nothing — most of the button&#x27;s touch target is non-interactive.</td><td>Seller Home</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 4: click on index 11 at (675,714) left screen unchanged; step 5: tap_at(850,590) opened the dropdown with &#x27;L2&#x27;/&#x27;L1&#x27; options; step 7 summary confirms both results.</td></tr><tr><td>Tapping the heart/favourite icon on the first marketplace product (Item-1, ¤123) has no visible effect: the heart never fills despite ~12 taps including click, click_at and long_press.</td><td>Marketplace List</td>
+<td class="num">high</td><td class="num">2</td>
+<td style="font-size:8pt;color:#5b7383">steps 6-9, 12, 15-17, 20-24, 27-28, 32-34: agent repeatedly tapped the heart at (964,529) via click, click_at and long_press; every time the agent reports hearts &#x27;still appear…</td></tr><tr><td>The product detail view for &#x27;Item-1&#x27; (¤123) has no favourite/heart button; favouriting is only offered (non-functionally) on the marketplace list cards.</td><td>Item-1</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 18-19, 25-26, 30-31: agent opened the detail view three times and each time reported &#x27;no heart/favourite button on this detail screen&#x27;, then returned to the list.</td></tr><tr><td>Favourites state is inconsistent across screens: &#x27;Item-2&#x27; (Seller-B, ¤110) appears in Favourite Items, but its heart icon on the marketplace card is unfilled.</td><td>Marketplace List</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 2-3: favourites list shows Item-2 and Item-3 with filled red hearts; steps 10-23: the same Item-2 product in marketplace search results shows an unfilled heart at index 21.</td></tr><tr><td>The organisation name field performs no validation at all: empty, whitespace-only, special characters, emoji and 150+ character values are all accepted and report success.</td><td>Update Organisation Profile</td>
+<td class="num">high</td><td class="num">2</td>
+<td style="font-size:8pt;color:#5b7383">generalised from a 4-finding cluster Saving the organisation info form with an empty organisation name does not trigger any validation error; a success toast &#x27;Profile information updated successfully&#x27;…</td></tr><tr><td>Tapping via element index 15 also executes at (964,529), a point outside the element&#x27;s reported bounds (789-839, 422-472), so element-index clicks are subject to the same coordinate offset as click_at.</td><td>Marketplace List</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 3, 5, 8, 10, 12, 15-19, 25, 33-35, 37: click({&#x27;index&#x27;: 15}) -&gt; &#x27;Coordinates: (964, 529)&#x27; despite the element&#x27;s bounds being (789,422,839,472).</td></tr><tr><td>The tap-execution layer consistently lands taps at (964,529) regardless of requested coordinates or element bounds, so the heart control was never actually hit; the &#x27;heart does not fill&#x27; symptom is unproven and may be an artifact of this…</td><td>Marketplace List</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">generalised from 5 findings during TC-026 Agent repeatedly clicked the same heart element (index 21) 9 times and index 18 8 times with no visible effect before recognising the…</td></tr><tr><td>Selecting a language in the navigation drawer does not update visible UI labels immediately; the change only takes effect after the app is terminated and relaunched.</td><td>Seller Home</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 7-8: selected &#x27;L2&#x27; but UI stayed locale L1, so agent pressed BACK; steps 9-11: app had to be restarted via open_app before labels showed English. Same pattern repeated…</td></tr><tr><td>The navigation drawer (and Menu screen) lacks a BACK-key handler: pressing system BACK while the drawer is open exits the app instead of closing the drawer or returning in-app.</td><td>Seller Home</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">generalised from 3 findings during TC-027 Pressing the system BACK button while the Seller Home navigation drawer is open terminates the app to the OS home screen (Pixel…</td></tr><tr><td>The second bottom-navigation tab on Seller Home, visually labeled &#x27;TabLabel-A&#x27; but with accessibility label &#x27;TabLabel-B&#x27;, navigates to the Reference Catalogue (Reference Catalogue) screen; the a11y label (&#x27;TabLabel-B&#x27;) misdirects assistive-technology users away from the…</td><td>Seller Home</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 2: tapped index 27 (&#x27;Blog&#x27;, ImageView at 332,2269); step 3: resulting screen titled &#x27;Reference Catalogue&#x27; showing Common Subject Reference entries (Reference Entry A, Reference Entry C, Reference Entry B,…</td></tr><tr><td>A sub-district selection on Update Organisation Profile is silently discarded if the user leaves without tapping Confirm: after picking &#x27;Sub-area B - 4720&#x27; and navigating back, the form showed &#x27;Sub-area A - 4700&#x27; again with no warning or…</td><td>Update Organisation Profile</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 10: selected Sub-area B - 4720; step 11: pressed BACK; steps 13-14: menu still showed old location and the form showed &#x27;Sub-area A - 4700&#x27;. No unsaved-changes warning…</td></tr><tr><td>The run&#x27;s objective is refuted: clearing Organisation Name and tapping Confirm never triggers a specific validation error naming the field; the save completes with a success toast in every attempt.</td><td>Update Organisation Profile</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Three save attempts on a visibly empty field (step 9-10, 25-27, 33-35) each returned &#x27;Profile information updated successfully&#x27; (also Main #7 screen fact) with no error message.</td></tr><tr><td>Pressing BACK from the Update Organisation Profile save flow exits the app entirely (to launcher) rather than returning to the previous in-app screen, forcing an app relaunch to re-verify.</td><td>Update Organisation Profile</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 12: pressed BACK after save; step 13: agent notes &#x27;The back button exited the app&#x27; and had to open_app by package name; same again at steps 20-21.</td></tr><tr><td>The info button in an open chat conversation (top-right, index 9, ~(1017,216)) gives no visible response: no menu, dialog, or screen change ever appears no matter how often it is tapped.</td><td>Contact-1 Offline</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 9-14, 17-18, 22-26, 32-40, 43-47: the same click on index 9 at (1017,216) was repeated ~27 times across the run; the agent remained inside the Contact-1 conversation…</td></tr><tr><td>No working method to delete an existing chat conversation could be found: the info button is unresponsive, long-press opens the conversation instead of a delete menu, and left-swipe on the row reveals no delete action.</td><td>Chats</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 16 and 42: long-press on the conversation row opened the chat rather than showing options; steps 20, 30, 49: left-swipes (e.g. (888,752)-&gt;(118,752)) produced no delete…</td></tr><tr><td>No entry point to the &#x27;Add Listed Item&#x27; add-item flow exists anywhere in the Seller Home UI (home screen, listed items listing, Menu drawer, or bottom navigation), so the flow is unreachable and its step-2 &#x27;Select Item Category&#x27;…</td><td>Seller Home</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">generalised from 4 findings during TC-040 F-8f5073a8 remains unresolved: the &#x27;Add Listed Item&#x27; add-item form was never opened, so whether an empty &#x27;Select Item Category&#x27;…</td></tr><tr><td>Repeated taps on elements that are not the effective touch target (or are non-interactive) produce no visible feedback, causing the agent to loop without progress across multiple flows.</td><td>Seller Home</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">generalised from 3 findings during TC-042 Agent clicked &#x27;Browse Listed Items&#x27; and then &#x27;Marketplace List&#x27; on the same screens over a dozen times with no new state explored, indicating…</td></tr><tr><td>The empty organisation name save is not persisted: the value the user sees after the success toast is the pre-edit original name, not the empty value the user submitted — a silent revert masked by success feedback.</td><td>Update Organisation Profile</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 4-7: field was verified empty (step 4), Confirm tapped (step 6), yet the field showed the original &#x27;Example Organisation...&#x27; value after the success toast (step 7).</td></tr><tr><td>Selecting locale L1 does not fully localize the menu UI: after choosing &#x27;locale L1&#x27;, labels such as &#x27;Language&#x27;, &#x27;Change Profile&#x27;, &#x27;logout&#x27; remain in English, showing the locale L1 localization is incomplete.</td><td>Seller Home</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Step 20: after tapping &#x27;locale L1&#x27; (step 19), the agent observes &#x27;Sub-area B, Region A&#x27; in locale L1 while &#x27;Language&#x27;, &#x27;Change Profile&#x27;, &#x27;logout&#x27; remain in English.</td></tr></table><h3>4.2 SPEC_VIOLATION — all 5</h3>
+<p>App contradicts a written requirement in the SRS.</p>
+<table><tr><th style="width:44%">Claim</th><th style="width:15%">Screen</th>
+<th class="num">Sev</th><th class="num">Seen</th><th>Evidence</th></tr><tr><td>The Seller Profile screen displays the seller&#x27;s name (&#x27;Seller Home&#x27;), address and reviews, but no phone number and no explicit &#x27;Seller&#x27; role indicator, violating FR-PROF-01 and FR-PROF-03.</td><td>Seller Profile</td>
+<td class="num">high</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Step 50: agent reached Seller Profile and enumerated contents — name, address (Region A...), 0 Reviews present; phone number and role designation explicitly absent; a swipe…</td></tr><tr><td>The objective&#x27;s expected result &#x27;after tapping the language option, all visible UI labels switch&#x27; is not met in-session without an app restart; language switching was only verified across restarts.</td><td>Seller Home</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 7-11, 14-19, 21-24: every language change required open_app + wait on splash screen before labels updated; no in-session label update was ever observed after selecting a…</td></tr><tr><td>The home screen header shows no location label (&#x27;Example Organisation&#x27; + &#x27;Seller / Seller&#x27; only); the active region appears only in the Menu drawer, so the header can never reflect a region change as FR-LOC-06 specifies.</td><td>Seller / Seller</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 7, 12, 21: agent repeatedly notes &#x27;No visible location label in the header&#x27; on the home screen; the updated label &#x27;Sub-area B, Region A&#x27; was only found inside the Menu…</td></tr><tr><td>The location label did not update immediately after selecting a region; it only reflected &#x27;Sub-area B - 4720&#x27; after tapping Confirm and relaunching the app, so FR-LOC-06&#x27;s &#x27;immediately displays&#x27; expectation was not met in-session.</td><td>Update Organisation Profile</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 10-13: after selecting Sub-area B - 4720 without saving, menu still showed &#x27;Sub-area A, Region A&#x27;; steps 17-21: update only visible after Confirm (step 17) plus app…</td></tr><tr><td>On the Seller Profile (Seller Profile) screen, no explicit &#x27;Seller&#x27; role label or badge is displayed; the page title &#x27;Seller Profile&#x27; is the only role identification, so FR-PROF-03&#x27;s role-display requirement is not met on that…</td><td>Seller Profile</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 36-38: agent opened Organisation tab, reached Seller Profile showing &#x27;Seller Home&#x27;, &#x27;0 Reviews&#x27;, location, &#x27;Share Profile&#x27;/&#x27;My Products&#x27;/&#x27;Seller Market&#x27; buttons; swiped to check…</td></tr></table><h3>4.3 SPEC_GAP — all 1</h3>
+<p>The SRS does not say what should happen here.</p>
+<table><tr><th style="width:44%">Claim</th><th style="width:15%">Screen</th>
+<th class="num">Sev</th><th class="num">Seen</th><th>Evidence</th></tr><tr><td>The &#x27;Notification&#x27; row in Settings (GENERAL section) does not toggle in-app; tapping it opens the Android system notification settings, and the app merely reflects the system switch state on return.</td><td>Seller Home #6</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 3-4, 5-6, 13-14: tapping the row at (540,879) repeatedly landed in system settings (&#x27;android:id/switch_widget&#x27;, &#x27;All the application notifications&#x27;); steps 29-32: after toggling…</td></tr></table><h3>4.4 UNEXPECTED_BEHAVIOUR — all 14</h3>
+<p>Surprising, but not clearly a defect.</p>
+<table><tr><th style="width:44%">Claim</th><th style="width:15%">Screen</th>
+<th class="num">Sev</th><th class="num">Seen</th><th>Evidence</th></tr><tr><td>Clicking the organisation name field repeatedly caused the device to switch to the another installed app app, forcing re-navigation back to the organisation screen (4 interruptions in one run).</td><td>Update Organisation Profile</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 5-6, 22-23, 30-31, 49-50: after clicking the EditText the agent found itself on another installed app and had to reopen com.example.aut or press BACK each time.</td></tr><tr><td>Clicking &#x27;Confirm&#x27; on the organisation info screen navigates away to the home screen even when the save did not apply, forcing re-navigation to verify the outcome.</td><td>Update Organisation Profile</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 10-13, 20-22, 29-30: after each save click the agent found itself on the home/menu screen and had to re-navigate via Menu → Organisation Profile.</td></tr><tr><td>No conversation-delete control could be found on the Chats screen or inside the chat: long press on the conversation item, left-swipe, and the info button all produced no delete option, and the conversation persisted throughout the run.</td><td>Chat</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 4, 17 (long press on conversation), step 6 (swipe left), steps 8, 15, 25, 33 (info button) all returned to the same list with &#x27;Contact-1&#x27; conversation still present at…</td></tr><tr><td>After clicking the organisation name field on the update screen, the app context unexpectedly switched to another installed app, requiring the agent to relaunch the target app by package name.</td><td>Update Organisation Profile</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 10-11: clicked EditText index 12; step 11 found the device on another installed app instead of the app and had to open com.example.aut.</td></tr><tr><td>No &#x27;Add Listed Item&#x27; / add-item entry point is visible on the home screen, the listed items listing, the Menu drawer, or the bottom navigation for a logged-in Seller Home.</td><td>Seller Home</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 3-50: home, listed items listing (&#x27;Browse Listed Items&#x27;, &#x27;See All&#x27;), Menu drawer (steps 5, 12, 27), and bottom nav tabs were all inspected; no add-item control seen on any of them.</td></tr><tr><td>After switching role via &#x27;Item Seller&#x27; on the Account Management screen, the app returned to Reference Catalogue without any visible confirmation, and the menu still showed the user as &#x27;Seller Home&#x27;.</td><td>Reference Catalogue</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 33-35: role click at step 33, next screen is Reference Catalogue, then menu at step 35 still shows &#x27;Seller Home&#x27;.</td></tr><tr><td>A toast reading &#x27;Switching to Buyer...&#x27; (changing to buyer...) appeared when tapping the heart icon on the marketplace card, which is not a favourite acknowledgement.</td><td>Marketplace List</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 5: after clicking heart icon (964,529), toast &#x27;Switching to Buyer...&#x27; displayed; heart icons remained unfilled.</td></tr><tr><td>The product detail screen for &#x27;Item-1&#x27; (reached from the marketplace card) shows no heart/favourite icon; the favourite control appears to exist only on marketplace listing cards, so the objective&#x27;s assumed detail-screen path does not exist…</td><td>Item-1</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 13-14: agent opened the &#x27;Item-1&#x27; product card (index 14) and observed &#x27;There&#x27;s no heart icon here - it was on the marketplace listing cards&#x27;, then navigated back.</td></tr><tr><td>Tapping in the marketplace card area triggered a role-switch toast &#x27;Switching to Buyer...&#x27; (Changing to buyer...), showing the tapped point hit some interactive handler, but the heart itself never changed state.</td><td>Marketplace List</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 4: after first tap at (964,529) a toast &#x27;Switching to Buyer...&#x27; appeared; steps 5-37 show hearts remain unfilled afterwards.</td></tr><tr><td>Returning from the system notification settings after toggling sometimes relaunched the app through a splash screen and triggered notification permission dialogs, rather than restoring the Settings screen in place.</td><td>Seller Home</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 15-18: after back from system settings, app was blank/splash then a permission dialog (&#x27;Allow&#x27;) appeared; steps 24-26 and 39-40: &#x27;Don’t allow&#x27; dialogs and splash screen…</td></tr><tr><td>Tapping the second bottom-nav tab lands on Reference Catalogue, whose title reads &#x27;Blog&#x27; in English structural facts — the screen itself is labeled &#x27;Reference Catalogue&#x27; at runtime, so the tab&#x27;s a11y label matches neither the visual &#x27;TabLabel-A&#x27; nor a blog…</td><td>Reference Catalogue</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 3: destination screen title index 7 is &#x27;Reference Catalogue&#x27;; step 2: tab a11y label is &#x27;Blog&#x27;.</td></tr><tr><td>The Add Subject form accepted listed item type &#x27;Category X&#x27; (step 24) together with subtype &#x27;Bull&#x27; (step 30) with no cross-field consistency check or warning; whether this is intended behaviour is unknown.</td><td>Add Subject</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">Steps 23-24 selected type &#x27;Category X&#x27;; steps 29-30 opened the subtype dropdown and selected &#x27;Bull&#x27;; the form proceeded without complaint (step 40 advanced to step 2).</td></tr><tr><td>Runtime labels on this flow are English — tab &#x27;Organisation&#x27;, button &#x27;Share Profile&#x27; — not the assumed &#x27;Organisation&#x27;/&#x27;Share Profile&#x27;, while the share payload text is locale L1: mixed-language UI within one flow.</td><td>Seller Profile</td>
+<td class="num">low</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">step 3: tab text &#x27;Organisation&#x27;; step 4: button text &#x27;Share Profile&#x27;; step 5: locale L1 share text &#x27;the application Seller Home View Profile: ...&#x27;.</td></tr><tr><td>Uploading a non-subject image (an app screenshot) and running Start Scanning does not produce an error; the analyzer returns a &#x27;Normal&#x27; result screen (&#x27;No visible reference entry detected...&#x27;) instead of rejecting the irrelevant input.</td><td>Health check result</td>
+<td class="num">medium</td><td class="num">1</td>
+<td style="font-size:8pt;color:#5b7383">steps 3-7: picked a screenshot from gallery, Start Scanning enabled, AI Analyzer ran ~5s, result screen showed &#x27;Normal&#x27; / &#x27;No visible reference entry detected in the subject from the…</td></tr></table><h2 class="brk">5 · Every test case</h2>
+<p>All 45 tests in execution order. "Why" quotes the agent's own reasoning about what
+happened on the device.</p><div class="case f">
+<h4>1. TC-001 — FR-ITEM-02: Listed item record requires subject type selection before proceeding</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area item_record · 50 device steps
+ · 847s · 05:41
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-ITEM-02</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The agent never reached the Add Listed Item multi-step flow, so the core validation question (does an empty Select Item Category block step 2?) remains unverified. The run instead established that the add-item flow is hard to discover: the listed items screen shows a marketplace with no add control, the bottom-nav second tab is mislabeled in the accessibility tree (&#x27;TabLabel-B&#x27; vs visual &#x27;TabLabel-A&#x27;), and the agent looped for ~50 steps without…</p></div><div class="case ">
+<h4>2. TC-002 — FR-ORG-05: Listed item type selection persistence on organisation update screen</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area org_profile · 14 device steps
+ · 185s · 05:45
+ 
+  <span class="tag">FR-ORG-02</span> <span class="tag">FR-ORG-05</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run verified FR-ORG-05: deselecting Category X while keeping Category Y and saving persisted the new selection after re-entering the screen. However, the run again ended with only Category Y selected and no restore step, confirming the open question F-8ce5a93c: the listed item selection was not restored to the Category X+Category Y baseline. Findings: 2 confirmed_behaviour, 1 suspected_defect. (3 new, 0 reinforced) Closed open question(s): F-8ce5a93c.</p></div><div class="case f">
+<h4>3. TC-003 — FR-ORG-04: Organisation name field rejects empty input with specific error message</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area org_management · 50 device steps
+ · 702s · 05:58
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-ORG-04</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never achieved a genuinely empty organisation name field: every clearing attempt (type with clear=True ~6x, select-all + cut, triple-clicks) left &#x27;«emoji» Example Organisation «emoji»&#x27; in place, so the app&#x27;s response to saving an empty name was never observed. It did confirm the field accepts and saves an emoji-containing name with a success toast. Repeated app switches to another installed app while clicking the field further blocked the test. Findings: 3…</p></div><div class="case f">
+<h4>4. TC-004 — FR-ORG-04: Organisation name field rejects whitespace-only input with an error message</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area org_management · 31 device steps
+ · 509s · 06:09
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-ORG-04</span></p><p class="why"><b>Why it failed:</b> The save action was blocked (organisation name field retained original value &quot;«emoji» Example Organisation «emoji»&quot;, spaces were not saved), but no specific validation error message appeared. Instead, a generic success toast &quot;Profile information updated successfully&quot; was shown. The expected behavior — a specific error message indicating the organisation name cannot be empty or contain only whitespace — was not observed. The app effectively prevented saving…</p><p class="why"><b>Agent's account:</b> Objective refuted. Whitespace-only organisation name input was tested three times; each save navigated to home and showed a success toast &#x27;Profile information updated successfully&#x27; while the field reverted to the prior value. The expected whitespace validation error never appeared. The run also shows the save silently discards the whitespace input without any user-facing failure feedback. Findings: 2 agent_difficulty, 1 confirmed_behaviour, 1 suspected_defect, 1…</p></div><div class="case f">
+<h4>5. TC-005 — FR-CHT-05: Empty chat inbox shows empty state UI without error or crash</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area chat · 50 device steps
+ · 862s · 06:26
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-CHT-01</span> <span class="tag">FR-CHT-05</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective confirmed. The Chats empty-state message exists and is rendered in locale L1 (&#x27;No chats yet&#x27;, &#x27;Start a conversation&#x27;, &#x27;will appear here&#x27;) on the Chat screen, satisfying the objective. However, the agent could not reach it live this run because no conversation-delete control was found anywhere (long press, swipe, info screen), so the empty state was only observed via the screen&#x27;s structural snapshot, not through a user-driven deletion flow.…</p></div><div class="case ">
+<h4>6. TC-006 — FR-REF-01: Tapping a reference entry from Reference Catalogue navigates to reference entry detail view</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area reference_information · 4 device steps
+ · 63s · 06:28
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed the objective: tapping Reference Entry D on the Reference Catalogue screen navigated to a detail page with title, common names, cause, and symptoms. The reference entry detail screen&#x27;s structure (title, Common Name, Cause, Symptoms sections) is newly discovered. No defects observed. Findings: 1 confirmed_behaviour, 1 control_discovered, 1 unverified. (3 new, 0 reinforced)</p></div><div class="case f">
+<h4>7. TC-007 — FR-ORG-06: Organisation update with 150+ character name shows appropriate feedback</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area org_management · 14 device steps
+ · 232s · 06:33
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-ORG-04</span> <span class="tag">FR-ORG-06</span></p><p class="why"><b>Why it failed:</b> Validation test FAILED: The &#x27;Update Organisation Profile&#x27; screen does not implement proper validation for organisation names exceeding 150 characters. When entering a 160+ character name, the app: (1) visually truncates the display but stores the full text, (2) accepts the input without any character count warning or validation error during entry, and (3) successfully saves the data with a success message &quot;Profile information updated…</p><p class="why"><b>Agent's account:</b> Objective confirmed. The run entered a 160+ character organisation name and saved it successfully with no validation error, truncation warning, or rejection — confirming the organisation name field performs no length validation. The long value persisted across app restart and re-navigation. This settles the open question F-422162fd: the field accepts over-long values with success feedback. Findings: 1 agent_difficulty, 1 confirmed_behaviour, 2 suspected_defect, 1…</p></div><div class="case f">
+<h4>8. TC-008 — FR-ORG-04: Clear required organisation field before save shows specific error</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area org_management · 50 device steps
+ · 741s · 06:47
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-ORG-04</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never cleared the Sub-area field, so the intended validation-error test was never executed. The agent spent 50 steps cycling between the organisation update screen and the Sub-area dropdown, repeatedly clicking what it believed was a clear button (index 25) which actually opened the dropdown, and never reached the save action. The only app behaviour established is that closing the dropdown with BACK preserves the previously selected value.…</p></div><div class="case f">
+<h4>9. TC-009 — FR-NAV-02: System back on open drawer closes menu instead of exiting app</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area navigation_data_states · 17 device steps
+ · 327s · 06:53
+  · <span class="mono">NAVIGATION_FAILURE</span>
+  · Agent limitation <span class="tag">FR-NAV-02</span></p><p class="why"><b>Why it failed:</b> FAIL: Pressing the system BACK button while the Seller Home navigation drawer is open does NOT close the drawer. Instead, it exits the app entirely (com.example.aut terminates and the device switches to another installed app). This was confirmed across 3 reproducible runs. The expected behavior (drawer closes, app remains on Home/Main screen) was not achieved. The navigation drawer&#x27;s BACK handler is not implemented…</p><p class="why"><b>Agent's account:</b> Objective refuted. This run reproduced and confirmed that pressing the system BACK button while the Seller Home navigation drawer is open exits the app entirely (terminates to another app, here another installed app) instead of closing the drawer. This was observed reproducibly (agent reports 4 consistent runs) and directly answers the open question about BACK exiting the app. Findings: 1 confirmed_behaviour, 1 suspected_defect. (2 new, 0 reinforced) Closed open…</p></div><div class="case f">
+<h4>10. TC-010 — FR-ITEM-04: Validate empty listed item type blocks advancing in add-item flow</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area item_record · 50 device steps
+ · 653s · 07:06
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-ITEM-01</span> <span class="tag">FR-ITEM-04</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never reached the &#x27;Add Listed Item&#x27; add-item screen. The agent repeatedly cycled between the home screen and the listed item listing without locating any add-item entry point, so whether an empty &#x27;Select Item Category&#x27; blocks advancing to step 2 remains undetermined. The open question F-8f5073a8 stays open. Findings: 1 agent_difficulty, 1 unexpected_behaviour, 1 unverified. (3 new, 0 reinforced)</p></div><div class="case f">
+<h4>11. TC-011 — FR-ORG-04: Validate empty organisation name rejection in Update Organisation Profile</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area org_management · 50 device steps
+ · 594s · 07:17
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-ORG-04</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The agent repeatedly cleared the organisation name field but lost the cleared state by accidentally navigating away (clipboard-popup dismissal acted as back navigation) four times before completing a clear-and-save flow. A save with an empty field was finally issued at step 50, but the run ended at the step limit before the app&#x27;s response could be observed, so the objective remains unverified. Step 41 did show a save succeeding with a success…</p></div><div class="case ">
+<h4>12. TC-012 — FR-NOT-04: Empty notification list shows empty state, not error or crash</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area notifications · 2 device steps
+ · 35s · 07:19
+ 
+  <span class="tag">FR-NOT-04</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The notifications screen loaded successfully with zero notifications and displayed a clear empty-state message &#x27;No notifications yet&#x27;. No error dialog, blank screen, or crash occurred; back and refresh controls remained available. The objective was fully confirmed. Findings: 1 confirmed_behaviour, 1 control_discovered. (2 new, 0 reinforced)</p></div><div class="case ">
+<h4>13. TC-013 — Verify bottom nav tab &#x27;TabLabel-A&#x27; navigates to correct destination matching its label</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area navigation_primary_bar · 14 device steps
+ · 251s · 07:35
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective confirmed. This run re-verified the suspected defect: tapping the second bottom-navigation tab (visually &#x27;TabLabel-A&#x27;, accessibility label &#x27;TabLabel-B&#x27;) consistently opens Reference Catalogue (Reference Catalogue), not a Record screen, across repeated taps from the Seller Home home screen. This resolves F-8fa91d30 as a confirmed label/destination mismatch. Findings: 1 suspected_defect. (0 new, 1 reinforced) Closed open question(s): F-8fa91d30.</p></div><div class="case f">
+<h4>14. TC-014 — FR-PROF-01: Seller Profile screen displays user identity and role info</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area profile · 50 device steps
+ · 708s · 07:48
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-PROF-01</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The run could not verify the Seller Profile objective: no dedicated Seller Profile screen was found. The menu&#x27;s &#x27;My Profile&#x27; item consistently opens Settings (which shows the name &#x27;Seller Home&#x27;), &#x27;Organisation Profile&#x27; opens Update Organisation Profile, and &#x27;Edit Profile&#x27; opens the role-switch Account Management screen. The agent also burned most of its 50 steps repeating the same fruitless navigation. Screen hint was wrong; actually…</p></div><div class="case ">
+<h4>15. TC-015 — Test F-8fa91d30: Bottom nav tab &#x27;TabLabel-A&#x27; opens reference entry list (label/destination mismatch)</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area navigation_detail_views · 2 device steps
+ · 44s · 07:50
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective confirmed. Tapping the second bottom-navigation tab (visually &#x27;TabLabel-A&#x27;) landed on Reference Catalogue (Reference Catalogue), confirming the destination matches the visual label. The accessibility tree exposes the tab as &#x27;TabLabel-B&#x27; (Blog), so the mismatch is between the accessibility label and the actual visual label/destination, not the destination itself. Findings: 1 confirmed_behaviour, 1 suspected_defect. (1 new, 1 reinforced) Closed open question(s): F-8fa91d30.</p></div><div class="case ">
+<h4>16. TC-016 — Test F-00be376d: &#x27;My Profile&#x27; menu item opens Settings screen instead of dedicated profile</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area settings · 3 device steps
+ · 46s · 07:53
+ 
+  <span class="tag">FR-PROF-01</span> <span class="tag">FR-SET-01</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. This run directly settles the open question F-00be376d: tapping &#x27;My Profile&#x27; in the Seller Home navigation drawer navigates to the Settings screen, which shows only the user name &#x27;Seller Home&#x27;, a General section (notification toggle) and a Security section (password change). No dedicated Seller Profile screen with name/phone/role details is reachable via this menu item, which matches the stated expected result. Findings: 1…</p></div><div class="case ">
+<h4>17. TC-017 — Test FR-PROF-04: &#x27;Share Profile&#x27; on Seller Profilल opens system share sheet with profile link</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area favorites_management · 6 device steps
+ · 82s · 07:55
+ 
+  <span class="tag">FR-PROF-04</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. Tapping &#x27;Share Profile&#x27; on Seller Profile opened the Android native share sheet with 5 options, and the payload contained a populated profile URL (https://example.test/share/user/subject/383). Both conditions of the test objective were verified directly. No defects observed. Findings: 3 confirmed_behaviour. (3 new, 0 reinforced)</p></div><div class="case ">
+<h4>18. TC-018 — Test FR-PROF-03: Seller profile displays identifying information when viewed</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area profile_settings · 1 device steps
+ · 31s · 07:58
+ 
+  <span class="tag">FR-PROF-03</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The Seller Profile screen displayed the seller name &#x27;Seller Home&#x27;, location, review count, and a share button, supporting FR-PROF-03. The explicit &#x27;Seller&#x27; role label was not observed; the agent accepted the page title as equivalent identifying information. Profile viewability is confirmed; role-label presence is not. Findings: 1 confirmed_behaviour, 1 unverified. (2 new, 0 reinforced)</p></div><div class="case f">
+<h4>19. TC-019 — Test F-399a602a: Back button while navigation drawer is open should close drawer, not exit app</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area error_handling · 7 device steps
+ · 278s · 08:04
+  · <span class="mono">NAVIGATION_FAILURE</span>
+  · Agent limitation </p><p class="why"><b>Why it failed:</b> FAILED: Pressing system BACK button while navigation drawer is open on Seller Home screen exits the app to OS home screen instead of closing the drawer. Expected: drawer closes, user stays on Seller Home. Actual: app terminates, returns to the device launcher.</p><p class="why"><b>Agent's account:</b> Objective refuted. This run reproduced the defect twice more (steps 3-5 and 7-9): opening the Seller Home navigation drawer via Menu and pressing system BACK exits the app to the the device launcher instead of closing the drawer. Combined with the prior run, this is now 4 reproducible occurrences, confirming F-399a602a. Findings: 1 suspected_defect. (1 new, 0 reinforced) Closed open question(s): F-399a602a.</p></div><div class="case f">
+<h4>20. TC-020 — Test FR-FAV-04: Adding a product to favourites shows visible acknowledgement</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area favourites · 48 device steps
+ · 901s · 08:20
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-FAV-04</span></p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (48/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never confirmed FR-FAV-04: dozens of taps on the heart icon on both the marketplace cards and the product detail screen produced no toast and no visible icon change. The only toast observed was an unrelated &#x27;Switching to Buyer...&#x27;. The run is dominated by agent loop behaviour (repeated ineffective clicks) so the favourite acknowledgement remains unverified. Findings: 3 agent_difficulty, 1 unexpected_behaviour, 1…</p></div><div class="case ">
+<h4>21. TC-021 — Test F-752e9150: Language dropdown touch target is misaligned - tapping main button text does nothing</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area usability · 7 device steps
+ · 121s · 08:24
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective confirmed. The run reproduced and confirmed the small/misaligned touch target on the &#x27;Language: L1&#x27; language dropdown button in the Seller Home navigation drawer. A tap on the button&#x27;s main text area (675,714) produced no dropdown, while a tap near the chevron (850,590) opened it showing &#x27;L2&#x27; and &#x27;L1&#x27;. This resolves F-752e9150. Findings: 1 confirmed_behaviour, 1 suspected_defect. (2 new, 0 reinforced) Closed open question(s): F-752e9150.</p></div><div class="case f">
+<h4>22. TC-022 — Test FR-FAV-05: Favourite state survives leaving and re-entering product detail view</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area favourites · 36 device steps
+ · 901s · 08:40
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-FAV-05</span></p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (36/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The agent never toggled any favourite: repeated taps on the heart icon of the first marketplace product had no visible effect (heart never filled), and the product detail view for &#x27;Item-1&#x27; contains no favourite button at all. The objective (persistence of favourites) could not be tested because favouriting itself appears non-functional or unreachable. Findings: 1 agent_difficulty, 2 suspected_defect, 1 unverified. (4 new, 0 reinforced)</p></div><div class="case f">
+<h4>23. TC-023 — Test FR-FAV-02: Remove product from favourites via heart icon on marketplace list</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area favourites · 47 device steps
+ · 902s · 08:56
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-FAV-02</span></p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (47/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never completed the unfavourite objective. The agent could not get any heart icon to fill or toggle: ~20+ taps on heart controls across three products produced no visible state change, and the favourited &#x27;Item-2&#x27; product shows an unfilled heart in the marketplace despite appearing in the favourites list. This is both a suspected defect (favourite toggle unresponsive/state inconsistent) and a major agent difficulty (repeated…</p></div><div class="case f">
+<h4>24. TC-024 — Test FR-FAV-03: Favourites list shows only favourited products after adding one</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area favourites · 15 device steps
+ · 7572s · 11:11
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-FAV-01</span> <span class="tag">FR-FAV-02</span> <span class="tag">FR-FAV-03</span> <span class="tag">FR-FAV-04</span></p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (15/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never successfully toggled a favourite via the heart icon: repeated taps on the heart (index 15 / click_at (814,447)) produced no visible state change, and clicks were consistently registered at (964,529), a different location than requested. The run ended on the Item-1 product detail screen without verifying whether the product appears in Favourite Items, so the objective remains unverified. Screen hint was wrong; actually used:…</p></div><div class="case f">
+<h4>25. TC-025 — Verify seller profile displays required identity fields (name, phone, role)</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area profile_settings · 50 device steps
+ · 710s · 11:24
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-PROF-01</span> <span class="tag">FR-PROF-03</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective refuted. The run reached Seller Profile (step 50) after switching role to Item Seller. The screen displays the seller&#x27;s name &#x27;Seller Home&#x27;, address and reviews, but no phone number and no explicit &#x27;Seller&#x27; role indicator, violating FR-PROF-01/FR-PROF-03. This settles open question F-db142639. Findings: 2 agent_difficulty, 1 spec_violation. (3 new, 0 reinforced) Closed open question(s): F-db142639.</p></div><div class="case f">
+<h4>26. TC-026 — Verify heart icon fills when tapping favourite on marketplace product card</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area favourites · 38 device steps
+ · 902s · 11:40
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-FAV-01</span> <span class="tag">FR-FAV-04</span></p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (38/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run did NOT settle whether the heart favourite control is broken: every tap, whether by index 15 or click_at, landed at (964,529), which is outside the heart&#x27;s reported bounds (789-839 x 422-472). The heart may be functional but was never actually tapped. What the run does establish is a consistent coordinate mismatch between requested and executed tap locations, and a role-switch toast (&#x27;Switching to Buyer...&#x27;) appearing…</p></div><div class="case ">
+<h4>27. TC-027 — Verify language toggle from locale L1 back to English on Seller Home</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area supply_catalogue_a · 25 device steps
+ · 341s · 11:47
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective unclear. Language switching between English and locale L1 works and persists, but the UI does not update immediately: after selecting a language in the drawer, labels remain in the old language until the app is killed and restarted (steps 8-11, 15-19, 22-24). This partially contradicts the objective&#x27;s expectation of immediate label updates. Separately, BACK with the drawer open exits the app instead of closing the drawer, confirming the known…</p></div><div class="case ">
+<h4>28. TC-028 — Verify notification toggle state persistence after leaving settings</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area auth_account_management · 46 device steps
+ · 534s · 11:58
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective confirmed. The push notification setting persists across navigation (FR-PROF-03 confirmed), but only because the app&#x27;s &#x27;Notification&#x27; row is a link to Android system notification settings rather than an in-app toggle; the app mirrors the system state. Toggling caused app restarts/splash screens and permission dialogs, and the agent repeatedly clicked the row expecting an internal toggle. Findings: 1 agent_difficulty, 1 confirmed_behaviour, 1…</p></div><div class="case ">
+<h4>29. TC-029 — Verify bottom-nav &#x27;Record&#x27; tab opens reference entry list despite accessibility label mismatch</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area navigation_home_discovery · 3 device steps
+ · 63s · 12:00
+ 
+  </p><p class="why"><b>Agent's account:</b> Objective confirmed. This run confirms that tapping the second bottom-navigation tab (a11y label &#x27;TabLabel-B&#x27;/&#x27;Blog&#x27;) on Seller Home navigates to the Reference Catalogue (Reference Catalogue) screen, matching the visual &#x27;TabLabel-A&#x27; label&#x27;s destination. The accessibility-label mismatch (&#x27;TabLabel-B&#x27; vs &#x27;TabLabel-A&#x27;/Reference Catalogue) is confirmed as a real defect for assistive-tech users. This settles F-8fa91d30. Findings: 1 suspected_defect, 1 unexpected_behaviour. (2 new, 0 reinforced) Closed…</p></div><div class="case ">
+<h4>30. TC-030 — Verify reference entry detail screen shows treatment/remedy section when opened from reference entry list</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area health_check · 6 device steps
+ · 127s · 12:03
+ 
+  <span class="tag">FR-REF-02</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run opened Reference Entry A from the Reference Catalogue and scrolled through its detail view, confirming treatment sections (Immediate Treatment, Immune Serum Treatment, Vaccines/Medicines) are present and readable. This settles F-25efb5f1: the treatment section exists and was fully observed. FR-REF-02 is confirmed for this reference entry. Findings: 1 agent_difficulty, 1 confirmed_behaviour. (2 new, 0 reinforced) Closed open question(s):…</p></div><div class="case f">
+<h4>31. TC-031 — Verify FR-SELL-14: Listing images can be attached from device gallery on subject product</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area listing_images · 50 device steps
+ · 600s · 12:14
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-SELL-02</span> <span class="tag">FR-SELL-14</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The objective was never reached: no listing-edit screen or image attachment control was seen, so FR-SELL-02/FR-SELL-14 remain unverified. All 50 steps were consumed switching the Seller Home account to the Subject Seller role (My Subject was empty) and filling the multi-step Add Subject creation form through step 2. The run did confirm role switching works, the empty My Subject state, and the Add Subject step-1-to-step-2 progression, and…</p></div><div class="case f">
+<h4>32. TC-032 — Verify region selector updates discovery results when changing from Sub-area A to another region</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area navigation_location_filter · 4 device steps
+ · 701s · 12:31
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-NAV-08</span> <span class="tag">FR-LOC-06</span></p><p class="why"><b>Why it failed:</b> Error: Connection error.</p></div><div class="case ">
+<h4>33. TC-033 — Verify region change updates the active location label in the header</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area location · 22 device steps
+ · 393s · 13:01
+ 
+  <span class="tag">FR-NAV-08</span> <span class="tag">FR-LOC-06</span></p><p class="why"><b>Agent's account:</b> Objective unclear. FR-LOC-06 was not verified as specified: the home header contains no location label at all, the region name only appears in the Menu drawer, and it updated only after tapping Confirm and relaunching the app (steps 17-21), not immediately after selection. A selection made without saving was silently dropped (steps 10-13). The location change itself does persist once saved. Screen hint was wrong; actually used: Update Organisation Profile / Seller…</p></div><div class="case ">
+<h4>34. TC-034 — Verify profile share link is valid and contains seller identity</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area marketplace · 5 device steps
+ · 99s · 13:05
+ 
+  <span class="tag">FR-ITEM-06</span> <span class="tag">FR-PROF-04</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. This run confirmed the share flow at the UI level: via the &#x27;Organisation&#x27; bottom-nav tab the agent reached the Seller Profile screen and tapping &#x27;Share Profile&#x27; opened the native Android share sheet with payload &#x27;the application Seller Home View Profile: https://example.test/share/user/subject/383&#x27; — populated URL, correct seller name, no empty values. It also discovered the Seller Profile screen, &#x27;Organisation&#x27; tab and &#x27;Share…</p></div><div class="case ">
+<h4>35. TC-035 — Verify role isolation: seller cannot access supply category B or machinery store screens</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area role_isolation · 7 device steps
+ · 128s · 13:09
+ 
+  <span class="tag">FR-ITEM-03</span> <span class="tag">FR-ITEM-04</span> <span class="tag">FR-SELL-13</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed FR-SELL-13 role isolation: &#x27;See Supply category B&#x27; and &#x27;See Equipments&#x27; cards on the seller home screen both lead to marketplace browse views with no register-store or publish-item entry points. No new defects beyond what is already recorded; the objective&#x27;s primary path was fully exercised. Findings: 2 confirmed_behaviour, 1 control_discovered. (3 new, 0 reinforced)</p></div><div class="case f">
+<h4>36. TC-036 — Verify AI health check displays clear limitations when image upload fails</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area health_check · 24 device steps
+ · 902s · 13:26
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-REF-03</span> <span class="tag">FR-REF-05</span></p><p class="why"><b>Why it failed:</b> Workflow timed out after 900s (24/50 steps observed). Timed out with steps still available - not a step-budget issue; flagged for manual review of what it was doing when it stalled.</p><p class="why"><b>Agent's account:</b> Objective unclear. The run never actually tested FR-REF-05&#x27;s error handling: the agent got stuck in a loop of picking the TEST SUBJECT 1 image, then clearing it, and never pressed Start Scanning with a non-subject image. The only completed scan used an app screenshot, which the AI analyzer accepted and returned a &#x27;Normal&#x27; result with no error message. Camera flow and gallery picker behaviour were explored but the invalid-input error path remains…</p></div><div class="case f">
+<h4>37. TC-037 — Verify organisation name cannot be saved as empty string</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area org_management · 50 device steps
+ · 630s · 13:38
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-ORG-04</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective refuted. The agent reached Update Organisation Profile and attempted to clear the organisation name three separate times (type with clear=true at steps 7 and 32-39, Cut after Select all at steps 22-24). Each time the field was visibly empty (placeholder &#x27;Example: Sample Organisation&#x27; shown), yet tapping Confirm produced the &#x27;Profile information updated successfully&#x27; toast and the field reverted to the original long text. No inline error naming the organisation name was…</p></div><div class="case ">
+<h4>38. TC-038 — Verify listed item type selection persists after organisation info save on Update Organisation Profile</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area org_management · 25 device steps
+ · 370s · 13:46
+ 
+  <span class="tag">FR-ORG-02</span> <span class="tag">FR-ORG-05</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run fully executed the objective: it saved Category X+Category Y, verified persistence on re-entry, then deselected Category X, saved, and re-entered to confirm only Category Y remained. The suspected defect that the baseline was never restored is refuted — steps 17-19 perform the restore and steps 21-24 verify it. The item-category selection persists correctly across app restarts. Findings: 2 confirmed_behaviour, 1 suspected_defect. (2 new, 1 reinforced)…</p></div><div class="case f">
+<h4>39. TC-039 — Verify reference entry detail screen shows prevention and remedy sections for Reference Entry D</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area reference_information · 50 device steps
+ · 658s · 13:59
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-REF-02</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective confirmed. The run navigated to the Reference Catalogue via the Blog tab, opened the Reference Entry D entry, and scrolled its detail screen, revealing Cause, Symptoms, Prevention, and Treatment sections — settling open question F-25efb5f1 in favour of the treatment section existing. The run then wasted ~28 steps repeating identical no-op swipes trying to scroll back up, hitting the 50-step cap without confirming the Symptoms section on-screen again (though it…</p></div><div class="case f">
+<h4>40. TC-040 — Verify chat inbox shows empty state when no conversations exist</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area chat · 50 device steps
+ · 565s · 14:10
+  · <span class="mono">STEP_LIMIT_EXCEEDED</span>
+  · Agent limitation <span class="tag">FR-CHT-05</span></p><p class="why"><b>Why it failed:</b> Reached max step count of 50 steps</p><p class="why"><b>Agent's account:</b> Objective unclear. The agent reached the chat inbox via a &#x27;Chat History&#x27; button on the home screen, but the inbox contained one existing conversation (Contact-1). The entire 50-step budget was spent trying to delete it: ~27 taps on an unresponsive info button, 3 swipe attempts and 2 long-presses never produced a delete option, so the empty state was never observed in this run. The run did establish that no working conversation-delete path could be…</p></div><div class="case ">
+<h4>41. TC-041 — Verify supply category B store entry point on home screen</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area supply_catalogue_b · 5 device steps
+ · 68s · 14:16
+ 
+  <span class="tag">FR-NAV-03</span> <span class="tag">FR-ITEM-03</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run confirmed the &#x27;See Supply category B&#x27; discovery card exists on the Home (Seller / Seller) screen and navigates to a functional Supply category B browsing screen with search, filter, listings, and Details buttons. This confirms F-c07d529e and F-677499ad. No new defects or open questions were settled. Findings: 2 confirmed_behaviour. (0 new, 2 reinforced)</p></div><div class="case ">
+<h4>42. TC-042 — Verify role label presence on Seller Profile</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area profile_and_settings · 38 device steps
+ · 476s · 14:25
+ 
+  <span class="tag">FR-PROF-03</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run reached the Seller Profile (Seller Profile) screen via the Organisation tab and confirmed no explicit &#x27;Seller&#x27; role label/badge is present there, settling the open question F-b0ee5d38: the page title is the only role identification on that screen. A &#x27;Seller / Seller&#x27; badge was observed on the home screen, but not on the profile. The agent also looped ~20 times tapping the profile image/organisation name with no navigation effect.…</p></div><div class="case f">
+<h4>43. TC-043 — Verify empty organisation name blocked on Update Organisation Profile</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area org_management · 7 device steps
+ · 109s · 14:29
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-ORG-04</span> <span class="tag">FR-ORG-06</span></p><p class="why"><b>Why it failed:</b> Test FAILED: Clearing the organisation name field to empty and tapping Confirm did NOT trigger a validation error. Instead, the app showed &quot;Profile information updated successfully&quot; and silently restored the original organisation name. No field-specific error message, no disabled state, and no rejection occurred. The expected validation behavior (visible error + blocked save) is not implemented in the Update Organisation Profile screen.</p><p class="why"><b>Agent's account:</b> Objective confirmed. The run settled F-acc99250 for the empty-value case: clearing the organisation name and tapping Confirm produced a success toast (&#x27;Profile information updated successfully&#x27;) with no field-level error, no disabled state, and the original value silently restored. The expected validation is not implemented. The run did not separately test whitespace-only input, so that variant remains unverified. Findings: 2 suspected_defect, 1 unverified. (2 new, 1…</p></div><div class="case f">
+<h4>44. TC-044 — Verify reference entry list empty state when no reference entries match</h4>
+<p class="meta"><b class="fail">FAIL</b>
+ · area navigation_list_loading · 41 device steps
+ · 730s · 14:42
+  · <span class="mono">ASSERTION_FAILURE</span>
+  · App evidence <span class="tag">FR-NAV-07</span></p><p class="why"><b>Why it failed:</b> The Reference Catalogue (Reference Catalogue) screen was found under the Blog tab and displays 5 common subject reference entries. However, the screen has no visible filter, search bar, or category selector that would allow filtering to show no results. The &quot;Common Subject Reference entries&quot; header is a static label, not an interactive filter. Without a filtering mechanism, the empty state cannot be triggered or verified. The screen appears to be a…</p><p class="why"><b>Agent's account:</b> Objective unclear. The run located the Reference Catalogue screen (via the Blog tab) and confirmed it displays 5 subject reference entries, but found no search bar, filter, or category selector on the screen — &#x27;Common Subject Reference entries&#x27; is a static label. The filtered empty-state scenario therefore cannot be triggered in the current UI, so the original open question about empty/loading states is only partially settled: the mechanism the objective assumed does not exist.…</p></div><div class="case ">
+<h4>45. TC-045 — Verify language selection persists across navigation after changing to English</h4>
+<p class="meta"><b class="pass">PASS</b>
+ · area authentication · 27 device steps
+ · 392s · 14:49
+ 
+  <span class="tag">FR-SET-01</span></p><p class="why"><b>Agent's account:</b> Objective confirmed. The run verified only a locale L1→English→navigation cycle: after switching back to English (step 24), all labels on Update Organisation Profile, Reference Catalogue and the bottom nav stayed in English (steps 25-27), so English persistence across navigation is confirmed. It never started from a locale L1 UI, so it does not settle F-8a8bf40e (whether selecting English from locale L1 applies at all). New evidence: selecting locale L1 leaves many menu labels in…</p></div><h2 class="brk">6 · Limitations</h2>
+<p>Stated plainly, because they bound every number above.</p>
+<table><tr><th style="width:28%">Limitation</th><th>Consequence</th></tr>
+<tr><td><b>No ground truth</b></td><td>The app has no known, seeded defect list, so we
+cannot compute recall. We know what the agent found; we cannot say what it missed. This is
+the single biggest gap.</td></tr>
+<tr><td><b>No ablation</b></td><td>Every component — graph memory, tools, the finding
+lifecycle — is on. We have not measured what each contributes, so we cannot attribute the
+results to any one design choice.</td></tr>
+<tr><td><b>14 of 25 failures are ours</b></td><td>The 50-step executor budget
+and navigation reliability, not the app, cap the usable yield of a campaign.</td></tr>
+<tr><td><b>Findings are LLM-authored</b></td><td>A SUSPECTED_DEFECT is a model's judgement
+from a device trajectory, not a verified bug. The "suspected" is load-bearing and each one
+still needs a human.</td></tr>
+<tr><td><b>Single app, single run</b></td><td>One locale L1 Android app, one campaign, no
+repetition. Nothing here establishes variance between runs.</td></tr>
+<tr><td><b>Provider variance</b></td><td>Inference is routed through OpenRouter, where
+different providers served the same model with order-of-magnitude differences in latency
+and token usage, adding noise to any cost or timing figure.</td></tr>
+</table>
+<footer>Generated from the Neo4j campaign graph by
+<span class="mono">scripts/build_campaign_report.py</span> · project
+<span class="mono">aut-1</span> · campaign since
+<span class="mono">2026-09-20T05:41:00</span> · 45 executions, 163 findings.</footer>
+</body></html>

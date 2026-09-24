@@ -56,3 +56,9 @@ data/backups
 !.env.example
 .mermaid-cache/
 data/experiments/**/neo4j_*.json
+
+# Built poster and brochure (regenerate from the canvas artifact)
+poster/**/*.pdf
+poster/**/.DS_Store
+# A browser session capture: it holds a live login token, never commit it
+auth.json
