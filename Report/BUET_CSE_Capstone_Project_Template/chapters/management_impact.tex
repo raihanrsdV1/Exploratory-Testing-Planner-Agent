@@ -295,9 +295,9 @@ rate of BDT 120 to the United States dollar.
   \addlinespace
   Model inference --- evaluation campaigns & A separate prepaid project balance of USD 6.50 available at handover, of which USD 2.69 was consumed across 88 device executions. This is the only figure here read directly from a provider's billing record, and it is the basis of the per-test cost below. & 2.69 \\
   \addlinespace
-  Android execution environment & An Android emulator running on a development host carried the great majority of execution, which is also what made concurrent and repeatable runs practical. One mid-range handset, already owned by a team member, covered the checks that needed real hardware, with the companion accessibility and input-method application installed (C6). & 0 \\
+  Android execution environment & Android emulators, running on each member's own laptop, carried the great majority of execution. This is what let five people develop and run tests in parallel without contending for a single handset, and it is also what made runs repeatable, since an emulator can be returned to a known state. One mid-range handset, already owned by a team member, covered the checks that needed real hardware, with the companion accessibility and input-method application installed (C6). & 0 \\
   \addlinespace
-  Development hosts & Five personally owned laptops. One of them additionally ran the emulator, the graph database and the four-process stack together. & 0 \\
+  Development hosts & Five personally owned laptops, each capable of running an emulator, the graph database and the four-process stack together. No server, and no accelerator of any kind. & 0 \\
   \addlinespace
   Application under test, and its specification & A production application with live users, and its requirements document, both supplied by the supervisor and the industry partner. & 0 \\
   \addlinespace
@@ -361,6 +361,96 @@ that gap --- an output ceiling on extraction, a lower sample count once it has
 stabilised, and a cache that refuses to re-read an unchanged document --- are
 identified in \Cref{sec:conclusion} as outstanding work. They matter more for a
 team iterating on the pipeline than for an organisation running it.
+
+\subsection{Projected Cost of Self-Hosting}
+\label{sec:selfhost}
+
+Nothing in this subsection was spent. It is a projection, kept separate from
+\Cref{tab:budget} for that reason, and it exists because the budget's headline
+figure is only honest if the alternative it avoided is priced. The project
+rented inference because it had no accelerator (C2); a reader entitled to ask
+what the system would cost without that dependency deserves an answer with its
+arithmetic shown rather than an assurance.
+
+\paragraph{What would actually have to be served.} Not every model in
+\Cref{tab:models} matters here. The device agent dominates: it is a vision
+model invoked on every step, it accounts for about 92\% of the cost of an
+executed test, and its published checkpoint is a 32-billion-parameter one.
+Sizing follows from that count. Weights at 16-bit precision need roughly
+64\,GB; at 8-bit roughly 32\,GB; at 4-bit roughly 16--18\,GB, before the
+key-value cache, the vision encoder's activations and one
+$1080\times1920$ screenshot per step. The practical minimum is therefore a
+single 48\,GB accelerator running an 8-bit quantisation, or two 24\,GB consumer
+cards running a 4-bit one. The planner and the investigator are smaller and
+would fit alongside; specification extraction is the one workload that would
+still argue for a hosted call, since it runs on a far larger model but only
+once per document.
+
+\paragraph{The arithmetic.} \Cref{tab:selfhost} sets the two routes against the
+measured API cost of USD 0.008 per test. Prices are indicative at the time of
+writing and are the input a reader should replace with their own; the structure
+of the comparison is the part that does not change.
+
+\begingroup
+\small
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.70\hsize}Y>{\hsize=1.34\hsize}Y>{\hsize=0.96\hsize}Y@{}}
+  \caption{Projected cost of serving the device agent on owned or rented hardware, against the measured API cost. Utilisation, not price, is what decides the comparison.}
+  \label{tab:selfhost}\\
+  \toprule
+  Route & Basis & Cost per test \\
+  \midrule
+  \endfirsthead
+  \caption[]{Projected cost of self-hosting \emph{(continued)}}\\
+  \toprule
+  Route & Basis & Cost per test \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  Hosted API (what the project did) & Measured against the provider's billing record, at 10.1 device steps per test. & USD 0.008 \\
+  \addlinespace
+  Rented accelerator & One 48\,GB cloud instance at roughly USD 1.25 per hour, run continuously for a year: about USD 11{,}000. At one test every two minutes of occupied card, about 260{,}000 tests. & $\approx$ USD 0.042 \\
+  \addlinespace
+  Purchased accelerator & A 48\,GB workstation card at USD 5{,}000--8{,}000 in a host costing USD 8{,}000--12{,}000 all in, amortised over three years and ignoring power, cooling and administration. & $\approx$ USD 0.013 \\
+  \bottomrule
+\end{xltabular}
+\endgroup
+
+\paragraph{Why renting a card costs more than renting tokens.} The result is
+counter-intuitive only until the duty cycle is examined. A test occupies its
+device for up to the 900-second wall-clock bound configured for these
+campaigns, but consumes accelerator time only in the brief interval between
+observing a screen and deciding the next action --- on the order of a hundred
+seconds of inference across 10.1 steps. The rest is the emulator settling,
+animations completing and the application responding. A dedicated card
+therefore idles for the great majority of a run, and the tenant pays for that
+idling; a hosted provider does not charge for it, because it fills those gaps
+with other tenants' work. Per-token billing is, in this specific sense, a
+better match to the workload than per-hour billing.
+
+That also identifies the condition under which the conclusion reverses. The
+card becomes economical exactly when it can be kept busy --- many emulators
+driven in parallel against one served model, which is the natural shape of a
+nightly regression fleet and not the shape of this project. A purchased card at
+high utilisation approaches the API price and would undercut it at scale; the
+same card at this project's utilisation would not.
+
+\paragraph{The argument that is not about money.} Cost is the weaker half of
+the case for self-hosting. The stronger half is that every screenshot of the
+application under test is currently transmitted to a third party, and the
+application under test is a production system with live users. The
+configuration boundary of \Cref{sec:ethics} keeps the agent away from
+destructive actions, but it does not stop interface contents leaving the
+machine. An organisation with a data-residency obligation, or one testing an
+unreleased product, would have to self-host regardless of what
+\Cref{tab:selfhost} says --- and because the models in \Cref{tab:models} are
+open-weight checkpoints rather than proprietary endpoints, that path remains
+open to them. Retaining that option was the reason the model provider was kept
+behind a swappable interface from the first prototype.
 
 \subsection{Economic Analysis and Financial Prospecting}
 \label{sec:economics}

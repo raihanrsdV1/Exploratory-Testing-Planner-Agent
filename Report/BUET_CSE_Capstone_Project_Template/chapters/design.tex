@@ -298,6 +298,7 @@ apart. The perceptual hash is the last resort and the only signal available when
 the accessibility tree is too thin to describe the screen at all.
 
 \subsection{Attribution: keeping three kinds of failure apart}
+\label{subsec:attribution}
 
 A run that does not pass is ambiguous, and conflating the three explanations
 inflates the reported defect count, which is the most expensive error this
@@ -391,6 +392,98 @@ A note on the word. This section concerns \emph{third-party technologies}, which
   \bottomrule
 \end{xltabular}
 \endgroup
+
+\subsection{The models, and what each one is for}
+\label{subsec:models}
+
+\Cref{tab:tools} names OpenRouter as the interface but not the models reached
+through it, and the choice of model is a design decision rather than a
+deployment detail: it sets the cost of \Cref{sec:budget}, the latency of a run,
+and whether the system can be operated without a third party at all. Five
+distinct roles call a model, and they are not the same model, because their
+demands differ by more than an order of magnitude.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.56\hsize}Y>{\hsize=0.74\hsize}Y>{\hsize=1.06\hsize}Y>{\hsize=0.64\hsize}Y@{}}
+  \caption{Models configured for each role, and open-weight alternatives of comparable class. Every role reads its model from configuration, so any row can be changed without touching code.}
+  \label{tab:models}\\
+  \toprule
+  Role & Model configured & Why this class of model & Comparable alternatives \\
+  \midrule
+  \endfirsthead
+  \caption[]{Models configured for each role \emph{(continued)}}\\
+  \toprule
+  Role & Model configured & Why this class of model & Comparable alternatives \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{4}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  Planner --- reasons over the graph, issues retrieval calls, writes the test case &
+  \modpath{qwen/qwen3.7-flash} &
+  Long context and reliable structured output matter more than raw reasoning depth: the prompt carries retrieved knowledge and the answer must parse. A fast, inexpensive tier is the right trade, and the planner is only about 8\% of the cost of a test. &
+  \modpath{Llama-3.3-70B-Instruct}, \modpath{DeepSeek-V3}, \modpath{Mistral-Large-Instruct} \\
+  \addlinespace
+  Executor (Player) --- device agent, decides the next action from what is on screen &
+  \modpath{qwen/qwen3-vl-32b-instruct} &
+  The only role that must see. It reads an accessibility tree averaging 4{,}686 bytes together with a $1080\times1920$ screenshot, and grounds an action in both. Invoked on every step, so it dominates cost at about 92\% of a test. &
+  \modpath{Qwen2.5-VL-72B-Instruct}, \modpath{InternVL2.5-38B}, \modpath{Llama-3.2-90B-Vision} \\
+  \addlinespace
+  Investigator --- reads the trajectory against what the test intended &
+  \modpath{z-ai/glm-5.3-flash} &
+  Judgement over a completed trajectory, off the critical path, so latency is cheap to trade for a second opinion from a different model family --- which also avoids a model grading its own execution. &
+  \modpath{Llama-3.3-70B-Instruct}, \modpath{Mixtral-8x22B-Instruct} \\
+  \addlinespace
+  Specification extraction --- turns a requirements document into graph structure &
+  A flagship tier (\modpath{qwen3.8-max} in these runs) &
+  Run once per document, but every later decision rests on the result, so accuracy is worth paying for here and nowhere else. This single pass costs about as much as two hundred test executions (\Cref{sec:budget}). &
+  \modpath{DeepSeek-V3}, \modpath{Llama-3.3-70B-Instruct} at reduced accuracy \\
+  \addlinespace
+  Rate-limit fallback --- substitutes when the primary returns 429 &
+  \modpath{z-ai/glm-5.3-flash} &
+  A campaign that dies on a provider's rate limit wastes the whole run, so a second family is configured as a fallback rather than a retry. &
+  Any instruction-tuned model of the planner's class \\
+  \addlinespace
+  Embeddings --- dense retrieval over the graph &
+  \modpath{BAAI/bge-small-en-v1.5}, 384 dimensions, via fastembed &
+  Runs locally through ONNX with no tensor framework and no per-call charge, which keeps retrieval off the cost model entirely. &
+  \modpath{all-MiniLM-L6-v2} (configured fallback), \modpath{gte-small}, \modpath{e5-small-v2} \\
+  \bottomrule
+\end{xltabular}
+\endgroup
+
+Three properties of this table are design decisions rather than accidents.
+
+\emph{Every role is separately configurable.} The planner, executor,
+investigator, extraction and fallback models are five independent settings, not
+one. That is what made the tier migration of \Cref{sec:economics} a
+configuration change: the executor and investigator moved down a tier once the
+quality cost of doing so had been measured, while extraction stayed where it
+was because the measurement said it should.
+
+\emph{The checkpoints are open-weight, and that was deliberate.} With the
+exception of the flagship extraction tier, every model above is published as
+downloadable weights rather than existing only behind an endpoint. The system
+therefore has no component that cannot in principle be run on owned hardware,
+which is what makes the projection in \Cref{sec:selfhost} meaningful rather
+than hypothetical, and what keeps the project clear of dependence on a single
+vendor's pricing or availability. The embedding model already runs locally, so
+one of the two model-bearing paths is self-hosted today.
+
+\emph{Model identity is a confound in every measurement this report makes.}
+Results are reported for the configuration in this table and do not transfer
+unchanged to another. A stronger device agent would raise the pass rate and the
+cost together; a weaker one would fail more tests for reasons that have nothing
+to do with the application under test, which is precisely the confusion the
+fault-attribution taxonomy of \Cref{subsec:attribution} exists to prevent. The
+limitation is recorded in \Cref{ch:evaluation} rather than resolved: this
+project measured one configuration, and the comparison across model choices is
+work it did not have the budget to do.
 
 \section{Implementation}
 \label{sec:implementation}
