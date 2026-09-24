@@ -99,6 +99,47 @@ identifiers, a precondition filter so tests are not issued against impossible
 states, and a device reset so one test cannot contaminate the next. The final
 campaign recorded \textbf{100\,\% autonomy and zero silent fallbacks}.
 
+\Cref{tab:campaigns} gives the same sequence with the exact figures and the
+change made in each step.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.50\hsize}Y>{\hsize=0.20\hsize}Y>{\hsize=0.24\hsize}Y>{\hsize=1.06\hsize}Y>{\hsize=1.00\hsize}Y@{}}
+  \caption[The campaign sequence in figures]{The campaign sequence against the primary Android target, reconstructed from the on-disk trajectory directories, one per device execution.}
+  \label{tab:campaigns}\\
+  \toprule
+  Campaign & Tests & Wall clock & What changed & Outcome \\
+  \midrule
+  \endfirsthead
+  \caption[]{The campaign sequence \emph{(continued)}}\\
+  \toprule
+  Campaign & Tests & Wall clock & What changed & Outcome \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{5}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  \mbox{24 Jul, 22:25} & 6 & 67 min & First end-to-end wiring & Smoke run, before instrumentation existed \\
+  \addlinespace
+  \mbox{25 Jul, 01:42} & 4 & 14 min & Graph write-back & Smoke run; an execution reaches the graph \\
+  \addlinespace
+  \mbox{12 Aug, 22:42} & 25 & 107 min & First full campaign with attribution & \textbf{0\,\% pass}; 82\,\% of device steps unparseable \\
+  \addlinespace
+  \mbox{13 Aug, 03:03} & 29 & 84 min & Non-reasoning vision model; livelock detector & \textbf{20\,\% pass, 96\,\% autonomy}; two changes at once \\
+  \addlinespace
+  \mbox{13 Aug, 19:02} & 9 & 16 min & (none) & \textbf{Cancelled} in progress on bad preconditions \\
+  \addlinespace
+  \mbox{13 Aug, 19:55} & 25 & 61 min & Precondition filter, containment matching, device reset, log reassembly & \textbf{36\,\% pass, 100\,\% autonomy}, zero silent fallbacks \\
+  \addlinespace
+  \mbox{30 Aug, 23:25} & 25 & --- & Cheaper model tier; graph backup and restore & \textbf{52\,\% pass}; 8 of 12 failures still agent-side \\
+  \bottomrule
+\end{xltabular}
+\endgroup
+
 Autonomy, not the pass rate, is what makes the rest of this chapter readable.
 Before it was high, ``the test failed'' and ``the agent got lost'' were the
 same observation.
@@ -236,6 +277,325 @@ is built to say so. A reader should take the autonomy and cost results as
 established, and treat the defect counts as the output of a tool whose accuracy
 has not been measured against a known answer.
 
+\section{The Campaigns in Detail}
+\label{sec:campaign-detail}
+
+\Cref{tab:targets} gives the exact figures behind \Cref{fig:targets}. The
+subsections that follow read them.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.58\hsize}Y>{\hsize=0.30\hsize}Y>{\hsize=0.26\hsize}Y>{\hsize=0.34\hsize}Y>{\hsize=0.36\hsize}Y>{\hsize=0.38\hsize}Y>{\hsize=0.78\hsize}Y@{}}
+  \caption[Exact results across the five targets]{Exact results across the five targets exercised in September. ``Agent'' is the number of executions lost to the agent rather than resolved against the application.}
+  \label{tab:targets}\\
+  \toprule
+  Target & Platform & Tests & Passed & App fail & Agent & Coverage \\
+  \midrule
+  \endfirsthead
+  \caption[]{Exact results across the five targets \emph{(continued)}}\\
+  \toprule
+  Target & Platform & Tests & Passed & App fail & Agent & Coverage \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{7}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  DataGhurhi & Web & 64 & 51 & 4 & \textbf{0} & 4 findings; 7 skipped, 2 capped \\
+  \addlinespace
+  AUT-1, the production marketplace & Android & 45 & 20 & 11 & 14 & 33/106 requirements, 29 areas, 97 UI states \\
+  \addlinespace
+  Google Contacts 4.86.23 & Android & 50 & 20 & 19 & 10 & 55/141 requirements, 35 areas, 60 UI states \\
+  \addlinespace
+  broken-workshop & Web & 10 & 5 & 0 & 4 & 170 steps; 1 capped \\
+  \addlinespace
+  AcademyBug & Web & 20 & 1 & 3 & \textbf{16} & no specification ingested \\
+  \bottomrule
+\end{xltabular}
+\endgroup
+
+\subsection{Where the effort goes: steps, and what they buy}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+      width=0.92\textwidth, height=5.4cm,
+      ybar, bar width=15pt, ymin=0, ymax=58,
+      ylabel={median device steps}, ylabel style={font=\small},
+      symbolic x coords={{AUT-1, Aug},{AUT-1, Sep},{Contacts}},
+      xtick=data, xticklabel style={font=\small},
+      ymajorgrids, grid style={black!12}, axis lines=left,
+      tick style={black!40}, enlarge x limits=0.34,
+      nodes near coords, nodes near coords style={font=\scriptsize\bfseries},
+      legend style={at={(0.5,1.20)}, anchor=north, legend columns=2,
+                    font=\small, draw=none, fill=none, column sep=1.4em},
+    ]
+      \addplot[fill=cPass, draw=none] coordinates {({AUT-1, Aug},10) ({AUT-1, Sep},6.5) ({Contacts},16)};
+      \addplot[fill=cApp,  draw=none] coordinates {({AUT-1, Aug},21) ({AUT-1, Sep},48) ({Contacts},32)};
+      \legend{Tests that passed, Tests that failed}
+    \end{axis}
+  \end{tikzpicture}
+  \caption[Median device steps by verdict]{Median device steps, split by
+  verdict, for the three campaigns with per-test records. A test that is going
+  to pass reaches its checkpoint quickly; a test that is going to fail spends
+  its whole budget. On the September AUT-1 campaign the gap is 6.5 steps
+  against 48, and the interaction cap is 50, so the median failing test is
+  running to the cap rather than reaching a verdict.}
+  \label{fig:stepsverdict}
+\end{figure}
+
+\Cref{fig:stepsverdict} is the most operationally useful result in this
+chapter. Passing and failing tests do not cost the same: a test that succeeds
+is short, and a test that fails is long, because failing usually means
+exhausting the interaction budget rather than reaching a checkpoint and finding
+the application wrong. On AUT-1 in September the median failing test used 48 of
+its 50 permitted steps.
+
+Two consequences follow. First, cost is concentrated in the runs that produce
+the least evidence, so raising the step cap raises cost faster than it raises
+findings, and the right lever is better navigation rather than a larger budget.
+Second, the shape is diagnostic: a campaign whose failing tests cluster at the
+cap has a navigation problem, whereas one whose failures are short has an
+application problem. Contacts shows the second pattern more than AUT-1 does,
+which matches its higher proportion of assertion failures.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+      width=0.92\textwidth, height=5.0cm,
+      xmin=0, xmax=52, ymin=0.4, ymax=3.6,
+      xlabel={device steps per test}, xlabel style={font=\small},
+      ytick={1,2,3}, yticklabels={{Contacts},{AUT-1, Sep},{AUT-1, Aug}},
+      yticklabel style={font=\small},
+      xmajorgrids, grid style={black!12}, axis lines=left, tick style={black!40},
+      boxplot/draw direction=x,
+    ]
+      \addplot+[boxplot prepared={draw position=3, lower whisker=5, lower quartile=9.5,
+        median=18, upper quartile=29, upper whisker=50},
+        color=black!55, fill=cPass!35, solid, thick] coordinates {};
+      \addplot+[boxplot prepared={draw position=2, lower whisker=1, lower quartile=6.5,
+        median=25, upper quartile=50, upper whisker=50},
+        color=black!55, fill=cAgent!35, solid, thick] coordinates {};
+      \addplot+[boxplot prepared={draw position=1, lower whisker=1, lower quartile=13,
+        median=22, upper quartile=41, upper whisker=50},
+        color=black!55, fill=cLine!35, solid, thick] coordinates {};
+    \end{axis}
+  \end{tikzpicture}
+  \caption[Distribution of device steps per test]{Distribution of device steps
+  per test across the three campaigns with per-test records, over 25, 45 and 50
+  tests respectively. The upper quartile of the September AUT-1 campaign sits
+  on the cap itself, meaning more than a quarter of its tests never reached a
+  verdict at all. The August campaign, on an easier configuration, is the
+  tightest of the three.}
+  \label{fig:stepsbox}
+\end{figure}
+
+\subsection{One campaign, test by test}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+      width=0.92\textwidth, height=6.2cm,
+      xmin=0, xmax=55, ymin=0, ymax=980,
+      xlabel={device steps}, ylabel={duration (s)},
+      xlabel style={font=\small}, ylabel style={font=\small},
+      xmajorgrids, ymajorgrids, grid style={black!12},
+      axis lines=left, tick style={black!40},
+      legend style={at={(0.5,1.20)}, anchor=north, legend columns=4,
+                    font=\small, draw=none, fill=none, column sep=0.9em},
+      scatter/use mapped color={draw=none, fill=mapped color},
+    ]
+      \addplot[only marks, mark=*, mark size=2.4pt, color=cPass]
+        coordinates {(38,539.2) (8,135.3) (11,183.3) (24,360.6) (10,166.2) (7,199.6)
+                     (10,161.0) (8,129.0) (34,487.5) (11,158.7) (9,218.2) (5,141.7) (9,157.5)};
+      \addplot[only marks, mark=square*, mark size=2.4pt, color=cApp]
+        coordinates {(38,900.2) (21,258.1) (50,900.1)};
+      \addplot[only marks, mark=triangle*, mark size=3.0pt, color=cAgent]
+        coordinates {(19,207.8) (40,480.0) (13,203.5) (23,457.6) (14,211.1)
+                     (20,263.6) (21,312.0) (45,836.7)};
+      \addplot[only marks, mark=diamond*, mark size=3.0pt, color=cOther]
+        coordinates {(18,405.2)};
+      \addplot[dashed, black!45, thick, forget plot] coordinates {(0,900) (55,900)};
+      \legend{Passed, Application failure, Lost to the agent, Environment}
+    \end{axis}
+  \end{tikzpicture}
+  \caption[Every test in the 30 August campaign]{Every one of the 25 tests in
+  the 30 August campaign, plotted by the steps it took and the time it
+  consumed. The dashed line is the 900-second wall-clock cap. Passing tests
+  cluster low and left; the two runs sitting exactly on the cap are the ones
+  that ran out of time rather than reaching a conclusion. The relationship
+  between steps and duration is close to linear, which is why step count is
+  used as the cost proxy in \Cref{sec:budget}.}
+  \label{fig:scatter}
+\end{figure}
+
+\Cref{fig:scatter} shows a single campaign without any aggregation: 25 tests,
+each plotted where it actually landed. Thirteen passed, three found
+application faults, eight were lost to the agent and one to the environment.
+Two properties are visible that a summary hides. Steps and duration are nearly
+proportional, at roughly eleven seconds of wall clock per device step, which is
+what licenses using step count as the cost proxy throughout this report. And
+the failures are not spread evenly: they occupy the upper right, consuming the
+most time and the most steps to produce the least evidence.
+
+The dominant failure mode in this campaign was navigation livelock, eight of
+the twelve failures, where the agent oscillated between screens without
+progressing. That is the behaviour the livelock detector was introduced to
+catch, and its persistence into late August is why it reappears in
+\Cref{sec:revisions} as a deviation that took three attempts to close.
+
+\subsection{What the campaigns found, and how much of the application they saw}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{subfigure}{0.47\textwidth}
+    \centering
+    \begin{tikzpicture}
+      \begin{axis}[
+        width=0.97\textwidth, height=4.6cm,
+        ybar stacked, bar width=26pt, ymin=0, ymax=215,
+        ylabel={findings}, ylabel style={font=\small},
+        symbolic x coords={{AUT-1},{Contacts}}, xtick=data,
+        xticklabel style={font=\small},
+        ymajorgrids, grid style={black!12}, axis lines=left,
+        tick style={black!40}, enlarge x limits=0.6,
+        nodes near coords, nodes near coords style={font=\scriptsize\bfseries, white},
+        legend style={at={(0.5,1.04)}, anchor=south, legend columns=1,
+                      font=\scriptsize, draw=none, fill=none, nodes={inner sep=1pt}},
+      ]
+        \addplot[fill=cPass,  draw=none] coordinates {({AUT-1},95) ({Contacts},125)};
+        \addplot[fill=cAgent, draw=none] coordinates {({AUT-1},47) ({Contacts},42)};
+        \addplot[fill=cOther, draw=none] coordinates {({AUT-1},21) ({Contacts},31)};
+        \legend{About the application, About our agent, Unsettled}
+      \end{axis}
+    \end{tikzpicture}
+    \caption{Findings by what they describe.}
+    \label{fig:findings}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \begin{tikzpicture}
+      \begin{axis}[
+        width=\textwidth, height=4.6cm,
+        ybar, bar width=11pt, ymin=0, ymax=112,
+        ylabel={count}, ylabel style={font=\small},
+        symbolic x coords={{AUT-1},{Contacts}}, xtick=data,
+        xticklabel style={font=\small},
+        ymajorgrids, grid style={black!12}, axis lines=left,
+        tick style={black!40}, enlarge x limits=0.6,
+        nodes near coords, nodes near coords style={font=\scriptsize\bfseries},
+        legend style={at={(0.5,1.04)}, anchor=south, legend columns=1,
+                      font=\scriptsize, draw=none, fill=none, nodes={inner sep=1pt}},
+      ]
+        \addplot[fill=cLine,  draw=none] coordinates {({AUT-1},33) ({Contacts},55)};
+        \addplot[fill=cAgent, draw=none] coordinates {({AUT-1},29) ({Contacts},35)};
+        \addplot[fill=cPass,  draw=none] coordinates {({AUT-1},97) ({Contacts},60)};
+        \legend{Requirements covered, Feature areas, UI states mapped}
+      \end{axis}
+    \end{tikzpicture}
+    \caption{Coverage of the application.}
+    \label{fig:coverage}
+  \end{subfigure}
+  \caption[Findings and coverage on the two Android campaigns]{Findings and
+  coverage on the two large Android campaigns. Roughly three findings in five
+  describe the application; the rest record the agent's own difficulties or
+  questions a run raised but could not settle. Keeping those three categories
+  apart, rather than reporting 163 and 198 as defect counts, is the
+  fault-attribution requirement doing its work.}
+  \label{fig:findcov}
+\end{figure}
+
+Both Android campaigns produced far more findings than tests, 163 across 45
+tests and 198 across 50, because a single run yields several observations.
+\Cref{fig:findings} separates them: 95 and 125 describe the application, and
+the remainder are the agent's own difficulties or questions the run raised
+without settling. A report that quoted the totals as defect counts would
+overstate by roughly 40\,\%.
+
+\Cref{fig:coverage} shows what the campaigns saw. Requirement coverage is 31\,\%
+on AUT-1 and 39\,\% on Contacts, which is partial and stated as such; feature
+area coverage is much higher, 29 areas on AUT-1 and 35 on Contacts. The two
+targets differ interestingly in interface states: AUT-1 yielded 97 distinct
+states against Contacts' 60, despite fewer tests, because its cross-platform
+toolkit produces many structurally distinct screens that a simpler native
+application would present as one.
+
+\section{How the Design Changed, and What Changed It}
+\label{sec:design-evolution}
+
+The system in \Cref{ch:design} is not the system that was first built. Each of
+the decisions in \Cref{tab:decisions} was taken in response to something a
+campaign or a reviewer showed, and each is recoverable from the version-control
+record. The column that matters is the last one: what the project would have
+concluded had the decision not been taken.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.38\hsize}Y>{\hsize=0.74\hsize}Y>{\hsize=0.92\hsize}Y>{\hsize=0.96\hsize}Y@{}}
+  \caption[Design decisions and what prompted them]{Design decisions over the project, with what prompted each and what it changed. Dates are those of the commit that carried the change.}
+  \label{tab:decisions}\\
+  \toprule
+  Date & Decision & What prompted it & What it changed \\
+  \midrule
+  \endfirsthead
+  \caption[]{Design decisions and what prompted them \emph{(continued)}}\\
+  \toprule
+  Date & Decision & What prompted it & What it changed \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{4}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  \mbox{Mar 2026} & Four processes communicating only through a persistent graph & Taken at the outset, before any code, to keep the agents independently replaceable & Every later substitution, of a model, a platform or an executor, became a configuration change rather than an integration \\
+  \addlinespace
+  \mbox{Jun 2026} & Remove the hard-coded ingestion path; make the pipeline modular & The partner reviewed an early iteration and identified hard-coded, application-specific values as the barrier to generality & DR-03. A new target became a profile, which is what made the five targets of \Cref{tab:targets} possible \\
+  \addlinespace
+  \mbox{Jun 2026} & Put the model provider behind a three-way switch & A self-hosted backend over a tunnel was tried as an alternative to paying per token, and abandoned & Eight model configurations from seven vendors followed, none needing code (\Cref{tab:modelhistory}) \\
+  \addlinespace
+  \mbox{Jun 2026} & Rebuild orchestration on an explicit state machine & The planner had grown into a chain of calls that could not be tested node by node & Each planner stage became separately testable, and the flow inspectable \\
+  \addlinespace
+  \mbox{Aug 2026} & Centralise configuration; fix state identity and observation & Screens on the primary target could not be told apart: the toolkit exposes no stable identifiers and reports one activity per screen (C4) & Structural state identity. The 97 mapped states on AUT-1 are downstream of this \\
+  \addlinespace
+  \mbox{Aug 2026} & Separate the agent's own failures into a distinct class & The 12 August campaign could not distinguish ``the application is wrong'' from ``the agent got lost'' & NFR-D3, and with it the possibility of any defensible measurement at all \\
+  \addlinespace
+  \mbox{Aug 2026} & Livelock detection and a degradation register & Runs consumed their whole budget oscillating between two screens, and silent fallbacks were making failures look like successes & Stalls became visible and bounded; ``zero silent fallbacks'' became a checkable claim \\
+  \addlinespace
+  \mbox{Aug 2026} & Move the executor and investigator to a cheaper model tier & Cost was measured, and the quality difference was measured before the move rather than assumed & Unit cost fell to about USD 0.008 per test with no measured loss of quality \\
+  \addlinespace
+  \mbox{Sep 2026} & A browser executor against the same planner and graph & Restricting the agent to Android would have left generality untested & DR-04. Three web targets, including the campaign with the project's best result \\
+  \addlinespace
+  \mbox{Sep 2026} & Filter agent-caused failures out of the exported report & A stakeholder reading a raw campaign would count our failures as their defects & DR-08. What reaches a reader is the application's behaviour, not the tester's \\
+  \bottomrule
+\end{xltabular}
+\endgroup
+
+Two patterns in that table are worth naming, because they are the project's
+actual method rather than incidental history.
+
+\emph{Every substantial revision came from an observation, not from a plan.}
+The generality work came from a partner review, the attribution taxonomy from a
+campaign that could not be interpreted, structural state identity from a
+toolkit that refused to cooperate, and livelock detection from runs that
+consumed their budget doing nothing. The architecture of \Cref{ch:design} is
+what survived contact with five applications.
+
+\emph{The decisions that mattered most made the system easier to measure, not
+more capable.} Attribution, the degradation register and log reassembly added
+no testing ability whatsoever. They are nonetheless the reason this chapter can
+report anything, and the reason the 100\,\% autonomy result means what it says.
+A project of this kind spends more of its effort than expected on being able to
+tell whether it is working.
+
 \section{Performance Evaluation}
 \label{sec:evaluation}
 
@@ -255,31 +615,39 @@ artefact shows it working, not when the code implementing it exists.
 
 \begin{figure}[htbp]
   \centering
-  \begin{tikzpicture}
-    \begin{axis}[
-      width=0.72\textwidth, height=3.6cm,
-      xbar stacked, xmin=0, xmax=11.4,
-      bar width=17pt, xtick=\empty,
-      axis line style={draw=none}, tick style={draw=none},
-      symbolic y coords={{Non-functional (6)},{Derived (11)},{Partner (8)}},
-      ytick=data, yticklabel style={font=\small},
-      enlarge y limits=0.36,
-      nodes near coords, point meta=explicit symbolic,
-      nodes near coords style={font=\scriptsize\bfseries, white, anchor=center},
-      legend style={at={(0.5,1.42)}, anchor=north, legend columns=3,
-                    font=\small, draw=none, fill=none, column sep=1.2em},
-    ]
-      \addplot[fill=cPass,  draw=none] coordinates {(7,{Partner (8)}) [7] (8,{Derived (11)}) [8] (5,{Non-functional (6)}) [5]};
-      \addplot[fill=cAgent, draw=none] coordinates {(0,{Partner (8)}) [] (3,{Derived (11)}) [3] (1,{Non-functional (6)}) [1]};
-      \addplot[fill=cOther, draw=none] coordinates {(1,{Partner (8)}) [1] (0,{Derived (11)}) [] (0,{Non-functional (6)}) []};
-      \legend{Met, Met with a qualification, Met but unexercised}
-    \end{axis}
+  \begin{tikzpicture}[
+    rq/.style={rounded corners=1.6pt, minimum width=1.04cm, minimum height=0.58cm,
+               inner sep=0pt, font=\scriptsize\bfseries, text=white, draw=none},
+    rowlab/.style={anchor=east, font=\small, text=black},
+    key/.style={rounded corners=1.6pt, minimum width=0.42cm, minimum height=0.34cm,
+                inner sep=0pt, draw=none}]
+
+    \def\dx{1.12}
+    \node[rowlab] at (-0.72,0) {Partner (8)};
+    \foreach \c/\l/\f in {0/301/cOther,1/302/cPass,2/303/cPass,3/304/cPass,
+                          4/305/cPass,5/306/cPass,6/307/cPass,7/308/cPass}
+      \node[rq, fill=\f] at (\c*\dx,0) {\l};
+
+    \node[rowlab] at (-0.72,-0.74) {Derived (11)};
+    \foreach \c/\l/\f in {0/01/cAgent,1/02/cPass,2/03/cPass,3/04/cPass,4/05/cPass,
+                          5/06/cAgent,6/07/cPass,7/08/cPass,8/09/cPass,9/10/cPass,10/11/cAgent}
+      \node[rq, fill=\f] at (\c*\dx,-0.74) {DR-\l};
+
+    \node[rowlab] at (-0.72,-1.48) {Non-functional (6)};
+    \foreach \c/\l/\f in {0/1/cPass,1/2/cPass,2/3/cPass,3/4/cPass,4/5/cAgent,5/6/cPass}
+      \node[rq, fill=\f] at (\c*\dx,-1.48) {NFR-D\l};
+
+    \node[key, fill=cPass]  at (0.30,-2.30) {};
+    \node[anchor=west, font=\small] at (0.58,-2.30) {Met (20)};
+    \node[key, fill=cAgent] at (3.05,-2.30) {};
+    \node[anchor=west, font=\small] at (3.33,-2.30) {Qualified (4)};
+    \node[key, fill=cOther] at (6.30,-2.30) {};
+    \node[anchor=west, font=\small] at (6.58,-2.30) {Built but unexercised (1)};
   \end{tikzpicture}
-  \caption[Requirement status at submission]{Requirement status at submission,
-  across the partner's eight requirement families, the eleven derived
-  requirements and the six non-functional requirements. Twenty of
-  twenty-five are met without qualification. The five that are not are the
-  subject of the rest of this section.}
+  \caption[Requirement status at submission]{Every requirement at submission,
+  one cell each. ETA-REQ-301 is built but no campaign exercised it, because the
+  partner supplied no defect export. The four amber cells are the ones this
+  section explains; the other twenty are met without qualification.}
   \label{fig:reqstatus}
 \end{figure}
 
