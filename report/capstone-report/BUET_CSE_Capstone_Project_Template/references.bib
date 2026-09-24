@@ -1,0 +1,213 @@
+% ---------------------------------------------------------------------
+% References for the CSE450 capstone report, "Exploratory Testing Automation".
+%
+% Entries 1-7 were read in full from the PDFs held in the project's paper
+% collection; every number quoted in Chapter 2 was taken from those PDFs
+% directly. Entries 8-12 are the baseline tools and benchmarks those papers
+% compare against, transcribed from their reference lists.
+% ---------------------------------------------------------------------
+
+@inproceedings{gptdroid,
+  author    = {Liu, Zhe and Chen, Chunyang and Wang, Junjie and Chen, Mengzhuo
+               and Wu, Boyu and Che, Xing and Wang, Dandan and Wang, Qing},
+  title     = {Make {LLM} a Testing Expert: Bringing Human-like Interaction to
+               Mobile {GUI} Testing via Functionality-aware Decisions},
+  booktitle = {Proceedings of the 46th IEEE/ACM International Conference on
+               Software Engineering (ICSE)},
+  address   = {Lisbon, Portugal},
+  year      = {2024},
+  note      = {arXiv:2310.15780},
+}
+
+@misc{droidagent,
+  author = {Yoon, Juyeon and Feldt, Robert and Yoo, Shin},
+  title  = {Autonomous Large Language Model Agents Enabling Intent-Driven
+            Mobile {GUI} Testing},
+  year   = {2023},
+  note   = {arXiv:2311.08649 [cs.SE]},
+}
+
+@misc{auitestagent,
+  author = {Hu, Yongxiang and Wang, Xuan and Wang, Yingchuan and Zhang, Yu
+            and Guo, Shiyu and Chen, Chaoyi and Wang, Xin and Zhou, Yangfan},
+  title  = {{AUITestAgent}: Automatic Requirements Oriented {GUI} Function Testing},
+  year   = {2024},
+  note   = {arXiv:2407.09018 [cs.SE]},
+}
+
+@misc{xuatcopilot,
+  author = {Wang, Zhitao and Wang, Wei and Li, Zirao and Wang, Long and Yi, Can
+            and Xu, Xinjie and Cao, Luyang and Su, Hanjing and Chen, Shouzhi
+            and Zhou, Jun},
+  title  = {{XUAT-Copilot}: Multi-Agent Collaborative System for Automated User
+            Acceptance Testing with Large Language Model},
+  year   = {2024},
+  note   = {arXiv:2401.02705 [cs.AI]},
+}
+
+@inproceedings{autodroid,
+  author    = {Wen, Hao and Li, Yuanchun and Liu, Guohong and Zhao, Shanhui and
+               Yu, Tao and Li, Toby Jia-Jun and Jiang, Shiqi and Liu, Yunhao and
+               Zhang, Yaqin and Liu, Yunxin},
+  title     = {{AutoDroid}: {LLM}-powered Task Automation in {Android}},
+  booktitle = {Proceedings of the 30th Annual International Conference on Mobile
+               Computing and Networking (MobiCom)},
+  address   = {Washington D.C., USA},
+  year      = {2024},
+  doi       = {10.1145/3636534.3649379},
+}
+
+@misc{appagent,
+  author = {Zhang, Chi and Yang, Zhao and Liu, Jiaxuan and Han, Yucheng and
+            Chen, Xin and Huang, Zebiao and Fu, Bin and Yu, Gang},
+  title  = {{AppAgent}: Multimodal Agents as Smartphone Users},
+  year   = {2023},
+  note   = {arXiv:2312.13771 [cs.CV]},
+}
+
+@misc{appagentx,
+  author = {Jiang, Wenjia and Zhuang, Yangyang and Song, Chenxi and Yang, Xu and
+            Zhou, Joey Tianyi and Zhang, Chi},
+  title  = {{AppAgentX}: Evolving {GUI} Agents as Proficient Smartphone Users},
+  year   = {2025},
+  note   = {arXiv:2503.02268 [cs.AI]},
+}
+
+@inproceedings{themis,
+  author    = {Su, Ting and Wang, Jue and Su, Zhendong},
+  title     = {Benchmarking Automated {GUI} Testing for {Android} against
+               Real-World Bugs},
+  booktitle = {Proceedings of the 29th ACM Joint European Software Engineering
+               Conference and Symposium on the Foundations of Software
+               Engineering (ESEC/FSE)},
+  pages     = {119--130},
+  year      = {2021},
+}
+
+@inproceedings{droidbot,
+  author    = {Li, Yuanchun and Yang, Ziyue and Guo, Yao and Chen, Xiangqun},
+  title     = {{DroidBot}: A Lightweight {UI}-Guided Test Input Generator for
+               {Android}},
+  booktitle = {Proceedings of the 39th IEEE/ACM International Conference on
+               Software Engineering Companion (ICSE-C)},
+  year      = {2017},
+}
+
+@inproceedings{humanoid,
+  author    = {Li, Yuanchun and Yang, Ziyue and Guo, Yao and Chen, Xiangqun},
+  title     = {{Humanoid}: A Deep Learning-Based Approach to Automated
+               Black-Box {Android} App Testing},
+  booktitle = {Proceedings of the 34th IEEE/ACM International Conference on
+               Automated Software Engineering (ASE)},
+  pages     = {1070--1073},
+  year      = {2019},
+}
+
+@misc{monkey,
+  author       = {{Android Developers}},
+  title        = {{UI/Application} Exerciser Monkey},
+  howpublished = {\url{https://developer.android.com/studio/test/other-testing-tools/monkey}},
+  year         = {2012},
+}
+
+@article{coppola,
+  author  = {Coppola, Riccardo and Al{\'e}groth, Emil},
+  title   = {A Taxonomy of Metrics for {GUI}-Based Testing Research: A
+             Systematic Literature Review},
+  journal = {Information and Software Technology},
+  pages   = {107062},
+  year    = {2022},
+}
+
+% ---- Standards and codes of practice (Chapter 3) --------------------
+
+@manual{iso29119,
+  title        = {{ISO/IEC/IEEE} 29119-1: Software and Systems Engineering ---
+                  Software Testing --- Part~1: General Concepts},
+  organization = {International Organization for Standardization},
+  year         = {2022},
+}
+
+@manual{iso25010,
+  title        = {{ISO/IEC} 25010: Systems and Software Engineering ---
+                  Systems and Software Quality Requirements and Evaluation
+                  (SQuaRE) --- Product Quality Model},
+  organization = {International Organization for Standardization},
+  year         = {2023},
+}
+
+@manual{iso29148,
+  title        = {{ISO/IEC/IEEE} 29148: Systems and Software Engineering ---
+                  Life Cycle Processes --- Requirements Engineering},
+  organization = {International Organization for Standardization},
+  year         = {2018},
+}
+
+@manual{owaspllm,
+  title        = {{OWASP} Top 10 for Large Language Model Applications},
+  organization = {Open Worldwide Application Security Project},
+  year         = {2025},
+  note         = {\url{https://owasp.org/www-project-top-10-for-large-language-model-applications/}},
+}
+
+@manual{etatr,
+  title        = {Technical Requirements Document {ETA-TR-2026-001}:
+                  Exploratory Testing Agent --- Next-Generation Enhancement},
+  organization = {Samsung Research and Development Institute Bangladesh},
+  year         = {2026},
+  note         = {Version 1.0, 29 June 2026. Industry partner document,
+                  not publicly available.},
+}
+
+% ---- Secondary survey (Section 2.1.6) --------------------------------
+% These three were surveyed from their published abstracts and metadata by a
+% team member rather than read in full by the author of Chapter 2. Author
+% lists are given in first-author-et-al form; VERIFY each entry against the
+% published version before submission.
+
+% ---- Secondary survey (Section 2.1.6) --------------------------------
+% Verified 2026-09-20 against ICLR/NeurIPS proceedings and the ACL Anthology
+% record directly (venue, year, title and page range all confirmed unchanged);
+% author lists below were expanded from first-author-et-al form to the full,
+% confirmed author list.
+
+@inproceedings{androidworld,
+  author    = {Rawles, Christopher and Clinckemaillie, Sarah and Chang, Yifan and
+               Waltz, Jonathan and Lau, Gabrielle and Fair, Marybeth and Li, Alice and
+               Bishop, William and Li, Wei and Campbell-Ajala, Folawiyo and
+               Toyama, Daniel and Berry, Robert and Tyamagundlu, Divya and
+               Lillicrap, Timothy and Riva, Oriana},
+  title     = {{AndroidWorld}: A Dynamic Benchmarking Environment for
+               Autonomous Agents},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2025},
+}
+
+@inproceedings{appworld,
+  author    = {Trivedi, Harsh and Khot, Tushar and Hartmann, Mareike and
+               Manku, Ruskin and Dong, Vinty and Li, Edward and Gupta, Shashank and
+               Sabharwal, Ashish and Balasubramanian, Niranjan},
+  title     = {{AppWorld}: A Controllable World of Apps and People for
+               Benchmarking Interactive Coding Agents},
+  booktitle = {Proceedings of the 62nd Annual Meeting of the Association for
+               Computational Linguistics (ACL), Volume 1: Long Papers},
+  pages     = {16022--16076},
+  year      = {2024},
+}
+
+@inproceedings{digirl,
+  author    = {Bai, Hao and Zhou, Yifei and Cemri, Mert and Pan, Jiayi and
+               Suhr, Alane and Levine, Sergey and Kumar, Aviral},
+  title     = {{DigiRL}: Training In-The-Wild Device-Control Agents with
+               Autonomous Reinforcement Learning},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2024},
+}
+
+@book{kaner,
+  author    = {Kaner, Cem and Bach, James and Pettichord, Bret},
+  title     = {Lessons Learned in Software Testing: A Context-Driven Approach},
+  publisher = {John Wiley \& Sons},
+  address   = {New York, NY, USA},
+  year      = {2001},
+}

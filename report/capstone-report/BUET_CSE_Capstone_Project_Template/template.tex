@@ -1,0 +1,56 @@
+%======================================================================
+%  CSE 450 Capstone Project -- Report
+%  Department of Computer Science and Engineering, BUET
+%
+%  1. Fill in the block below.
+%  2. Write each chapter in chapters/*.tex, replacing every gray italic
+%     \guidance{...} note with your content.
+%  3. Add more chapters to best present your work, if needed.
+%  4. Build:  latexmk -pdf template.tex   (or Overleaf, compiler: pdfLaTeX)
+%======================================================================
+\documentclass[12pt,a4paper,oneside]{report}
+\usepackage{cse-capstone}
+% Wide reference tables need X columns (auto-width, as tabularx) AND the
+% ability to break across pages with a repeated header (as longtable).
+% tabularx alone silently runs off the bottom of the page.
+\usepackage{xltabular}
+
+% ---------------------------------------------------------------------
+\newcommand{\ProjectTitle}{Exploratory Testing Automation}
+\newcommand{\Session}{Session 2024--2025}
+\newcommand{\SubmissionDate}{September 2026}
+\newcommand{\Supervisors}{%
+  Dr.\ A.\ B.\ M.\ Alim Al Islam\\
+  Professor, Department of CSE, BUET}
+% Team members are listed in frontmatter/titlepage.tex and declaration.tex
+% ---------------------------------------------------------------------
+
+\hypersetup{pdftitle={\ProjectTitle}}
+
+\begin{document}
+
+\pagenumbering{gobble}
+\input{frontmatter/titlepage}
+\pagenumbering{roman}
+\input{frontmatter/declaration}
+\input{frontmatter/acknowledgement}
+\input{frontmatter/abstract}
+\tableofcontents
+\listoffigures
+\listoftables
+
+\clearpage
+\pagenumbering{arabic}
+\input{chapters/problem}
+\input{chapters/research}
+\input{chapters/requirements}
+\input{chapters/design}
+\input{chapters/evaluation}
+\input{chapters/management_impact}
+\input{chapters/conclusion}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+\addcontentsline{toc}{chapter}{References}
+
+\end{document}

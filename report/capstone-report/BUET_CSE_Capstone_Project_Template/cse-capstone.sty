@@ -1,0 +1,96 @@
+%======================================================================
+%  cse450.sty -- formatting for the CSE 450 Capstone Project Report
+%  Students should not need to edit this file.
+%======================================================================
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{cse450}[2026/08/31 CSE450 Capstone Report]
+
+% ---- Page and fonts ------------------------------------------------
+% Match the official BUET CSE undergraduate thesis template page geometry.
+\RequirePackage[a4paper,left=25mm,right=25mm,top=25mm,bottom=25mm]{geometry}
+\RequirePackage[T1]{fontenc}
+\RequirePackage[utf8]{inputenc}
+% Times-style text, as in the official template; newtx gives better modern
+% font and mathematics support than the legacy `times` package.
+\RequirePackage{newtxtext}
+\RequirePackage{setspace}
+\onehalfspacing
+\RequirePackage{microtype}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2.5mm}
+
+% ---- Maths ----------------------------------------------------------
+\RequirePackage{amsmath,amssymb}
+\RequirePackage{newtxmath}
+
+% ---- Figures and tables ---------------------------------------------
+\RequirePackage{graphicx}
+\graphicspath{{figures/}}
+\RequirePackage{float}
+\RequirePackage{booktabs}
+\RequirePackage{array}
+\RequirePackage{tabularx}
+\RequirePackage{longtable}
+\RequirePackage{multirow}
+\RequirePackage[font=small,labelfont=bf]{caption}
+\RequirePackage{subcaption}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+% ---- Lists, code, colours -------------------------------------------
+\RequirePackage{enumitem}
+\setlist{itemsep=2pt,topsep=4pt}
+\RequirePackage{needspace}
+\RequirePackage{xcolor}
+\RequirePackage{listings}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\bfseries,
+  commentstyle=\itshape\color{gray},
+  showstringspaces=false,
+  captionpos=b,
+  xleftmargin=14pt
+}
+
+% ---- Gantt chart (Chapter 7) ----------------------------------------
+\RequirePackage{pgfgantt}
+
+% ---- Headings, headers ----------------------------------------------
+\RequirePackage{titlesec}
+\titleformat{\chapter}[display]
+  {\vspace*{20pt}\normalfont\Large\bfseries}{\chaptertitlename\ \thechapter}{10pt}{\LARGE}
+\titlespacing*{\chapter}{0pt}{0pt}{24pt}
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+
+\RequirePackage{fancyhdr}
+\setlength{\headheight}{14pt}
+\pagestyle{fancy}
+\fancyhf{}
+% Use the chapter in running headers; short rubric subsections can otherwise
+% advance the section mark before the preceding subsection has finished.
+\fancyhead[L]{\small\slshape\nouppercase{\leftmark}}
+\fancyhead[R]{\small\bfseries\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancypagestyle{plain}{\fancyhf{}\fancyfoot[C]{\small\thepage}\renewcommand{\headrulewidth}{0pt}}
+
+% ---- References and links -------------------------------------------
+\RequirePackage{cite}
+\RequirePackage[hidelinks]{hyperref}
+\RequirePackage[nameinlink,capitalise]{cleveref}
+
+% ---- Student guidance ------------------------------------------------
+% Visible guidance is deliberately unobtrusive. Replace every instruction
+% with project content before submission.
+\newcommand{\guidance}[1]{{\small\itshape\color{gray!75!black}#1}}
+
+% ---- Figure placeholder ---------------------------------------------
+% \figplaceholder[width-fraction]{label text}
+% Keeps the document compiling before real figures exist.
+\newcommand{\figplaceholder}[2][0.8]{%
+  \fbox{\parbox[c][0.14\textheight][c]{#1\textwidth}{\centering\itshape\color{gray}#2}}}
+
+\endinput
