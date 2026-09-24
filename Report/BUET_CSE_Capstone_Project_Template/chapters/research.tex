@@ -5,14 +5,17 @@
 \section{Literature Review}
 \label{sec:literature}
 
-Seven primary systems were read in full and form the evidentiary basis of this
-review: four are GUI \emph{testing}
-systems~\cite{gptdroid,droidagent,auitestagent,xuatcopilot} and three are GUI
-\emph{task-automation} agents~\cite{autodroid,appagent,appagentx} whose memory
-and grounding mechanisms transfer directly to the testing problem. Every figure
-quoted below was taken from those papers. The review is organised around four
-questions: how the field arrived at language-model agents, what those agents
-demonstrably add, how the resulting claims are measured, and what the
+Eleven primary works were read in full and form the evidentiary basis of this
+review. Seven are surveyed comparatively in \Cref{tab:llm-systems}: four GUI
+\emph{testing} systems~\cite{gptdroid,droidagent,auitestagent,xuatcopilot} and
+three GUI \emph{task-automation} agents~\cite{autodroid,appagent,appagentx}
+whose memory and grounding mechanisms transfer directly to the testing problem.
+Four further works are treated separately in \Cref{subsec:formative} because
+they did not merely inform this review but shaped the architecture that
+\Cref{ch:design} presents. Every figure quoted below was taken from those
+papers. The review is organised around five questions: how the field arrived at
+language-model agents, which works directly formed this design, what those
+agents demonstrably add, how the resulting claims are measured, and what the
 literature leaves open.
 
 \subsection{From Random Input to Learned Exploration}
@@ -25,8 +28,15 @@ is systematic or model-based: DroidBot builds a UI transition graph and
 greedily prioritises unexplored widgets~\cite{droidbot}. The third is
 learning-based: Humanoid trains a deep network on real human interaction traces
 to bias action selection toward human-like paths~\cite{humanoid}, and a
-parallel line applies reinforcement learning with curiosity rewards to reach
-novel states.
+parallel line applies reinforcement learning to reach novel states. Q-testing
+makes the reward explicitly curiosity-driven, keeping a memory of visited
+states and training a neural state-comparison module to judge state novelty at
+the granularity of functional scenarios rather than of widgets; on 50
+applications it exceeded the coverage and fault detection of the tools of its
+day, and 22 of its reported faults were confirmed~\cite{qtesting}. ARES
+replaces tabular reinforcement learning with deep networks for black-box
+Android testing, on the argument that the state space of a real application is
+far too large for a fixed table~\cite{ares}.
 
 Liu et al.\ summarise the limitations of the learning-based generation
 precisely~\cite{gptdroid}: these methods require large interaction datasets
@@ -98,6 +108,121 @@ Between 2023 and 2025 the field reorganised around large-language-model agents.
 \end{xltabular}
 \endgroup
 
+\subsection{Directly Formative Work}
+\label{subsec:formative}
+
+Four works are separated from \Cref{tab:llm-systems} because they did not
+merely inform this review: they supplied the architecture, the knowledge
+representation, the feedback loop and the execution baseline that this project
+adopted. They are reported here with the evidence that justified adopting them.
+
+\paragraph{The multi-agent decomposition (the architectural source).} Su et
+al.'s work on automated soap opera testing is the direct motivation for this
+project's multi-agent structure~\cite{soapopera}. Soap opera testing is
+scenario-based exploratory testing: complex, narrative test scenarios designed
+to provoke failures, which a tester executes while remaining alert for anything
+unexpected along the way. Their system decomposes the problem into three
+multi-turn-dialogue agents over a Scenario Knowledge Graph (SKG). The
+\emph{Planner} determines the next step and expands it into executable
+sub-steps, retrieving step knowledge from the SKG; the \emph{Player} translates
+one sub-step into a structured UI instruction and executes it; and the
+\emph{Detector} runs \emph{after every Player execution}, retrieving the
+oracles associated with that step and judging whether the resulting interface
+state violates any of them.
+
+That division maps almost directly onto the planner, executor and investigator
+roles of \Cref{ch:design}, and the mapping was deliberate. Two details of their
+design were adopted and one was deliberately not. Adopted: the separation of
+the agent that acts from the agent that judges, and the retrieval of
+\emph{oracles} rather than merely steps, so that judgement is grounded in
+recorded expectations rather than in the model's opinion. Not adopted: their
+Detector runs after every single step, which is the stronger design and is
+recorded in \Cref{ch:conclusion} as outstanding work; this project's
+investigator is invoked at verdict time.
+
+\paragraph{Why that decomposition is not sufficient on its own.} The same paper
+supplies the most direct quantitative warning available to this project, and it
+is the reason the investigator role was strengthened rather than merely
+included. Over 40 soap opera tests on four applications, their automated system
+reported \emph{more} bugs than the human participants (158 against 80) while
+being right far less often: true-positive accuracy of 0.516, 0.656, 0.577 and
+0.605 across the four applications, against 1.000 for the manual
+baseline~\cite{soapopera}. Roughly two in five reported defects were false. Of
+80 bugs found manually and 158 found automatically, only six were the same
+bug.
+
+Their analysis of the 67 incorrect reports is directly actionable and informed
+this project's reporting rules: 41.8\% were unreasonable or unnecessary
+\emph{improvement suggestions} rather than defects, 29.9\% were model
+hallucinations (including bugs asserted about execution paths that were never
+taken), 17.9\% came from screenshots captured before rendering completed, and
+10.4\% from mislocating the element that was acted on. Their ablation is
+equally pointed: removing oracle knowledge from the Detector roughly halves
+detection accuracy, from 0.516 to 0.216 on Firefox and from 0.656 to 0.421 on
+WordPress. An agent that judges without recorded expectations does not fail
+gracefully; it becomes confidently wrong. Their reported cost, approximately
+US\$1.76 per scenario and US\$0.77 per true-positive defect, is also one of the
+few per-defect cost figures in the literature.
+
+\paragraph{Knowledge graphs for exploratory testing (the knowledge
+representation).} The predecessor from the same group establishes that a
+knowledge graph built by language models is a workable substrate for
+exploratory testing~\cite{etkg}. They construct a System Knowledge Graph of
+User Tasks and Failures from 32,772 Mozilla Firefox bug reports by extracting
+preconditions, steps to reproduce, expected behaviours and observed behaviours,
+splitting compound steps into atomic single-operation steps, and clustering
+equivalent steps so that scenarios connect through shared nodes rather than
+standing alone. Chain-of-thought reasoning then filters generated scenarios for
+feasibility, which rule-based predecessors could not do.
+
+Two findings carried into this project's design. First, on data quality: only
+13,943 of the 32,772 bug reports contained clearly delineated sections, so more
+than half the corpus was unusable by the rule-based extraction that preceded
+them; the tolerance of language-model extraction to badly structured input is
+what makes graph construction from real project data feasible at all. Second,
+on usefulness: in a study of 16 participants, the eight using their generated
+scenarios found 36 bugs in two hours against 21 for the state-of-the-art
+baseline. Note the shape of that evaluation, however, because it marks the
+boundary of the comparison: their system generates scenarios \emph{for human
+testers to execute}, whereas this project executes autonomously and must
+therefore supply its own oracle.
+
+\paragraph{The feedback loop has a pre-LLM precedent.} It is worth recording
+that the central idea of this project, a specification-derived model corrected
+by what execution actually observes, is not new with language models. Gebizli
+and S\"ozer's ARME refines model-based-testing models using exploratory testing
+traces: because such models are built by hand from functional requirements they
+omit real usage behaviour, so recorded exploratory traces are compared against
+the model's paths, omitted behaviour is added, and Markov-chain transition
+probabilities are updated by observed visit frequency, iteratively~\cite{arme}.
+Across three industrial case studies on a digital television system the refined
+models yielded 5, 7 and 6 new faults, including one that reset the device and
+one that crashed it; critically, those faults were found by neither the
+original test suite nor the exploratory sessions that produced the traces.
+
+This project's contribution is therefore not the idea of closing the loop
+between an a-priori specification and a-posteriori observation, which ARME
+demonstrated in 2017, but its instantiation: a graph rather than a Markov
+chain, requirements ingested automatically rather than modelled by hand,
+exploration performed by an agent rather than by the engineers whose traces
+ARME consumed, and defect attribution as a first-class outcome.
+
+\paragraph{Natural-language execution, and the closest institutional
+comparator.} LELANTE executes a natural-language test case description directly
+on Android without a pre-written script, through screen refinement, a
+structured prompt and chain-of-thought action generation, with model
+distillation to control cost~\cite{lelante}. Across 390 test cases on ten
+applications it reports a 73\% test-execution success rate.
+
+It is the closest comparator available for this project's executor considered
+alone, and the comparison is bounded in a way worth stating: LELANTE executes a
+test case it is given, and neither decides what to test nor judges whether the
+application behaved correctly. Its 73\% is therefore a figure for the
+actuation problem only. It is also the work closest to this project
+institutionally, sharing both the university and the industry partner, which
+makes its reported limitations a reasonable prior for what this project should
+expect on the same class of application.
+
 \subsection{What the Evidence Agrees On}
 \label{subsec:agreement}
 
@@ -126,8 +251,12 @@ by concatenating all three agents' prompts into one: $Pass@1$ falls from
 88.55\% to 22.65\%~\cite{xuatcopilot}. The authors attribute the collapse to
 long prompts inducing forgetting, hallucination and inefficient planning.
 DroidAgent reaches the same architecture independently with four
-roles~\cite{droidagent}, and AUITestAgent makes the separation of interaction
-from verification its central design claim~\cite{auitestagent}.
+roles~\cite{droidagent}, AUITestAgent makes the separation of interaction from
+verification its central design claim~\cite{auitestagent}, and the soap opera
+system of \Cref{subsec:formative} arrives at a three-role Planner, Player and
+Detector split for the specifically exploratory case~\cite{soapopera}. Four
+groups converging on role decomposition from four different starting points is
+the strongest form this review's evidence takes.
 
 \paragraph{The bottleneck is the oracle, not the actuator.} Across the seven
 systems, \emph{interacting} with an application is largely solved: completion
@@ -140,6 +269,20 @@ judgment''~\cite{auitestagent}. A verifier that is accurate only when there is
 nothing to find is not a verifier; it is a silent pass. This single observation
 motivated two design decisions in this project: the separate investigator role
 (DR-06) and the prohibition on silent fallbacks (NFR-D2).
+
+The soap opera results of \Cref{subsec:formative} show the same bottleneck from
+the opposite direction and are worth setting beside it, because the two failure
+modes are mirror images. AUITestAgent's baseline errs toward silence, declaring
+nothing wrong when something is; the soap opera Detector errs toward noise,
+reporting 158 defects at 0.516--0.656 accuracy where humans reported 80 at
+1.000, with 41.8\% of its errors being improvement suggestions rather than
+defects at all~\cite{soapopera}. Both are the same underlying failure, an
+oracle unanchored to a recorded expectation, and together they bound the design
+problem: a useful verifier must be able to say \emph{nothing is wrong here}
+without that becoming its default, and must distinguish a defect from a
+preference. This is why this project's investigator is required to cite the
+observation supporting its verdict, and why a verdict unsupported by evidence
+is recorded as unverified rather than resolved in either direction.
 
 A fourth observation is weaker but practically important: \textbf{cost is
 rarely reported, and where it is reported it is substantial.} DroidAgent spends
@@ -216,6 +359,19 @@ its own task, scored against three authors' manual labels. It is a measure of
 self-knowledge, which is valuable and which this project also needs, but it
 says nothing about how many defects were missed.
 
+A fourth regime appears in the formative work and is the most honest of the
+four, though it scales poorly. The soap opera study establishes validity by
+having two authors independently reproduce every reported defect on a real
+device, resolve disagreements by discussion, and then submit the surviving
+reports to the projects themselves for developer
+adjudication~\cite{soapopera}. This yields a genuine \emph{precision} (their
+0.516--0.656 accuracy figures) because each report is checked individually, and
+it is why that study can state how wrong its agent is where the seven cannot.
+It still yields no recall, for the same reason wild-bug counts cannot: there is
+no denominator. The cost is human effort proportional to the number of reports,
+which is precisely what automation was meant to avoid, and it is the regime
+this project's own campaign reports approximate when a human confirms a finding.
+
 The pattern is therefore a chain of dependencies, and it is worth stating
 explicitly because it determines what this project can and cannot claim:
 \emph{without a specification there is no oracle beyond a crash; without an
@@ -243,19 +399,38 @@ of outstanding work.
 \label{subsec:gaps}
 
 \begin{enumerate}[label=\textbf{G\arabic*.},leftmargin=3.0em]
-  \item \textbf{No specification is ever ingested.} Not one of the seven systems
+  \item \textbf{No specification is ever ingested.} Not one of the eleven works
     reads a requirements document, builds a requirement graph, or reports
-    requirement coverage. AUITestAgent comes closest by accepting one
-    natural-language test requirement per test, but it holds no persistent model
-    of the requirement set and cannot say which requirements remain untested.
+    requirement coverage. Two come close from different directions and neither
+    closes it. AUITestAgent accepts one natural-language test requirement per
+    test, but holds no persistent model of the requirement set and cannot say
+    which requirements remain untested~\cite{auitestagent}. The soap opera
+    system holds exactly the persistent oracle model that AUITestAgent lacks,
+    but derives it from bug reports and user manuals~\cite{soapopera,etkg}:
+    knowledge of how the software \emph{has failed} and how people describe
+    using it, not of what it was \emph{specified} to do. The distinction
+    matters for coverage, because a bug-derived graph has no denominator. It
+    can say a scenario was exercised; it cannot say which requirements remain
+    untested, because it never held the requirement set.
   \item \textbf{Memory does not leave the application or the session.}
     AppAgentX's shortcut chains, AutoDroid's transition memory and GPTDroid's
     functionality memory are all per-application. No reviewed system transfers
     what it learned about one application, device profile or platform to
     another.
-  \item \textbf{Defect history is never a knowledge source.} None of the seven
-    reads a bug tracker, and none biases exploration toward historically fragile areas, despite defect density being among the oldest and best-established
-    predictors in software engineering.
+  \item \textbf{Defect history is rarely a knowledge source, and where it is,
+    it is used for oracles rather than for prioritisation.} None of the seven
+    systems in \Cref{tab:llm-systems} reads a bug tracker. The formative works
+    of \Cref{subsec:formative} are the exception and must be stated as such:
+    both build their knowledge graph \emph{entirely} from bug
+    reports~\cite{etkg,soapopera}, which is the strongest existing evidence
+    that defect history is a usable knowledge source at all. What remains open
+    is the second half of the claim. Their bug-derived knowledge supplies
+    scenarios and oracles, that is, \emph{what to check}; neither uses defect
+    density to decide \emph{where to look first}, despite that being among the
+    oldest and best-established predictors in software engineering. This
+    project's defect source (ETA-REQ-301) is therefore a narrower contribution
+    than a first reading of the seven systems would suggest, and it is
+    positioned accordingly in \Cref{ch:design}.
   \item \textbf{Failures are not attributed.} Outcomes are binary. Nothing in
     these systems distinguishes ``the application is wrong'' from ``the agent
     could not drive the application'' from ``the environment blocked the test'',
@@ -283,10 +458,24 @@ combination (a specification graph that says what \emph{should} happen, a
 runtime graph that records what \emph{does}, and exploration steered by the gap
 between them) is the position this project occupies in the literature.
 
+That position should be claimed precisely, because one half of it has clear
+prior art. Correcting a specification-derived model against what execution
+observes is ARME's contribution from 2017, and it was demonstrated to find
+faults that neither the original suite nor the exploratory sessions
+found~\cite{arme}; the idea is not new here. What is new is the combination of
+that loop with the three properties no reviewed system holds together: the
+model is a requirement graph ingested automatically rather than a hand-built
+Markov chain, the exploration that corrects it is performed by an autonomous
+agent rather than by engineers whose traces are harvested afterwards, and every
+outcome is attributed to the application, the agent or the environment before
+it is allowed to change either graph. Stated at the level of the loop alone,
+this project follows ARME; stated at the level of what fills the loop, it does
+not.
+
 \subsection{Additional Works Surveyed}
 \label{subsec:additional}
 
-Beyond the seven systems read in full, the team surveyed a wider set of recent
+Beyond the eleven works read in full, the team surveyed a wider set of recent
 work on generalist GUI agents, visual grounding models and agent benchmarks.
 Two strands bear directly on the argument of this chapter and are worth
 reporting; the remainder are noted only briefly.
@@ -334,12 +523,17 @@ reach.
 \paragraph{The remainder.} The survey also covered visual grounding and screenshot-only action models. These are nearer to this project than to most of the systems in \Cref{tab:llm-systems}, because this system already combines both signals: the executor and the planner each receive a screenshot alongside the structural description, and a perceptual hash resolves screen identity where the accessibility tree is uninformative, which is the situation constraint C4 describes. The open question they raise is not whether to use pixels but when, since an image carries a cost at every step it is attached to. The survey also covered one recent review of operating-system agents, useful for terminology and for positioning this work as a mobile agent with explicit \emph{testing} responsibilities rather than a general phone assistant.
 None of these changes the gap analysis of \Cref{subsec:gaps}.
 
-\guidance{TODO (team): the three works cited in this subsection were surveyed
-from their published abstracts and metadata by a team member, not read in full
-by the author of this chapter, and their \texttt{references.bib} entries use
-first-author-et-al form. Verify all three against the published versions before
-submission, and either read the visual-grounding and survey works and cite them
-properly or leave them uncited as they are here.}
+\guidance{TODO (team): the three works cited in this subsection
+(\texttt{androidworld}, \texttt{appworld}, \texttt{digirl}) were surveyed from
+their published abstracts and metadata by a team member, not read in full, and
+their \texttt{references.bib} entries use first-author-et-al form. Verify all
+three against the published versions before submission, and either read the
+visual-grounding and survey works and cite them properly or leave them uncited
+as they are here. This caveat does \emph{not} apply to the works of
+\Cref{subsec:formative}, which were read in full; of those, only
+\texttt{ares} needs a bibliographic check, since the copy consulted was the
+arXiv preprint (2101.02636) and the volume, issue and article number of the
+published TOSEM version must be filled in.}
 
 \section{Existing Solutions and Technologies}
 \label{sec:related}
