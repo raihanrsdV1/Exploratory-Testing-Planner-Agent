@@ -299,6 +299,100 @@ A degradation register records every fallback and every silent substitution
 across process boundaries, which is what allows a campaign to claim zero silent
 fallbacks and have the claim be checkable rather than asserted.
 
+\subsection{The models}
+\label{sec:models}
+
+Five roles call a language model and they are five independent settings, not
+one. Their demands differ by more than an order of magnitude, and the
+assignment below is what the system runs at the time of writing.
+
+\begin{table}[H]
+  \centering\footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.44\hsize}Y>{\hsize=0.86\hsize}Y>{\hsize=1.12\hsize}Y>{\hsize=0.58\hsize}Y@{}}
+    \toprule
+    Role & Model & Why this class & Open-weight alternatives \\
+    \midrule
+    Planner & \modpath{deepseek/deepseek-v4-flash} & Long context and dependable structured output matter more than reasoning depth. About 8\,\% of the cost of a test & \modpath{Llama-3.3-70B-Instruct}, \modpath{Qwen3-235B-A22B} \\
+    \addlinespace
+    Player, Android & \modpath{qwen/qwen3.7-flash}; the reported campaigns ran on \modpath{qwen/qwen3-vl-32b-instruct} & The only role that must see. Reads an accessibility tree and a screenshot together and grounds an action in both. About 92\,\% of the cost of a test & \modpath{Qwen2.5-VL-72B}, \modpath{InternVL2.5-38B}, \modpath{Llama-3.2-90B-Vision} \\
+    \addlinespace
+    Player, web & \modpath{minimax/minimax-m3} & Configured separately because the observation differs: an accessibility-annotated snapshot needs no vision model & \modpath{Llama-3.3-70B-Instruct}, \modpath{DeepSeek-V3} \\
+    \addlinespace
+    Investigator & \modpath{z-ai/glm-5.3-flash} & Judgement over a completed trajectory, off the critical path. Deliberately a different family from the players, so no model grades its own execution & \modpath{Llama-3.3-70B-Instruct}, \modpath{Mixtral-8x22B} \\
+    \addlinespace
+    Specification extraction & \modpath{qwen/qwen3-235b-a22b-2507} & Run once per document, but every later decision rests on it. A mixture-of-experts checkpoint gives large-model quality at a fraction of the active parameters & \modpath{DeepSeek-V3} \\
+    \addlinespace
+    Rate-limit fallback & \modpath{z-ai/glm-5.3-flash} & A campaign that dies on a provider's rate limit wastes the whole run, so a second family is configured rather than a retry & Any instruction-tuned model of the planner's class \\
+    \addlinespace
+    Embeddings & \modpath{BAAI/bge-small-en-v1.5}, 384 dimensions & Runs locally through ONNX with no tensor framework and no per-call charge, which keeps retrieval off the cost model entirely & \modpath{all-MiniLM-L6-v2}, \modpath{gte-small} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+With the exception of the extraction tier, every model above is published as
+downloadable weights rather than existing only behind an endpoint. No component
+of the system is therefore locked to a single vendor's pricing or availability,
+and the embedding model already runs locally.
+
+\subsubsection{How the assignment changed}
+
+The model provider has sat behind a three-way switch since June, so every
+change below was a configuration edit rather than an integration.
+
+\begin{table}[H]
+  \centering\footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.36\hsize}Y>{\hsize=0.80\hsize}Y>{\hsize=0.80\hsize}Y>{\hsize=1.04\hsize}Y@{}}
+    \toprule
+    Date & Planner & Player & What changed \\
+    \midrule
+    \mbox{2026-04-07} & \modpath{qwen3.6-plus:free} & \modpath{gemini-2.5-pro} & First end-to-end loop: a free tier and a flagship, chosen to find out whether the loop worked at all \\
+    \addlinespace
+    \mbox{2026-06-15} & \multicolumn{2}{l}{\modpath{mistral/devstral-2512} over a local tunnel} & A self-hosted backend tried as an alternative to paying per token. Not retained \\
+    \addlinespace
+    \mbox{2026-06-17} & \multicolumn{2}{l}{\emph{no model change}} & The provider was put behind a three-way switch, which is what made every later row configuration \\
+    \addlinespace
+    \mbox{2026-06-18} & \modpath{xiaomi/mimo-v2.5} & \modpath{minimax/minimax-m3} & Both roles moved to mid-tier models once the loop was known to work \\
+    \addlinespace
+    \mbox{2026-08-13} & \modpath{qwen3.7-flash} & \modpath{qwen3-vl-32b-instruct} & The player became an explicitly vision-capable checkpoint. This is the configuration the reported campaigns were measured on \\
+    \addlinespace
+    \mbox{2026-08-30} & \modpath{qwen3.8-flash} & \modpath{qwen3.7-flash} & Both roles moved down a tier after the quality cost was measured \\
+    \addlinespace
+    \mbox{2026-09-06} & \modpath{qwen3.7-flash} & \textit{unchanged} & The planner moved back down; the more expensive tier had not paid for itself \\
+    \addlinespace
+    \mbox{2026-09-20} & \multicolumn{2}{l}{\modpath{z-ai/glm-5.3-flash} added} & A separate investigator model and a rate-limit fallback, in a different family from the players \\
+    \addlinespace
+    Current & \modpath{deepseek-v4-flash} & \modpath{qwen3.7-flash} (Android), \modpath{minimax-m3} (web) & The platforms diverged: the web player does not need vision, so it is not paying for it \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsubsection{What we observed about model scale}
+
+Across these changes the team formed a consistent impression, and we report it
+as an observation rather than as a measurement because no controlled comparison
+was run.
+
+Newer model releases improved the system noticeably, and larger models improved
+it in two distinct ways. A stronger planner writes better test cases: the
+objectives are more specific, they cite requirements more accurately, and they
+are less likely to restate something already covered. A stronger player is
+better at the grounding problem: it locates the right control more often, it
+recovers from an unexpected screen instead of oscillating, and it reaches its
+checkpoint in fewer steps.
+
+The second effect is the more valuable of the two, because the player is where
+most executions are lost. We would expect a materially stronger player to move
+the autonomy figures in \Cref{sec:results} more than any remaining change to
+the planner would.
+
+\keypoint{The honest caveat is that model quality improved over the same period
+as the agent mechanisms did, and this project did not hold one fixed while
+varying the other. The observation above is the team's consistent experience
+across eight configurations, not a controlled result, and it is stated that way
+deliberately.}
+
 \subsection{Explicit bounds}
 
 An exploratory agent has no natural stopping point and will consume whatever it

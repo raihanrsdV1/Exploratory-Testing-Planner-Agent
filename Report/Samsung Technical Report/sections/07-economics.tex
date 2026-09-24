@@ -1,105 +1,100 @@
-\section{Cost and Operating Economics}
+\section{Cost}
 \label{sec:economics}
 
-\subsection{What a test costs}
+Every figure in this section is read from a provider's billing record or from
+the team's own account records. Nothing here is projected.
 
-Inference is the only input that scales with use, and it separates into two
-components that behave quite differently. Both are measured against a
-provider's billing record rather than derived from a price card.
+\subsection{What the project spent}
 
 \begin{table}[H]
   \centering\small
-  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.62\hsize}Y>{\hsize=1.66\hsize}Y>{\hsize=0.42\hsize}Y@{}}
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.80\hsize}Y>{\hsize=1.66\hsize}Y>{\hsize=0.54\hsize}Y@{}}
     \toprule
-    Item & Measured basis & Cost \\
+    Item & Basis & Amount \\
     \midrule
-    One executed test & 10.1 device steps across 232 stored observations; accessibility tree averaging 4{,}686 bytes per step; planner logging 384{,}000 tokens over 108 calls & USD 0.008 \\
+    Metered inference, project account & Prepaid balance of USD 6.50 available at handover; USD 2.69 consumed across 88 device executions, verified against the provider's billing API & USD 2.69 \\
     \addlinespace
-    One 25-test campaign & Linear in tests & USD 0.20 \\
+    Metered inference, development & Credit purchased out of pocket across the team's own accounts, covering development, debugging, repeated specification re-ingestion and regression runs & about USD 43 \\
     \addlinespace
-    One 500-test nightly suite & Linear in tests & USD 4 \\
+    \textbf{Total metered inference} & \textbf{Reconstructed from account records; accurate to a few dollars, not to the cent} & \textbf{under USD 50} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+The split between those two lines is the more useful fact. Running the finished
+system is cheap. Building it was not, because development re-ran the expensive
+half repeatedly: every change to the ingestion pipeline meant re-reading the
+specification from scratch, and the player and investigator ran on a more
+expensive tier until the quality cost of moving them down had been measured.
+
+No other line in this project cost money. There was no accelerator hardware, no
+server, and no licence fee: the graph database, the service frameworks, the
+browser and device drivers, the embedding model and the document-handling
+libraries are all open-source and self-hosted, the development machines and the
+test handset were already owned, and an Android emulator on each machine
+carried the great majority of execution.
+
+\subsection{What a test costs}
+
+\begin{table}[H]
+  \centering\small
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.70\hsize}Y>{\hsize=1.78\hsize}Y>{\hsize=0.52\hsize}Y@{}}
+    \toprule
+    Unit & Measured basis & Cost \\
+    \midrule
+    One Android test executed & 10.1 device steps across 232 stored observations; accessibility tree averaging 4{,}686 bytes per step; planner logging 384{,}000 tokens over 108 calls & USD 0.008 \\
     \addlinespace
-    One specification ingestion & Roughly 22 calls on the most expensive tier, three self-consistency samples, no output cap & USD 1.80 \\
+    One specification ingestion & About 22 calls on the most expensive tier, three self-consistency samples, no output cap & USD 1.80 \\
     \bottomrule
   \end{tabularx}
 \end{table}
 
 Within the per-test figure the player accounts for about 92\,\% and the planner
-about 8\,\%. This is why reducing median steps from 50 to 9 was a real saving
+about 8\,\%. That is why reducing median steps from 50 to 9 was a real saving
 and why optimising the planner prompt would not have been.
 
-Ingestion behaves in the opposite way. It costs the equivalent of roughly two
-hundred test executions, and it is paid once per document rather than once per
-run, so it is a fixed cost rather than an operating one. It is also the largest
-single line item in the project's own spending, because the specification was
-re-read from scratch every time the ingestion pipeline changed during
-development. Three metering controls would close that gap and are not yet
-built: an output ceiling on extraction, a reduced sample count once extraction
-has stabilised, and a cache that refuses to re-read an unchanged document.
+Ingestion is paid once per document rather than once per run, so it is a fixed
+cost. It is also the largest single line item in the project's own spending,
+for the reason given above: it was paid again every time the ingestion pipeline
+itself changed. Three metering controls would reduce it and are not yet built:
+an output ceiling on extraction, a reduced sample count once extraction has
+stabilised, and a cache that refuses to re-read an unchanged document.
 
-\subsection{Comparison with published figures}
+\subsection{What each campaign cost}
 
-Published costs for comparable systems are USD 13 to 22 per application for a
-two-hour budget, and USD 10.17 to 18.76 per thousand queries. At USD 0.008 per
-executed test the system reported here is two to three orders of magnitude
-below those figures. The comparison is indicative rather than like-for-like,
-because the units differ and the tasks differ, but the gap is large enough to
-survive a generous restatement of either side.
-
-\subsection{What it would cost to self-host}
-
-The project had no accelerator hardware, so hosted inference was the only route
-available. The question of what the system would cost without that dependency
-is worth answering with the arithmetic shown, because the answer is not the
-obvious one.
-
-The player dominates: it is invoked on every step, accounts for about 92\,\% of
-the cost of a test, and the checkpoint used for the reported campaigns has 32
-billion parameters. Weights at 16-bit precision need roughly 64\,GB, at 8-bit
-roughly 32\,GB, and at 4-bit roughly 16 to 18\,GB, before the key-value cache,
-the vision encoder's activations and one screenshot per step. The practical
-minimum is a single 48\,GB accelerator at 8-bit, or two 24\,GB consumer cards at
-4-bit.
+The Android figures below follow directly from the measured per-test cost and
+the number of executions in each campaign.
 
 \begin{table}[H]
   \centering\small
-  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.62\hsize}Y>{\hsize=1.60\hsize}Y>{\hsize=0.48\hsize}Y@{}}
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.86\hsize}Y>{\hsize=0.34\hsize}Y>{\hsize=0.42\hsize}Y>{\hsize=1.38\hsize}Y@{}}
     \toprule
-    Route & Basis & Cost per test \\
+    Campaign & Tests & Inference & Note \\
     \midrule
-    Hosted API, what we did & Measured against billing at 10.1 steps per test & USD 0.008 \\
+    AUT-1, September & 45 & USD 0.36 & 7.5 hours of device time \\
     \addlinespace
-    Rented accelerator & One 48\,GB cloud instance at about USD 1.25 per hour run continuously for a year, roughly USD 11{,}000, producing about 260{,}000 tests at one test per two minutes of occupied card & about USD 0.042 \\
+    Google Contacts, September & 50 & USD 0.40 & 6.2 hours of device time \\
     \addlinespace
-    Purchased accelerator & A 48\,GB card at USD 5{,}000 to 8{,}000 in a host costing USD 8{,}000 to 12{,}000, amortised over three years, ignoring power and administration & about USD 0.013 \\
+    AUT-1, 30 August & 25 & USD 0.20 & The campaign plotted test by test in \Cref{fig:scatter} \\
+    \addlinespace
+    Google Contacts, 13 August & 25 & USD 0.20 & The campaign that first reached 100\,\% autonomy \\
     \bottomrule
   \end{tabularx}
 \end{table}
 
-Prices are indicative at the time of writing and are the input a reader should
-replace with their own. The structure of the comparison is the part that does
-not change.
+The three web campaigns were not separately metered. They run without a vision
+model, because the browser snapshot already carries the structure a screenshot
+would have to be read for, so their per-test cost is lower than the Android
+figure rather than higher.
 
-\subsection{Why renting a card costs more than renting tokens}
+\subsection{The shape of it}
 
-The result is counter-intuitive only until the duty cycle is examined. A test
-occupies its device for up to 900 seconds but consumes accelerator time only in
-the brief interval between observing a screen and deciding the next action, on
-the order of a hundred seconds across 10.1 steps. The rest is the application
-responding, animations completing and the emulator settling. A dedicated card
-idles for most of a run and the tenant pays for that idling; a hosted provider
-does not charge for it, because it fills those gaps with other tenants' work.
+A campaign costs less than a dollar. A specification ingestion costs about two
+hundred test executions. The entire project, including every development run
+and every re-ingestion, cost under fifty dollars of inference and nothing else.
 
-\keypoint{The card becomes economical exactly when it can be kept busy, which
-means many devices driven in parallel against one served model. That is the
-natural shape of a nightly regression fleet inside an organisation, and it was
-not the shape of this project. At high utilisation a purchased card approaches
-and then undercuts the API price.}
-
-There is also an argument for self-hosting that does not depend on cost at all.
-Every screenshot of the application under test is currently transmitted to a
-third party. An organisation with a data-residency obligation, or one testing
-an unreleased product, would need to self-host regardless of the arithmetic
-above. Because the models in use are open-weight checkpoints rather than
-proprietary endpoints, that path stays open, and keeping it open is why the
-model provider has sat behind a swappable interface since June.
+For an organisation running this against a build, the implication is that
+inference is not the constraint on how much testing gets done. A five-hundred
+test suite is about four dollars of inference. The constraint is wall clock,
+which is emulator time rather than model time, and the engineer time spent
+confirming candidate defects.

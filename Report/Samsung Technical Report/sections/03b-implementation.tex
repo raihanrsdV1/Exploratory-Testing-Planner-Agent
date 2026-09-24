@@ -1,0 +1,106 @@
+\section{Implementation and Deployment}
+\label{sec:implementation}
+
+\subsection{Code organisation}
+
+Each sub-problem of \Cref{sec:architecture} maps to one place in the tree, which
+is the practical form of the rule that a component owns one decision.
+
+\begin{table}[H]
+  \centering\small
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.46\hsize}Y>{\hsize=0.92\hsize}Y>{\hsize=1.62\hsize}Y@{}}
+    \toprule
+    Sub-problem & Module & Responsibility \\
+    \midrule
+    S1 Knowledge acquisition & \modpath{ingestion/} & Document loading, multi-sample extraction with a judge model, and the canonical interface representation shared by both platforms \\
+    \addlinespace
+    S2 Test selection & \modpath{planner/} & Both planner modes, the graph tools, the validating proposal gate, coverage and the exploration directive, and the pluggable source registry \\
+    \addlinespace
+    S3 Execution & \modpath{clients/executor_runner.py}, \modpath{web_player/} & Android and web execution, each with its own observation, action and failure-classification code, sharing one attribution vocabulary \\
+    \addlinespace
+    S4 Evidence reduction & \modpath{rag_api/findings.py} & Trajectory to typed, deduplicated findings with an independent-observation count and a lifecycle \\
+    \addlinespace
+    S5 Persistence and retrieval & \modpath{rag_api/} & The sole database owner: schema, constraints, vector indexes, retrieval, the state-identity cascade, learning, risk, metrics and anomalies \\
+    \addlinespace
+    S6 Operation & \modpath{gateway/}, \modpath{dashboard-react/}, \modpath{targets/} & The single entry point, the operator dashboard, the exportable run report, and the validated target profiles \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{How the design is verified}
+
+Three mechanisms verify the design without consuming a device or a model
+budget, which matters because the alternative is to discover a regression only
+during a campaign that costs seven hours of device time.
+
+A \emph{simulator runner} exercises the full planning and logging loop with a
+stubbed player, so graph writes, the coverage calculation and the attribution
+path can be tested without a handset. A set of \emph{configuration guards}
+asserts the invariants the design depends on, including that the attribution
+sets are disjoint and that no application-specific vocabulary has entered the
+code. And the \emph{state-identity} and \emph{observation} modules are pure
+functions over recorded inputs, so the cascade is tested against fixed key sets
+rather than against a live device.
+
+The repository carries an automated suite of six modules behind a single entry
+point. At the time of writing 124 checks pass with no external service, the
+findings module additionally requiring a live database. The suite is weighted
+deliberately toward the parts that are pure functions over recorded inputs,
+because those are the parts where a regression would be silent.
+
+\subsection{Runtime topology}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\textwidth]{12-runtime-topology.png}
+  \caption[Runtime topology]{Four processes on one host, one device over the
+  Android Debug Bridge, and exactly one external dependency.}
+  \label{fig:topology}
+\end{figure}
+
+A launch script starts the retrieval service and the gateway under Uvicorn,
+waits for both health endpoints, and optionally starts the campaign loop. Neo4j
+runs locally. The Android device is a physical handset or an emulator attached
+over the Android Debug Bridge, carrying the companion application that provides
+the accessibility service and the input method. Model inference is the only
+component reached over the network.
+
+\subsection{Configuration, and adding a target}
+
+Configuration is layered deliberately. Process-wide defaults live in a settings
+module read once at import, which is why a campaign is launched as a subprocess
+rather than in-process: the settings object is global, so running a second
+target inside a live server would leak that target's configuration into every
+other request.
+
+Per-application configuration is a validated JSON target profile. The dashboard
+can list, validate, save, ingest and run one, so adding an application is a
+data change rather than a code change. This is the mechanism behind the claim
+that five targets were driven without modifying the system, and it is what a
+QA engineer would use to point the agent at something new.
+
+Secrets live only in an environment file excluded from version control. The
+test-account password reaches the player and never the planner.
+
+\subsection{Operating a campaign}
+
+A campaign is operated from the dashboard: the live session, the growing
+application model, both log streams and the planner trace are visible while it
+runs, and a run report exports as a PDF afterwards. Three artefact streams are
+written to disk for inspection after the fact: structured application logs, one
+trajectory directory per execution, and the degradation register.
+
+The graph is the durable record and is the thing that must be backed up.
+Snapshots are held outside version control under the same controls as the test
+credentials.
+
+\subsection{Scope of the deployment claim}
+
+This is a local, developer-operated deployment on a trusted host, and that is
+stated as a boundary rather than discovered later as a defect. The services
+bind to a host-local interface by default and support key-based authentication.
+Deploying beyond a single trusted host would require uniform authentication
+across every diagnostic handler and containment checks on the paths that accept
+a target profile. Neither has been done, because neither was needed for the
+deployment this system was built for.
