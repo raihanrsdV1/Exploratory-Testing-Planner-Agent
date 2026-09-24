@@ -43,7 +43,7 @@ does not repeat the argument.
   \addlinespace
   O3 Autonomous execution on two platforms with three-way attribution &
     Test cases execute unattended against a physical Android device through the accessibility service and against a live web application through a browser, returning a verdict with an explicit application, agent or environment attribution. &
-    Met in capability. \guidance{Insert the measured autonomy rate from \Cref{ch:evaluation} and state plainly whether the campaign target was reached.} \\
+    Met, and measured. Autonomy reached 100\,\% on Google Contacts in August and 0\,\% of the DataGhurhi web campaign's 64 test cases were lost to the agent. On Shobar Khamar, the harder production target, it settled at 69\,\% (\Cref{fig:campaigns}). \\
   \addlinespace
   O4 Closed learning loop &
     Execution outcomes persist as deduplicated findings, navigation paths, error patterns and strategy scores, and are read back into the next round's prompt. The loop was verified by showing that a proposal changes when, and only when, the corresponding knowledge is present in the graph. &
@@ -59,7 +59,7 @@ does not repeat the argument.
   \addlinespace
   O7 Measured cost within budget &
     Cost per executed test is reconciled against the provider's billing record rather than estimated, and the expensive roles were moved to cheaper model tiers after the quality cost of doing so had been measured. &
-    Met. \guidance{Insert the final figure and the reconciliation from \Cref{ch:evaluation}.} \\
+    Met. USD 0.008 per executed test, about one taka, reconciled against the provider's billing record over 88 device executions rather than derived from a price card (\Cref{sec:budget}). Total metered spend for the project was under USD 50. \\
   \addlinespace
   O8 Operator surface &
     A dashboard shows the live session, coverage, the growing application model and the planner trace; a run report exports as a PDF whose numbers are computed from the graph while the language model supplies prose only. &
@@ -89,10 +89,13 @@ makes the learning loop close.
 
 Third, the architecture is not tied to one application or one interface
 technology. The same planner, the same graph and the same attribution taxonomy
-drove campaigns against two Android applications, including a production
-commerce platform with live users, and against four web targets ranging from a
-survey platform to a demonstration storefront to an encyclopaedia. Adding a
-target is a validated configuration file, not a code change.
+drove campaigns against two Android applications, Google Contacts and the
+production marketplace Shobar Khamar, and against three web targets: a
+departmental survey platform, a public practice site and a deliberately faulty
+demonstration application. Five targets carried a full campaign and are
+reported in \Cref{tab:targets}; further targets were configured but not run to
+completion and are not claimed here. Adding a target is a validated
+configuration file, not a code change.
 
 Fourth, evidence integrity can be made a structural property rather than a
 matter of diligence. Silent fallbacks are forbidden and recorded across process
@@ -162,15 +165,16 @@ a budget, because exploratory testing has no natural stopping point
 (difficulty D2), which makes coverage a quantity that is reported at a given
 spend rather than one that is ever complete.
 
-\guidance{TODO (team): revisit this whole section once \Cref{ch:evaluation} is
-final. Three things need reconciling with the measured results: the two
-\guidance{} slots in \Cref{tab:objectives} (autonomy rate for O3, cost figure
-for O7); the list of six targets above, which should name only those that
-actually carried a full campaign and say how many rounds each ran; and the
-opening claim about unit cost, which must match the reconciliation reported in
-\Cref{ch:evaluation}. If the campaign against the target with documented defects
-returns usable data, add it here as direct evidence on the open measurement
-above and update F1 accordingly.}
+A fourth boundary emerged from the measurements themselves and is recorded
+here because it qualifies the transfer claim above. Autonomy does not carry
+across targets unchanged: it reached 100\,\% on the application the agent was
+tuned against and 69\,\% on the production marketplace, and the gap is
+attributable to state re-identification rather than to anything in the planner
+(\Cref{sec:revisions}, D4). The system recognises interface states it has not
+seen before far more reliably than it recognises ones it has, which inflates
+state counts and deprives navigation memory of the repetition it depends on.
+Anyone reading the transfer result should read it as transfer of the
+\emph{architecture} rather than of the \emph{tuning}.
 
 \subsection*{Future work}
 

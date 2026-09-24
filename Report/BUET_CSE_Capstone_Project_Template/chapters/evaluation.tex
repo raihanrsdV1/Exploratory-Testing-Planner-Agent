@@ -150,9 +150,9 @@ change made in each step.
   \addlinespace
   \mbox{13 Aug, 19:55} & 25 & 61 min & Precondition filter, containment matching, device reset, log reassembly & \textbf{36\,\% pass, 100\,\% autonomy}, zero silent fallbacks \\
   \addlinespace
-  \mbox{29 Aug} & 3, then 10 & --- & First campaigns against Shobar Khamar & Autonomy falls to 67\,\%, then 50\,\%; navigation livelock dominates \\
+  \mbox{29 Aug} & 3, then 10 & \textit{n/r} & First campaigns against Shobar Khamar & Autonomy falls to 67\,\%, then 50\,\%; navigation livelock dominates \\
   \addlinespace
-  \mbox{30 Aug, 23:25} & 25 & --- & Structural state identity; cheaper model tier; graph backup & \textbf{52\,\% pass}, autonomy back to 68\,\%; 8 of 12 failures still agent-side \\
+  \mbox{30 Aug, 23:25} & 25 & \textit{n/r} & Structural state identity; cheaper model tier; graph backup & \textbf{52\,\% pass}, autonomy back to 68\,\%; 8 of 12 failures still agent-side \\
   \bottomrule
 \end{xltabular}
 \endgroup
@@ -325,13 +325,13 @@ subsections that follow read them.
 
   DataGhurhi & Web & 64 & 51 & 4 & \textbf{0} & 4 findings; 7 skipped, 2 capped \\
   \addlinespace
-  Shobar Khamar, the marketplace & Android & 45 & 20 & 11 & 14 & 33/106 requirements, 29 areas, 97 UI states \\
+  Shobar Khamar, the marketplace & Android & 45 & 20 & 11 & 14 & 33/106 requirements, 29 areas, 97 UI states; 7.5 h \\
   \addlinespace
-  Google Contacts 4.86.23 & Android & 50 & 20 & 19 & 10 & 55/141 requirements, 35 areas, 60 UI states \\
+  Google Contacts 4.86.23 & Android & 50 & 20 & 19 & 10 & 55/141 requirements, 35 areas, 60 UI states; 6.2 h \\
   \addlinespace
-  broken-workshop & Web & 10 & 5 & 0 & 4 & 170 steps; 1 capped \\
+  broken-workshop & Web & 10 & 5 & 0 & 4 & 170 steps, 1 capped; 51 min \\
   \addlinespace
-  AcademyBug & Web & 20 & 1 & 3 & \textbf{16} & no specification ingested \\
+  AcademyBug & Web & 20 & 1 & 3 & \textbf{16} & no specification ingested; 50 min \\
   \bottomrule
 \end{xltabular}
 \endgroup
@@ -538,12 +538,39 @@ without settling. A report that quoted the totals as defect counts would
 overstate by roughly 40\,\%.
 
 \Cref{fig:coverage} shows what the campaigns saw. Requirement coverage is 31\,\%
-on Shobar Khamar and 39\,\% on Contacts, which is partial and stated as such; feature
-area coverage is much higher, 29 areas on Shobar Khamar and 35 on Contacts. The two
-targets differ interestingly in interface states: Shobar Khamar yielded 97 distinct
-states against Contacts' 60, despite fewer tests, because its cross-platform
-toolkit produces many structurally distinct screens that a simpler native
-application would present as one.
+on Shobar Khamar and 39\,\% on Contacts, which is partial and stated as such;
+feature area coverage is much higher, 29 areas on Shobar Khamar and 35 on
+Contacts.
+
+The interface-state figures need reading with more care than the other two, and
+the reason is a limitation the project did not fully close. Shobar Khamar
+yielded 97 distinct states from 45 tests against Contacts' 60 from 50, which
+partly reflects a genuinely richer interface but partly reflects
+\emph{over-counting}. State identity on that target is structural, because the
+toolkit supplies no stable identifiers (C4), and structural matching is
+reliable at recognising that a screen is new and much less reliable at
+recognising that a screen has been seen before. A screen revisited after an
+intervening change to its content can be recorded as a second state. The
+consequence is not cosmetic: navigation memory works by knowing it has been
+somewhere already, so every failure to re-identify is a route the agent does
+not reuse. This is the outstanding half of the state-identity work described in
+\Cref{sec:revisions}, and it is the most likely single explanation for why
+autonomy on Shobar Khamar recovered to 68\,\% rather than to the 100\,\%
+reached on Contacts.
+
+\paragraph{How long a campaign takes.} Unit cost is cheap but wall clock is
+not, and for an operator deciding when to run a campaign the second number is
+the binding one. The Contacts campaign took \textbf{6.2 hours for 50 tests} and
+Shobar Khamar \textbf{7.5 hours for 45}, at medians of 346 and 476 seconds per
+test respectively. A campaign of the size reported here is therefore most of a
+working day of device time, which is why the natural place for it is a nightly
+run rather than a pre-commit gate. The time is dominated by the device and not
+by the models: at roughly eleven seconds of wall clock per device step
+(\Cref{fig:scatter}), and only a fraction of that spent waiting on inference,
+the cost of a campaign is emulator time rather than tokens. Running several
+emulators in parallel against one planner is the obvious remedy, and it is also
+the condition under which self-hosting a model would begin to pay
+(\Cref{sec:selfhost}).
 
 \section{How the Design Changed, and What Changed It}
 \label{sec:design-evolution}
@@ -750,8 +777,18 @@ record rather than inferred. Two were not revised, and the reason is given.
   \item[D4. Screens could not be told apart on the primary target.] The
     cross-platform toolkit exposes almost no stable identifiers and reports one
     activity per screen, so an identity strategy assuming identifiers collapsed
-    (C4). \emph{Revised:} structural state identity with containment matching,
-    which is what made 97 mapped states possible on that target.
+    (C4). \emph{Revised in part:} structural state identity with containment
+    matching, which is what made 97 mapped states possible on that target.
+    \emph{What remains open:} the revision solved recognition of \emph{new}
+    states and did not solve re-identification of \emph{old} ones. Matching a
+    screen against one already in the graph is still unreliable when its
+    contents have changed between visits, so a revisited screen can be stored
+    as a new state. That inflates the state count, and more importantly it
+    starves navigation memory, which can only shorten a route it recognises.
+    This is the largest known limitation in the system at submission, it is the
+    most plausible reason autonomy on Shobar Khamar plateaued below the level
+    reached on Contacts, and the fix is a content-independent structural
+    signature rather than a whole-tree comparison.
   \item[D5. Quality degrades sharply without a specification.] \emph{Not
     revised.} DR-01 is met literally, but with no specification there are no
     requirements to target, so the planner has no criterion for what the
