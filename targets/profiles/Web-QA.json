@@ -1,0 +1,59 @@
+{
+  "name": "Web-QA",
+  "kind": "web",
+  "project": "Web-QA",
+  "display_name": "",
+  "description": "",
+  "web": {
+    "base_url": "https://demoqa.com/",
+    "browser": "chromium",
+    "headless": false,
+    "slow_mo_ms": 300,
+    "viewport": "1280x800",
+    "same_origin_only": true,
+    "blocked_texts": [],
+    "blocked_url_patterns": [],
+    "storage_state": "",
+    "bug_script": "",
+    "fail_on_page_error": false,
+    "fail_on_http_5xx": false,
+    "console_ignore": [],
+    "login": {
+      "url": "",
+      "user": "",
+      "password": "",
+      "hint": "",
+      "role": ""
+    }
+  },
+  "android": {
+    "package": "",
+    "activity": "",
+    "labels": [],
+    "target_app_only": false,
+    "device_reset": "pm_clear",
+    "login": {
+      "url": "",
+      "user": "",
+      "password": "",
+      "hint": "",
+      "role": ""
+    }
+  },
+  "knowledge": {
+    "srs_path": "",
+    "figma_path": "",
+    "defects_path": ""
+  },
+  "run": {
+    "rounds": 20,
+    "max_steps": 50,
+    "timeout": 420,
+    "clean_slate": true,
+    "self_heal": true
+  },
+  "model": {
+    "provider": "",
+    "model": ""
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "endpoints": {
+    "/api/1.0/esp.js": {
+      "methods": {
+        "GET": 200
+      },
+      "seen": 1
+    },
+    "/api/ad/union/gg_cookie_matching": {
+      "methods": {
+        "GET": 302
+      },
+      "seen": 1
+    },
+    "/api/adx/cm/pixel": {
+      "methods": {
+        "GET": 302
+      },
+      "seen": 1
+    },
+    "/api/adx/cm/pixel-opera": {
+      "methods": {
+        "GET": 302
+      },
+      "seen": 1
+    },
+    "/api/esp/increment": {
+      "methods": {
+        "GET": 204
+      },
+      "seen": 1
+    },
+    "/api/sync": {
+      "methods": {
+        "GET": 302
+      },
+      "seen": 1
+    },
+    "/dsp/api/sync/send": {
+      "methods": {
+        "GET": 302
+      },
+      "seen": 2
+    },
+    "/v1/api/sync/AdxPixel": {
+      "methods": {
+        "GET": 204
+      },
+      "seen": 1
+    }
+  },
+  "project": "Web-QA"
+}

@@ -1,0 +1,49 @@
+{
+  "name": "webtestpilot-bookstack",
+  "kind": "web",
+  "project": "webtestpilot-bookstack",
+  "display_name": "BookStack (WebTestPilot, bug injected)",
+  "description": "WebTestPilot seeded-defect benchmark — BookStack with benchmark/bookstack/bugs/create_book.js injected. Ground truth: the book's description or recents-list entry corrupts on the second visit to Books.",
+
+  "web": {
+    "base_url": "http://localhost:8081",
+    "browser": "chromium",
+    "headless": false,
+    "slow_mo_ms": 300,
+    "viewport": "1280x800",
+    "same_origin_only": true,
+    "blocked_texts": [],
+    "blocked_url_patterns": [],
+    "storage_state": "",
+    "bug_script": "./data/bugs/webtestpilot-bookstack-create_book.js",
+    "fail_on_page_error": false,
+    "fail_on_http_5xx": true,
+    "console_ignore": ["favicon"],
+    "login": {
+      "url": "http://localhost:8081/login",
+      "user": "admin@admin.com",
+      "password": "password",
+      "hint": "Seeded admin account from the WebTestPilot benchmark's own seed.sql.",
+      "role": "signed-in admin"
+    }
+  },
+
+  "knowledge": {
+    "srs_path": "./data/inputs/webtestpilot-bookstack-spec.md",
+    "figma_path": "",
+    "defects_path": ""
+  },
+
+  "run": {
+    "rounds": 3,
+    "max_steps": 30,
+    "timeout": 420,
+    "clean_slate": true,
+    "self_heal": true
+  },
+
+  "model": {
+    "provider": "",
+    "model": ""
+  }
+}
