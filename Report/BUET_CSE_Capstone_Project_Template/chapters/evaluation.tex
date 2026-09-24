@@ -2,469 +2,390 @@
 \chapter{Investigation and Evaluation}
 \label{ch:evaluation}
 
+\definecolor{cPass}{HTML}{2E8B7F}
+\definecolor{cApp}{HTML}{C0504D}
+\definecolor{cAgent}{HTML}{C08A33}
+\definecolor{cOther}{HTML}{8C8C8C}
+\definecolor{cLine}{HTML}{4F8AA8}
+
 \section{Experimental Investigation}
 \label{sec:investigation}
 
-\subsection{What had to be established, and in what order}
+\subsection{The question this chapter can answer}
 
-The obvious question to ask of an exploratory testing agent is how many defects
-it finds. This project cannot answer that question, for a reason set out in
-\Cref{subsec:measurement} and repeated here because it governs the whole
-chapter: computing precision or recall requires a build whose defects are known
-in advance, and the partner supplied neither a defect export nor a seeded-defect
-build (constraint C3). No system in the reviewed literature reports those
-figures either, so the gap is the field's and not only this project's.
+The obvious question to ask of a testing agent is how many defects it finds.
+This project cannot answer it. Computing precision or recall needs a build
+whose defects are known in advance, and the partner supplied none (constraint
+C3); \Cref{subsec:measurement} shows the comparable literature does not report
+those figures either. That limitation is stated once here and assumed
+thereafter.
 
-What can be established is the question that comes before it, and that the
-literature largely skips. A failed test run has three possible explanations:
+The question that comes first, and that the literature skips, is whether the
+agent's results can be trusted at all. A failed run has three possible causes:
 the application is wrong, the agent is wrong, or the environment broke. Until
-those are separated, a defect count is uninterpretable, because ``the test
-failed'' and ``the agent got lost'' are the same observation. The investigation
-was therefore ordered around three questions, each of which had to be answered
-before the next was worth asking.
+those are separated, a defect count is uninterpretable. Three questions follow,
+each a precondition for the next.
 
-\begin{description}[leftmargin=2.4em,style=nextline]
-  \item[RQ1. Can the agent complete a campaign without human rescue?] The
-    measure is \emph{autonomy}: the proportion of executions whose outcome is a
-    statement about the application rather than a failure of the agent or its
-    environment. This is the precondition for every other measurement.
-  \item[RQ2. Does accumulated knowledge make later tests cheaper and better
-    directed?] The system's central design claim is that a persistent graph
-    shared between agents improves the next test. The measures are median
-    device steps per test and the growth of mapped interface states.
-  \item[RQ3. Does the system transfer to applications and platforms it was not
-    built against?] The measure is whether a new target requires code, and what
-    the results look like when it does not.
+\begin{description}[leftmargin=2.4em,style=nextline,itemsep=2pt,topsep=4pt]
+  \item[RQ1. Can the agent finish a campaign without human rescue?] Measured as
+    \emph{autonomy}: the share of executions ending in a statement about the
+    application rather than a failure of the agent.
+  \item[RQ2. Does accumulated knowledge pay?] Measured as median device steps
+    per test, and interface states mapped.
+  \item[RQ3. Does the system transfer to new targets?] Measured by whether a
+    new target needs code, and what the results look like when it does not.
 \end{description}
 
-\subsection{Method}
+Campaigns were run as a controlled sequence: one change to the agent per
+campaign, the same application and specification throughout. Ninety-eight
+device executions were recorded, each preserved as a complete trajectory, which
+is what makes the sequence auditable afterwards (NFR-D5). One limitation of the
+method is recorded up front: the model assignment did not stay fixed
+(\Cref{tab:modelhistory}), so where a campaign changed both a mechanism and a
+model, the credit between them is not cleanly separable.
 
-Campaigns were run as a controlled sequence. Each campaign changed one property
-of the agent and was then measured against the same application and the same
-specification, so that a movement in the result could be attributed to the
-change rather than to the target. Ninety-eight device executions were recorded
-this way, each preserved on disk as a complete step-by-step trajectory, which
-is what makes the sequence auditable after the fact rather than only at the
-time (NFR-D5).
+\subsection{RQ1: autonomy}
 
-Two properties of the design make the measurement possible at all. The first is
-the fault-attribution taxonomy of \Cref{subsec:attribution}: every execution is
-classified at the point of failure as application evidence, agent limitation or
-environment fault, by the system rather than by a reader afterwards. The second
-is the degradation register, which records every fallback and every silent
-substitution, so that a campaign that appears to have succeeded because a
-component quietly degraded can be identified as such (NFR-D2).
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+      width=\textwidth, height=6.2cm,
+      ymin=0, ymax=120, ytick={0,25,50,75,100},
+      ylabel={per cent}, ylabel style={font=\small},
+      xtick=data, xticklabels={%
+        {12 Aug\\\scriptsize attribution},%
+        {13 Aug 03:03\\\scriptsize vision model,\\\scriptsize livelock detector},%
+        {13 Aug 19:02\\\scriptsize cancelled},%
+        {13 Aug 19:55\\\scriptsize preconditions, logs,\\\scriptsize device reset}},
+      xticklabel style={align=center, font=\scriptsize},
+      ymajorgrids, grid style={black!12},
+      tick align=outside, tick style={black!40},
+      axis lines=left, enlarge x limits=0.16,
+      legend style={at={(0.5,1.16)}, anchor=north, legend columns=2,
+                    font=\small, draw=none, fill=none, column sep=1.4em},
+      ybar, bar width=17pt,
+    ]
+      \addplot[fill=cLine, draw=none] coordinates {(1,0) (2,96) (3,0) (4,100)};
+      \addplot[fill=cPass, draw=none] coordinates {(1,0) (2,20) (3,0) (4,36)};
+      \legend{Autonomy, Pass rate}
+      \node[font=\scriptsize\bfseries, anchor=south, text=cApp] at (axis cs:1,1.5) {0\,\% / 0\,\%};
+      \node[font=\scriptsize\itshape, anchor=south, text=black!55] at (axis cs:3,1.5) {no data};
+      \node[font=\scriptsize\bfseries, anchor=south, text=cLine] at (axis cs:2,97) {96};
+      \node[font=\scriptsize\bfseries, anchor=south, text=cLine] at (axis cs:4,100.5) {100};
+    \end{axis}
+  \end{tikzpicture}
+  \caption[Autonomy and pass rate across the campaign sequence]{Autonomy and
+  pass rate across the four instrumented campaigns against the primary Android
+  target. One property of the agent changed per campaign; the application and
+  the specification were held constant. The 13 August 19:02 run was cancelled
+  in progress once bad preconditions were spotted, and produced no data. The
+  line that matters is autonomy: it reaches 100\,\% in the final campaign,
+  meaning not one of twenty-five executions was lost to the agent itself.}
+  \label{fig:campaigns}
+\end{figure}
 
-The honest limitation of the method is stated here rather than buried. The
-model assignment did not stay fixed across the sequence (\Cref{tab:modelhistory}),
-so where a campaign changed both an agent mechanism and a model, the attribution
-of the improvement between them is not clean. This is noted against the rows
-where it applies.
+\Cref{fig:campaigns} is the central experimental result. Two earlier smoke runs
+on 24 and 25 July, of six and four tests, confirmed end-to-end wiring and graph
+write-back before instrumentation existed and are not plotted.
 
-\subsection{RQ1: autonomy, and why it is the headline}
+The first instrumented campaign returned \textbf{0\,\% pass}, which read at
+first as a catastrophic quality result. It was not: 82\,\% of device steps were
+unparseable, so almost nothing could be attributed. The instrumentation worked
+and revealed that the evidence did not. Four unglamorous fixes closed the gap
+over the following day: log reassembly so a step is written once and
+completely, containment matching so a screen is recognisable without stable
+identifiers, a precondition filter so tests are not issued against impossible
+states, and a device reset so one test cannot contaminate the next. The final
+campaign recorded \textbf{100\,\% autonomy and zero silent fallbacks}.
 
-\Cref{tab:campaigns} is the campaign sequence against the primary Android
-target. It is the central experimental result of the project.
-
-\begingroup
-\small
-\setlength{\tabcolsep}{5pt}
-\begin{xltabular}{\textwidth}{@{}>{\hsize=0.52\hsize}Y>{\hsize=0.20\hsize}Y>{\hsize=0.26\hsize}Y>{\hsize=1.04\hsize}Y>{\hsize=0.98\hsize}Y@{}}
-  \caption[Campaign sequence against the primary target]{The campaign sequence against the primary Android target. One property of the agent changed per campaign; the application and the specification were held constant throughout. Reconstructed from the on-disk trajectory directories, one per device execution.}
-  \label{tab:campaigns}\\
-  \toprule
-  Campaign & Tests & Wall clock & What changed & Outcome \\
-  \midrule
-  \endfirsthead
-  \caption[]{Campaign sequence \emph{(continued)}}\\
-  \toprule
-  Campaign & Tests & Wall clock & What changed & Outcome \\
-  \midrule
-  \endhead
-  \midrule
-  \multicolumn{5}{r@{}}{\footnotesize\itshape continued on the next page}\\
-  \endfoot
-  \bottomrule
-  \endlastfoot
-
-  \mbox{24 Jul, 22:25} & 6 & 67 min & First end-to-end wiring & Smoke run, taken before instrumentation existed. No attribution available. \\
-  \addlinespace
-  \mbox{25 Jul, 01:42} & 4 & 14 min & Graph write-back & Smoke run. Confirmed that an execution reaches the graph. \\
-  \addlinespace
-  \mbox{12 Aug, 22:42} & 25 & 107 min & First full campaign with attribution & \textbf{0\% pass.} 82\% of device steps were unparseable, so almost nothing could be attributed. The instrumentation worked; it revealed that the evidence did not. \\
-  \addlinespace
-  \mbox{13 Aug, 03:03} & 29 & 84 min & Non-reasoning vision model; livelock detector & \textbf{20\% pass, autonomy 96\%.} Two changes at once, so the split between them is not established. \\
-  \addlinespace
-  \mbox{13 Aug, 19:02} & 9 & 16 min & (none) & \textbf{Cancelled deliberately} after bad preconditions and unreadable logs were spotted in progress. \\
-  \addlinespace
-  \mbox{13 Aug, 19:55} & 25 & 61 min & Precondition filter, containment matching, device reset, log reassembly & \textbf{36\% pass, 100\% autonomy, zero silent fallbacks.} Not one execution was lost to a failure of the agent. \\
-  \bottomrule
-\end{xltabular}
-\endgroup
-
-The result that matters in that table is not the pass rate. It is the autonomy
-column: a figure that was effectively zero in the 12 August campaign reached
-100\% on 13 August, meaning every one of twenty-five executions ended in a
-statement about the application rather than in the agent getting lost. Before
-that point no defect number the system produced could have meant anything. The
-sequence of fixes that achieved it is worth naming because none of them is
-glamorous: log reassembly so that device steps could be parsed at all,
-containment matching so that a screen could be recognised when its identifiers
-were absent, a precondition filter so that tests were not issued against states
-the application could not be in, and a device reset so that one test could not
-contaminate the next.
-
-The fifth campaign is included deliberately although it produced no data.
-Inspecting a run in progress and stopping it once the configuration is known to
-be bad is cheaper than letting it generate twenty-five misleading results, and
-a table that recorded only the campaigns that finished would misrepresent how
-the work was actually done.
+Autonomy, not the pass rate, is what makes the rest of this chapter readable.
+Before it was high, ``the test failed'' and ``the agent got lost'' were the
+same observation.
 
 \subsection{RQ2: whether accumulated knowledge pays}
 
-The graph is the system's central bet, and it is measurable through the route
-the executor takes. Across the campaign sequence the \emph{median number of
-device steps per test fell from 50 to 9}. The mechanism is the navigation
-memory of ETA-REQ-302: paths that previously reached a screen are recorded,
-along with the transitions that led nowhere, so a later test walks a known
-route instead of rediscovering it. At the end of the sequence the navigation
-memory held 123 nodes and 95 recorded avoid-transitions.
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+      width=0.62\textwidth, height=4.6cm,
+      ybar, bar width=30pt, ymin=0, ymax=58,
+      ylabel={median device steps per test}, ylabel style={font=\small},
+      symbolic x coords={Before, After},
+      xtick={Before,After}, xticklabels={Before, After}, bar shift=0pt,
+      xticklabel style={font=\small},
+      ymajorgrids, grid style={black!12}, axis lines=left,
+      tick style={black!40}, enlarge x limits=0.5,
+      nodes near coords, nodes near coords style={font=\small\bfseries},
+    ]
+      \addplot[fill=cOther, draw=none] coordinates {(Before,50)};
+      \addplot[fill=cPass, draw=none] coordinates {(After,9)};
+    \end{axis}
+  \end{tikzpicture}
+  \caption[Effect of navigation memory on route length]{Median device steps per
+  test, before and after navigation memory. Recorded paths and dead-end
+  transitions let a later test walk a known route instead of rediscovering it.
+  Because the device agent is about 92\,\% of the cost of a test
+  (\Cref{sec:budget}) and that cost is close to linear in steps, this is also
+  the largest single cost saving the project achieved.}
+  \label{fig:steps}
+\end{figure}
 
-This is the clearest evidence in the project that the knowledge graph does what
-it was built to do, and it is also the largest single cost saving achieved,
-because the device agent accounts for roughly 92\% of the cost of a test
-(\Cref{sec:budget}) and that cost is very nearly linear in steps. Two other
-accumulations are visible in the same runs: mapped interface states grow
-monotonically within a campaign, reaching 97 distinct states on the primary
-target, and mined error patterns feed a strategy memory that the planner reads
-when choosing what to attempt next (ETA-REQ-303).
+The graph is the system's central bet, and the route the executor takes is
+where it shows. Median device steps per test fell from 50 to 9
+(\Cref{fig:steps}) through the navigation memory of ETA-REQ-302, which held 123
+nodes and 95 recorded dead ends at the end of the sequence. Mapped interface
+states grow monotonically within a campaign, reaching 97 on the primary target,
+and mined error patterns feed a strategy memory the planner reads when choosing
+what to attempt next (ETA-REQ-303).
 
-The claim this evidence does not support is that the graph improves the
-\emph{quality} of test selection, as opposed to the efficiency of execution.
-Step count and state coverage are both execution measures. Whether a test
-proposed from a rich graph is a better test than one proposed from an empty
-graph is exactly the question that needs ground truth to answer, and it is
-carried into \Cref{sec:conclusion} with the seeded-defect experiment.
+What this does not show is that the graph improves the \emph{choice} of test,
+as opposed to the efficiency of execution. Both measures here are execution
+measures. Whether a test proposed from a rich graph is a better test needs
+ground truth to answer.
 
-\subsection{RQ3: transfer to targets the system was not built against}
+\subsection{RQ3: transfer to new targets}
 
-Five targets were exercised in September across both platforms.
-\Cref{tab:targets} reports them together. None required a code change: each was
-added as a target profile, which is requirement DR-03 and DR-09 in operation
-rather than in principle.
+Five targets were exercised in September across both platforms. None needed a
+code change: each was added as a target profile, which is DR-03 and DR-09 in
+operation rather than in principle.
 
-\begingroup
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{xltabular}{\textwidth}{@{}>{\hsize=0.62\hsize}Y>{\hsize=0.34\hsize}Y>{\hsize=0.28\hsize}Y>{\hsize=0.50\hsize}Y>{\hsize=0.42\hsize}Y>{\hsize=0.84\hsize}Y@{}}
-  \caption[Results across all five targets]{Results across all five targets exercised in September. ``Agent-attributed'' is the share of executions lost to the agent rather than resolved against the application; lower is better, and it is the figure that decides whether the rest of the row can be read at all.}
-  \label{tab:targets}\\
-  \toprule
-  Target & Platform & Tests & App-level failures & Agent-attributed & Coverage \\
-  \midrule
-  \endfirsthead
-  \caption[]{Results across all five targets \emph{(continued)}}\\
-  \toprule
-  Target & Platform & Tests & App-level failures & Agent-attributed & Coverage \\
-  \midrule
-  \endhead
-  \midrule
-  \multicolumn{6}{r@{}}{\footnotesize\itshape continued on the next page}\\
-  \endfoot
-  \bottomrule
-  \endlastfoot
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+      width=0.82\textwidth, height=6.4cm,
+      xbar stacked, xmin=0, xmax=100,
+      xlabel={per cent of executions}, xlabel style={font=\small},
+      bar width=15pt,
+      symbolic y coords={AcademyBug, broken-workshop, {Contacts}, {AUT-1}, DataGhurhi},
+      ytick=data, yticklabel style={font=\small},
+      xmajorgrids, grid style={black!12}, axis lines=left,
+      tick style={black!40}, enlarge y limits=0.14,
+      legend style={at={(0.5,1.18)}, anchor=north, legend columns=3,
+                    font=\small, draw=none, fill=none, column sep=1.2em},
+    ]
+      \addplot[fill=cPass,  draw=none] coordinates {(80,DataGhurhi) (44,{AUT-1}) (40,{Contacts}) (50,broken-workshop) (5,AcademyBug)};
+      \addplot[fill=cApp,   draw=none] coordinates {(6,DataGhurhi)  (25,{AUT-1}) (38,{Contacts}) (0,broken-workshop)  (15,AcademyBug)};
+      \addplot[fill=cAgent, draw=none] coordinates {(0,DataGhurhi)  (31,{AUT-1}) (20,{Contacts}) (40,broken-workshop) (80,AcademyBug)};
+      \addplot[fill=cOther, draw=none] coordinates {(14,DataGhurhi) (0,{AUT-1})  (2,{Contacts})  (10,broken-workshop) (0,AcademyBug)};
+      \legend{Passed, Application failure, Lost to the agent, Skipped or capped}
+    \end{axis}
+  \end{tikzpicture}
+  \caption[Outcome attribution across all five targets]{Outcome attribution
+  across the five targets, as a share of executions. The amber band is the one
+  to read first: it is the share of runs that say nothing about the application
+  because the agent itself failed. Where it is small the rest of the bar can be
+  trusted, and where it dominates the bar cannot. DataGhurhi (64 test cases) and
+  AcademyBug (20) are the two ends of that scale.}
+  \label{fig:targets}
+\end{figure}
 
-  DataGhurhi (departmental form and survey platform) & Web & 64 & 4 & \textbf{0\%} & 51 passed, 7 skipped, 2 stopped by a cap \\
-  \addlinespace
-  AUT-1, the production marketplace & Android & 45 & 11 & 31\% (14) & 33/106 requirements, 29 feature areas, 97 UI states \\
-  \addlinespace
-  Google Contacts 4.86.23 & Android & 50 & 19 & 20\% (10) & 55/141 requirements, 35 feature areas, 60 UI states \\
-  \addlinespace
-  broken-workshop & Web & 10 & 0 & 40\% (4) & 170 steps; 5 runs completed \\
-  \addlinespace
-  AcademyBug & Web & 20 & 3 & \textbf{80\% (16)} & 0 of 0 requirements; no specification ingested \\
-  \bottomrule
-\end{xltabular}
-\endgroup
+\paragraph{DataGhurhi, the strongest result.} Fifty runs against a departmental
+form and survey platform produced 64 judged test cases: 51 passed, 4 product
+failures, \emph{nothing at all attributed to the agent}. A campaign in which
+the tester never becomes the explanation for a failure is what
+\Cref{fig:campaigns} was working towards, reproduced on a platform and a domain
+the tuning was not done against. The findings were one critical, a
+notifications control absent from the workspace header, and three major, all
+concerning a sidebar control that failed to open its view. Agent-caused
+failures are filtered out before a defect is named, so the taxonomy acts as a
+gate on what reaches a stakeholder (DR-08).
 
-\paragraph{DataGhurhi, the strongest result the project produced.} Fifty runs
-against a departmental form and survey platform yielded 64 judged test cases,
-of which 51 passed and 4 were product failures, with \emph{nothing at all
-attributed to the agent}. A campaign in which the tester never once becomes the
-explanation for a failure is the condition the whole of \Cref{tab:campaigns}
-was working towards, reproduced here on a platform and a domain the tuning was
-not done against. The four findings were one critical and three major: a
-notifications control absent from the workspace header, and the Quantitative
-Analysis sidebar control failing to open its view. The report is filtered to
-exclude agent-caused failures before a defect is ever named, which is the
-fault-attribution taxonomy acting as a gate on what reaches a stakeholder
-(DR-08).
+\paragraph{Google Contacts, the strongest generalisation.} An application no
+member of the team had any hand in, tested against an independently written
+141-requirement specification rather than a vendor document. The agent designed
+50 test cases for an application it had never seen, ran each on a device, and
+returned 19 application-level failures and 125 findings, covering 55 of 141
+requirements across 35 feature areas in 6.2 hours at a median of 346 seconds
+per test.
 
-\paragraph{Google Contacts, the strongest generalisation result.} This target
-matters for a different reason: it is an application no member of the team had
-any hand in, tested against an independently written 141-requirement
-specification rather than a vendor document. The agent designed 50 test cases
-for an application it had never seen, executed each on a device, and returned
-19 application-level failures and 125 findings about the application, covering
-55 of 141 requirements across 35 feature areas in 6.2 hours of device time at a
-median of 346 seconds per test. Nothing about the target was known to the
-system in advance except its specification, which is the claim DR-01 and DR-03
-make together.
+\paragraph{AUT-1, the hardest target.} The production marketplace the partner
+cared about, and the one the system found most difficult, for structural
+reasons. Its cross-platform toolkit exposes almost no stable identifiers and
+reports a single activity for every screen, so screens must be told apart
+structurally (C4); and it carries live users, so registration, one-time-password
+verification, payment and account deletion were blocked in configuration rather
+than exercised (C5, DR-07). Within those limits: 11 application-level failures
+and 95 findings across 45 tests, and 97 mapped interface states, the most of any
+target.
 
-\paragraph{AUT-1, the hardest target.} The production marketplace is the target
-the partner cared about and the one the system found most difficult, for
-reasons that are structural rather than incidental. Its cross-platform toolkit
-exposes almost no stable identifiers through the accessibility tree and reports
-a single activity on every screen, so screens must be distinguished
-structurally (constraint C4). It also carries live users, so registration,
-one-time-password verification, payment and account deletion were blocked in
-configuration rather than exercised (C5, DR-07). Within those limits the
-campaign returned 11 application-level failures and 95 findings about the
-application across 45 tests, mapping 97 distinct interface states, the most of
-any target.
-
-\paragraph{The two results that did not go well.} They are reported here rather
-than in a footnote because a table containing only successes would not be
-evidence of anything. On \emph{broken-workshop}, a deliberately faulty web
-application, the agent executed ten tests, completed five, and found
-\emph{zero} defects. Either the reachable faults were not the ones the tests
-targeted, or the agent did not provoke them; the campaign cannot distinguish
-these, and it is a direct illustration of why recall cannot be claimed without
-ground truth. On \emph{AcademyBug}, 16 of 20 runs were lost to the agent's own
-limits, an 80\% agent-attribution rate that is the exact inverse of the
-DataGhurhi result. The cause is identified in \Cref{sec:revisions} and it is
-instructive: no specification was ingested for that target, so the coverage
-line reads ``0 of 0 requirements''.
+\paragraph{The two that went badly.} They are reported because a chart showing
+only successes would not be evidence of anything. On \emph{broken-workshop}, a
+deliberately faulty web application, ten tests were run, five completed, and
+\emph{zero} defects were found. Whether the faults lay outside the reachable
+surface or were simply not provoked cannot be determined from the record, which
+is a direct illustration of why recall cannot be claimed. On \emph{AcademyBug},
+16 of 20 runs were lost to the agent, the exact inverse of DataGhurhi. The
+cause is diagnosed in \Cref{sec:revisions}: no specification was ingested, so
+the coverage line reads ``0 of 0 requirements''.
 
 \subsection{What the investigation establishes}
 
-Autonomy is demonstrated and reproduced: from effectively zero to 100\% on the
-primary Android target, and independently to 100\% on a web target in a
-different domain. Knowledge accumulation is demonstrated in execution
-efficiency, with median device steps falling from 50 to 9. Transfer is
-demonstrated across five targets, two platforms and three domains with no code
-change. Unit cost is measured rather than estimated, at approximately USD 0.008
-per executed test (\Cref{sec:budget}).
+Autonomy is demonstrated and then reproduced: effectively zero to 100\,\% on
+the primary Android target, and independently 100\,\% on a web target in
+another domain. Knowledge accumulation is demonstrated in execution efficiency,
+50 steps to 9. Transfer is demonstrated across five targets, two platforms and
+three domains with no code change. Unit cost is measured rather than estimated
+at about USD 0.008 per test (\Cref{sec:budget}).
 
-What is not established is the value of the output. Every application-level
-failure in \Cref{tab:targets} is a \emph{candidate} defect requiring human
-confirmation, and the system is scoped to say so. Precision and recall are not
-reported, and on the evidence of \Cref{subsec:measurement} they are not
-reported by the comparable literature either. A reader should take the cost and
-autonomy results as established and treat the defect counts as what they are:
-the output of a tool whose accuracy has not yet been measured against a known
-answer.
+The value of the output is not established. Every application-level failure
+above is a \emph{candidate} defect needing human confirmation, and the system
+is built to say so. A reader should take the autonomy and cost results as
+established, and treat the defect counts as the output of a tool whose accuracy
+has not been measured against a known answer.
 
 \section{Performance Evaluation}
 \label{sec:evaluation}
 
-\subsection{Setup and acceptance criteria}
+\paragraph{Setup.} Every campaign ran the four-process stack of
+\Cref{fig:topology} on one developer laptop: gateway, retrieval service,
+executor and a Neo4j server, with an Android emulator or a browser alongside.
+Android targets were driven through the accessibility service using mobilerun
+and its companion on-device application; web targets through an
+accessibility-annotated browser snapshot. Models were as configured in
+\Cref{tab:models}, and each execution was bounded by the interaction and
+wall-clock budgets of \Cref{tab:budgets}.
 
-All campaigns ran the four-process stack of \Cref{fig:topology} on a single
-developer laptop: gateway, retrieval service, executor and a Neo4j server, with
-an Android emulator or a browser alongside. Android targets were driven through
-the accessibility service using mobilerun with its companion on-device
-application; web targets were driven through an accessibility-annotated browser
-snapshot. Models were as configured in \Cref{tab:models}. Each execution was
-bounded by an interaction budget and a wall-clock limit, the values used for
-these campaigns being those recorded in \Cref{tab:budgets}.
+\Cref{tab:partner-req,tab:derived-req} state what each requirement asks for and
+how it was realised; that is not repeated here. This section reports only
+whether a campaign demonstrates it. A requirement counts as met when an
+artefact shows it working, not when the code implementing it exists.
 
-A requirement is recorded below as \emph{met} only where a campaign artefact
-demonstrates it, not where the code implementing it exists. Where a requirement
-is implemented but could not be exercised for want of an input the project did
-not control, it is recorded as \emph{met, unexercised}, and the missing input is
-named.
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+      width=0.72\textwidth, height=3.6cm,
+      xbar stacked, xmin=0, xmax=11.4,
+      bar width=17pt, xtick=\empty,
+      axis line style={draw=none}, tick style={draw=none},
+      symbolic y coords={{Non-functional (6)},{Derived (11)},{Partner (8)}},
+      ytick=data, yticklabel style={font=\small},
+      enlarge y limits=0.36,
+      nodes near coords, point meta=explicit symbolic,
+      nodes near coords style={font=\scriptsize\bfseries, white, anchor=center},
+      legend style={at={(0.5,1.42)}, anchor=north, legend columns=3,
+                    font=\small, draw=none, fill=none, column sep=1.2em},
+    ]
+      \addplot[fill=cPass,  draw=none] coordinates {(7,{Partner (8)}) [7] (8,{Derived (11)}) [8] (5,{Non-functional (6)}) [5]};
+      \addplot[fill=cAgent, draw=none] coordinates {(0,{Partner (8)}) [] (3,{Derived (11)}) [3] (1,{Non-functional (6)}) [1]};
+      \addplot[fill=cOther, draw=none] coordinates {(1,{Partner (8)}) [1] (0,{Derived (11)}) [] (0,{Non-functional (6)}) []};
+      \legend{Met, Met with a qualification, Met but unexercised}
+    \end{axis}
+  \end{tikzpicture}
+  \caption[Requirement status at submission]{Requirement status at submission,
+  across the partner's eight requirement families, the eleven derived
+  requirements and the six non-functional requirements. Twenty of
+  twenty-five are met without qualification. The five that are not are the
+  subject of the rest of this section.}
+  \label{fig:reqstatus}
+\end{figure}
 
-\subsection{The partner's requirements}
+\paragraph{The five that are not plain.} Each is named with its evidence,
+because a chapter that reported only the twenty would be worth less than one
+that explains the five.
 
-\Cref{tab:eta-eval} evaluates the eight requirement families of
-ETA-TR-2026-001~\cite{etatr}. All eight have working implementations verifiable
-on the dashboard, and the ten work packages derived from them were built,
-integrated and verified.
+\begin{description}[leftmargin=2.4em,style=nextline,itemsep=3pt,topsep=4pt]
+  \item[ETA-REQ-301, defect history as a knowledge source: met but
+    unexercised.] Defect nodes, the ingestion endpoint, defect-weighted
+    retrieval and a defect-history prompt block are all live. No campaign used
+    them, because the partner supplied no defect export (C3). The requirement
+    is built and untested against real data, and saying so is more useful than
+    a tick.
+  \item[DR-01, no knowledge source is a hard dependency: met, but not as
+    intended.] AcademyBug ran with nothing ingested and still produced three
+    defects, so the dependency is genuinely soft. But 80\,\% of its runs were
+    lost to the agent against 0\,\% on DataGhurhi. The system runs without a
+    specification; it does not run well.
+  \item[DR-06, durable atomic knowledge: met, with imperfect deduplication.]
+    163 and 198 findings were produced on the two Android campaigns, each
+    attributed and deduplicated. DataGhurhi nonetheless returned three
+    near-identical findings for one control.
+  \item[DR-11, the planner must be able to investigate: met, not default.] Both
+    planner modes exist behind one output contract. The retrieval-issuing mode
+    is the default; the tool-calling mode is switched off pending a campaign
+    that compares them, a decision recorded in \Cref{sec:collaboration}.
+  \item[NFR-D5, reproducibility: met, with a caveat on comparison.] All 98
+    executions are preserved as complete trajectories. Campaign-to-campaign
+    comparison is nevertheless limited by the model changes of
+    \Cref{tab:modelhistory}.
+\end{description}
 
-\begingroup
-\small
-\setlength{\tabcolsep}{5pt}
-\begin{xltabular}{\textwidth}{@{}>{\hsize=0.46\hsize}Y>{\hsize=0.80\hsize}Y>{\hsize=0.40\hsize}Y>{\hsize=1.34\hsize}Y@{}}
-  \caption{Evaluation against the partner's eight requirement families}
-  \label{tab:eta-eval}\\
-  \toprule
-  Requirement & Subject & Status & Evidence \\
-  \midrule
-  \endfirsthead
-  \caption[]{Evaluation against the partner's requirements \emph{(continued)}}\\
-  \toprule
-  Requirement & Subject & Status & Evidence \\
-  \midrule
-  \endhead
-  \midrule
-  \multicolumn{4}{r@{}}{\footnotesize\itshape continued on the next page}\\
-  \endfoot
-  \bottomrule
-  \endlastfoot
-
-  ETA-REQ-301 & Defect history as a knowledge source & Met, unexercised & Defect nodes, ingestion endpoint and defect-weighted retrieval are live, and a defect-history block is injected into generation. No campaign exercised it: the partner supplied no defect export (C3). \\
-  \addlinespace
-  ETA-REQ-302 & Execution-path memory as a navigation tree & Met & Median device steps per test fell from 50 to 9 across the campaign sequence. Navigation memory held 123 nodes and 95 avoid-transitions. \\
-  \addlinespace
-  ETA-REQ-303 & Incremental experiential learning & Met & Error-pattern mining and strategy memory populated from execution logs and read by the planner; three mined patterns present at the end of the sequence. \\
-  \addlinespace
-  ETA-REQ-304 & Multi-dimensional partitioning by profile, platform and application & Met & Five targets across two platforms held in one graph without cross-contamination (\Cref{tab:targets}). \\
-  \addlinespace
-  ETA-REQ-305 & Self-healing and adaptive execution & Met & Failure classification with per-category retry; the livelock detector introduced in the fourth campaign and the device reset in the sixth are both in this family. \\
-  \addlinespace
-  ETA-REQ-306 & Regression risk scoring and risk-weighted prioritisation & Met & Per-area risk scores drive prioritisation and are exposed through the risk API and the dashboard. \\
-  \addlinespace
-  ETA-REQ-307 & Test-case quality metrics and feedback loop & Met & Per-test effectiveness recorded and fed back into generation; duplicate suppression operates against executed-test titles. \\
-  \addlinespace
-  ETA-REQ-308 & Anomaly detection over execution patterns & Met & Failure-rate spikes, duration regressions and new-failure detection implemented and surfaced on the dashboard. \\
-  \bottomrule
-\end{xltabular}
-\endgroup
-
-\subsection{The team's derived requirements}
-
-\Cref{tab:dr-eval} evaluates the eleven derived requirements and the six
-non-functional requirements of \Cref{ch:requirements}. Two are recorded with
-qualifications, and those qualifications are the substance of
-\Cref{sec:revisions}.
-
-\begingroup
-\small
-\setlength{\tabcolsep}{5pt}
-\begin{xltabular}{\textwidth}{@{}>{\hsize=0.24\hsize}Y>{\hsize=0.86\hsize}Y>{\hsize=0.42\hsize}Y>{\hsize=1.48\hsize}Y@{}}
-  \caption{Evaluation against the derived and non-functional requirements}
-  \label{tab:dr-eval}\\
-  \toprule
-  Req. & Subject & Status & Evidence \\
-  \midrule
-  \endfirsthead
-  \caption[]{Evaluation against the derived requirements \emph{(continued)}}\\
-  \toprule
-  Req. & Subject & Status & Evidence \\
-  \midrule
-  \endhead
-  \midrule
-  \multicolumn{4}{r@{}}{\footnotesize\itshape continued on the next page}\\
-  \endfoot
-  \bottomrule
-  \endlastfoot
-
-  DR-01 & No knowledge source is a hard dependency & Met, with a caveat & AcademyBug ran with no specification at all and produced findings, so the dependency is genuinely soft. But 80\% of its runs were lost to the agent, against 0\% on DataGhurhi where a specification was present. The system runs without one; it does not run well. \\
-  \addlinespace
-  DR-02 & Learn the application's structure from the running application & Met & 97 distinct interface states mapped on AUT-1 and 60 on Contacts, from execution alone, with no design export. \\
-  \addlinespace
-  DR-03 & Application-agnostic by construction & Met & Five targets, three domains, two platforms, no code change; each added as a target profile. \\
-  \addlinespace
-  DR-04 & A second execution platform & Met & Three web targets executed through the browser executor against the same planner and the same graph. \\
-  \addlinespace
-  DR-05 & Evidence integrity & Met & The 12 August campaign recorded 82\% of device steps as unparseable; after log reassembly the sixth campaign recorded zero silent fallbacks. \\
-  \addlinespace
-  DR-06 & Turn trajectories into durable, atomic knowledge & Met, with a caveat & 163 and 198 findings produced on the two Android campaigns, each attributed and deduplicated. Dedup is imperfect: DataGhurhi returned three near-identical findings for one control. \\
-  \addlinespace
-  DR-07 & Enforced safety boundary & Met & Registration, one-time-password verification, payment and account deletion blocked at the configuration layer on the production target. No irreversible action occurred in 98 executions. \\
-  \addlinespace
-  DR-08 & An operator surface & Met & A campaign is configured, launched and read from the dashboard, and exports a stakeholder-facing report that filters agent-caused failures out before naming a defect. \\
-  \addlinespace
-  DR-09 & Configuration as data & Met & Every target in \Cref{tab:targets} was added as configuration; every model in \Cref{tab:models} is a settings value. \\
-  \addlinespace
-  DR-10 & Measured, not estimated, cost & Met & USD 0.008 per executed test, derived from metered billing and 232 stored observations, not from a price card (\Cref{sec:budget}). \\
-  \addlinespace
-  DR-11 & The planner must be able to investigate, not only receive & Met, not default & Both planner modes are implemented behind one output contract. The retrieval-issuing mode is the default; the tool-calling mode remains switched off pending a campaign that compares them. \\
-  \addlinespace
-  NFR-D1 & Cost ceiling per executed test & Met & USD 0.008, roughly one taka, against published figures of USD 10 to 22 for comparable systems (\Cref{sec:feasibility}). \\
-  \addlinespace
-  NFR-D2 & Observability of every degradation and fallback & Met & Degradation register live; the sixth campaign is recorded as having zero silent fallbacks, which is a claim the register makes checkable. \\
-  \addlinespace
-  NFR-D3 & Attribution soundness & Met & The central result of \Cref{sec:investigation}: 100\% autonomy on two independent targets, and every reported failure carries its attribution class. \\
-  \addlinespace
-  NFR-D4 & No irreversible action on the application under test & Met & Enforced in configuration, not by convention; no violation in 98 executions across five targets. \\
-  \addlinespace
-  NFR-D5 & Reproducibility of a campaign & Met, with a caveat & All 98 executions preserved as complete trajectories on disk. Campaign-to-campaign comparison is nevertheless limited by the model changes in \Cref{tab:modelhistory}. \\
-  \addlinespace
-  NFR-D6 & Confidentiality of test credentials & Met & The application password reaches the executor goal only; the planner prompt carries the role name and never the credential. \\
-  \bottomrule
-\end{xltabular}
-\endgroup
+\paragraph{The rest, in one line each.} Navigation memory cut median steps from
+50 to 9 (ETA-REQ-302) and mapped 97 states on the primary target (DR-02).
+Strategy memory and error-pattern mining are populated from execution logs
+(ETA-REQ-303). Five targets across two platforms are held in one graph without
+cross-contamination (ETA-REQ-304), each added as configuration (DR-03, DR-09),
+three of them through the browser executor (DR-04). Failure classification,
+retry, the livelock detector and device reset are the self-healing family
+(ETA-REQ-305). Risk scores drive prioritisation through the risk API
+(ETA-REQ-306), per-test effectiveness feeds back into generation
+(ETA-REQ-307), and anomaly detection surfaces failure-rate spikes and duration
+regressions (ETA-REQ-308). Log reassembly took unparseable steps from 82\,\% to
+none (DR-05). A campaign is configured, launched and read from the dashboard,
+which exports a report that filters agent-caused failures before naming a
+defect (DR-08). Cost is metered at USD 0.008 per test rather than estimated
+(DR-10, NFR-D1). The degradation register makes ``zero silent fallbacks'' a
+checkable claim (NFR-D2). Attribution soundness is the result of
+\Cref{sec:investigation} (NFR-D3). No irreversible action occurred in 98
+executions across five targets, enforced in configuration rather than by
+convention (NFR-D4, DR-07). The application password reaches the executor goal
+only and never the planner prompt (NFR-D6).
 
 \section{Deviations and Design Revisions}
 \label{sec:revisions}
 
-Six deviations are recorded. For each, the cause was diagnosed from the
-trajectory record rather than inferred, and the revision is named. Two were not
-revised, and the reason is given.
+Six deviations are recorded. Each cause was diagnosed from the trajectory
+record rather than inferred. Two were not revised, and the reason is given.
 
-\paragraph{D1. Evidence was unreadable before it was wrong.} The first
-instrumented campaign returned a 0\% pass rate, which initially read as a
-catastrophic quality result. It was not: 82\% of device steps could not be
-parsed, so almost no execution could be attributed at all. The cause was that
-step records were being fragmented across log boundaries and reassembled
-incorrectly. \emph{Revision:} log reassembly at the gateway, so a step is
-written once and completely. The campaign that followed recorded zero silent
-fallbacks. This deviation is the origin of NFR-D2 being treated as a
-requirement rather than a convenience.
+\begin{description}[leftmargin=2.6em,style=nextline,itemsep=5pt,topsep=4pt]
+  \item[D1. Evidence was unreadable before it was wrong.] The first
+    instrumented campaign returned 0\,\% pass because 82\,\% of device steps
+    could not be parsed: step records were fragmented across log boundaries and
+    reassembled incorrectly. \emph{Revised:} log reassembly at the gateway, so
+    a step is written once and completely. This deviation is why NFR-D2 is a
+    requirement rather than a convenience.
+  \item[D2. The agent's own failures were reported as application defects.]
+    Navigation failures and exhausted interaction budgets were being counted as
+    evidence about the application, and four executions were recorded as agent
+    navigation faults when the browser process had ceased to exist.
+    \emph{Revised:} the three-way taxonomy of \Cref{subsec:attribution},
+    applied at the point of failure and enforced in the report generator; the
+    dead-browser case was reclassified as an environment fault that ends the
+    batch.
+  \item[D3. The loop stalled without terminating.] Executions consumed their
+    full wall-clock budget oscillating between two screens. \emph{Revised:} a
+    livelock detector that ends a run making no progress and records it as an
+    agent limitation. The AcademyBug trajectories show the untreated form,
+    cycling between \modpath{find-bugs} and \modpath{report-bugs} until timeout.
+  \item[D4. Screens could not be told apart on the primary target.] The
+    cross-platform toolkit exposes almost no stable identifiers and reports one
+    activity per screen, so an identity strategy assuming identifiers collapsed
+    (C4). \emph{Revised:} structural state identity with containment matching,
+    which is what made 97 mapped states possible on that target.
+  \item[D5. Quality degrades sharply without a specification.] \emph{Not
+    revised.} DR-01 is met literally, but with no specification there are no
+    requirements to target, so the planner has no criterion for what the
+    application ought to have done. The right fix is a provisional
+    specification generated from a first exploratory pass, carried to
+    \Cref{sec:conclusion}. Recording the gap between the requirement as written
+    and as intended is more useful than restating the first.
+  \item[D6. Duplicate findings survive deduplication.] Three separate major
+    findings were reported for one control on DataGhurhi, differing only in
+    wording; deduplication works over titles and a similarity threshold.
+    \emph{Not revised.} The effect is over-counting rather than a false report,
+    so it ranked below the attribution work. The fix is to deduplicate against
+    the target element and screen state rather than the text.
+\end{description}
 
-\paragraph{D2. The agent's own failures were being reported as application
-defects.} Early runs counted a navigation failure and an exhausted interaction
-budget as evidence about the application. Four executions had additionally been
-recorded as agent navigation faults when the browser process had simply ceased
-to exist. \emph{Revision:} the three-way fault-attribution taxonomy of
-\Cref{subsec:attribution}, applied at the point of failure and enforced in the
-report generator, so that an agent limitation cannot reach a stakeholder as a
-defect. The dead-browser condition was reclassified as an environment fault
-that ends the batch. This is NFR-D3, and it is the precondition for every
-number in \Cref{tab:campaigns}.
-
-\paragraph{D3. The loop stalled without terminating.} Executions consumed their
-full wall-clock budget while making no progress, oscillating between two
-screens. \emph{Revision:} a livelock detector, introduced in the fourth
-campaign, which terminates a run that is not advancing and records it as an
-agent limitation rather than letting it consume the budget silently. The
-AcademyBug trajectories show the untreated form of this failure clearly: runs
-cycling between \modpath{find-bugs} and \modpath{report-bugs} until they timed
-out.
-
-\paragraph{D4. Screens could not be told apart on the primary target.} The
-cross-platform toolkit used by AUT-1 exposes almost no stable resource
-identifiers and reports a single activity for every screen, so the original
-identity strategy, which assumed identifiers, collapsed (constraint C4).
-\emph{Revision:} structural state identity with containment matching, so a
-screen is recognised by the shape and content of its accessibility tree rather
-than by a name. This is what made the 97 mapped states on that target possible.
-
-\paragraph{D5. Quality degrades sharply without a specification, and this was
-not designed for.} DR-01 requires that no knowledge source be a hard
-dependency, and the requirement is met in the literal sense: AcademyBug was run
-with nothing ingested and still produced three defects. But 16 of its 20 runs
-were lost to the agent, against none of DataGhurhi's 64. Without a
-specification there are no requirements to target, so the planner has no
-stopping condition for a test and no criterion for what the application ought
-to have done; the coverage line reads ``0 of 0 requirements'' because there was
-nothing to cover. \emph{Not revised.} The correct revision is a generated
-provisional specification derived from a first exploratory pass, which is
-identified in \Cref{sec:conclusion} as future work. The requirement as written
-is satisfied; the requirement as intended is not, and recording the difference
-is more useful than restating the first.
-
-\paragraph{D6. Duplicate findings survive deduplication.} The DataGhurhi
-campaign reported three separate major findings for a single control that
-failed to open its view, differing only in wording. Deduplication operates over
-finding titles and a similarity threshold, and three descriptions of one fault
-generated by different runs fall outside it. \emph{Not revised within the
-project.} The effect on a stakeholder is over-counting rather than a false
-report, so it was ranked below the attribution work; the fix is to deduplicate
-against the target element and screen state rather than against the text.
-
-\subsection{The deviation that was not a defect}
-
-One further result deserves its own statement because it looks like a failure
-and is not. On broken-workshop, a web application with known faults, the agent
-found none. The five completed runs exercised form validation, boundary
-lengths, special characters and whitespace handling, and the application
-behaved correctly in all five. Whether the faults were outside the reachable
-surface, or present and not provoked, cannot be determined from the campaign
-record. No revision was made because none is indicated by the evidence: the
-run is a demonstration of the measurement gap rather than of a defect in the
-system, and it is the single clearest argument in this report for the
-seeded-defect experiment that \Cref{sec:conclusion} identifies as the necessary
-next piece of work.
+\paragraph{The result that looks like a failure and is not.} On
+broken-workshop, a web application with known faults, the agent found none. The
+five completed runs exercised form validation, boundary lengths, special
+characters and whitespace handling, and the application behaved correctly in
+all five. Whether the faults lay outside the reachable surface or were present
+and not provoked cannot be settled from the record. No revision was made
+because none is indicated: the run demonstrates the measurement gap rather than
+a defect in the system, and it is this report's clearest argument for the
+seeded-defect experiment of \Cref{sec:conclusion}.
