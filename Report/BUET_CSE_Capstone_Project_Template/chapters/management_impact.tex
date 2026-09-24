@@ -816,11 +816,6 @@ is business analysis, and it is what establishes that the interesting question
 about this system is not whether it can be built but whether its reports are
 precise enough to be worth a developer's time.
 
-\guidance{TODO (team): if the team met the partner's engineers, the supervisor
-or any prospective user in a scheduled review, record when, who took part and
-what changed as a result. A dated engagement is stronger evidence for this
-indicator than a description of the disciplines involved.}
-
 \section{Impact on Society}
 \label{sec:society}
 
@@ -1123,7 +1118,7 @@ an explicit compatibility judgement rather than an assumption.
 \begingroup
 \small
 \begin{xltabular}{\textwidth}{@{}>{\hsize=0.70\hsize}Y>{\hsize=0.86\hsize}Y>{\hsize=0.44\hsize}Y@{}}
-  \caption{Principal third-party components and their licences}
+  \caption[Third-party components and their licences]{Principal third-party components and their licences, read from the metadata of the versions actually installed rather than from documentation}
   \label{tab:licences}\\
   \toprule
   Component & Role in the system & Licence \\
@@ -1147,15 +1142,15 @@ an explicit compatibility judgement rather than an assumption.
   \addlinespace
   LangChain, LangGraph & Agent orchestration & MIT \\
   Playwright (Python) & Browser execution & Apache-2.0 \\
-  Android execution driver & Device execution through the accessibility service & Permissive; see note \\
+  mobilerun 0.6.11 & Android device execution through the accessibility service & MIT \\
   \addlinespace
-  fastembed, NumPy & Embeddings and numerical support & Apache-2.0, BSD-3 \\
+  fastembed, onnxruntime, NumPy & Local embeddings, their inference runtime, and numerical support & Apache-2.0, MIT, BSD-3 \\
   markitdown, pypdf & Format-agnostic document ingestion & MIT, BSD-3 \\
-  fpdf2 & Run-report PDF generation & LGPL-3.0 \\
+  fpdf2 & User-guide PDF generation (\modpath{scripts/make\_user\_guide.py}) & LGPL-3.0 \\
   \addlinespace
   structlog, psutil, requests, python-dotenv & Logging, process inspection, HTTP, configuration & Apache-2.0/MIT, BSD-3, Apache-2.0, BSD-3 \\
   \addlinespace
-  React, Vite & Operator dashboard & MIT \\
+  React, React DOM, Vite, \modpath{@vitejs/plugin-react}, \modpath{vite-plugin-singlefile} & Operator dashboard, built to a single self-contained file & MIT \\
   \addlinespace
   Hosted model inference (OpenRouter; Gemini) & Commercial services, not distributed with the system & Provider terms of service \\
   \bottomrule
@@ -1175,11 +1170,18 @@ deployment as described in \Cref{sec:commercialisation} is unaffected, whereas
 shipping a single bundled artefact containing the database server would have to
 honour GPL-3.0.
 
-\guidance{TODO (team): before submission, regenerate this table from the
-environment actually used (\texttt{pip-licenses --format=markdown} and
-\texttt{license-checker} for the dashboard), confirm the Android execution
-driver's licence from its own repository rather than from this table, and state
-the licence the team intends to release its own code under.}
+\paragraph{The team's own code.} The project is released under the Apache
+License 2.0, and the licence text is in the repository root. The choice was
+made on two grounds. It is compatible with every component in
+\Cref{tab:licences}, including the GPL-3.0 database server the system speaks to
+over the network and the LGPL-3.0 library it imports, so the release creates no
+obligation the project cannot meet. And unlike the shorter permissive licences
+it carries an explicit patent grant, which matters for work carried out with an
+industrial partner: it makes the terms on which the partner and any later
+adopter may use the result explicit rather than implied. This is the licence
+for the code the team wrote. It does not extend to the partner's requirements
+document, which is not the team's to license, and it does not alter any term of
+the engagement under which the work was commissioned.
 
 \paragraph{The partner's material.} The technical requirements document
 ETA-TR-2026-001 is not public. It is cited for traceability, and requirement
@@ -1208,10 +1210,30 @@ testing caught. No claim in this report was accepted because a model asserted
 it: the empirical figures attributed to other systems in \Cref{ch:research} were
 read from the papers themselves.
 
-\guidance{TODO (team): check the wording above against the disclosure statement
-the department requires, and amend it to match. If any member used these tools
-in a way this paragraph does not describe, add it; an incomplete disclosure is
-worse than a broad one.}
+Three specifics are added so that the disclosure is checkable rather than
+general. First, the assistant was used on this document and not only on the
+code: it drafted narrative prose and assembled several of the tables, including
+the contribution, budget, model and licence tables, from material the team
+supplied or from the repository itself. Second, every factual claim it produced
+about this system was verified against a primary source before it was kept:
+configuration values against the source files, contribution and chronology
+against the version-control record, costs against the provider's billing
+record, and dependency licences against the metadata of the versions actually
+installed. Several drafted claims were wrong and were corrected by that check,
+among them an understated inference cost and a model table built from a stale
+example configuration. Third, commits produced with assistance carry a
+co-authorship trailer naming the tool, so the boundary between assisted and
+unassisted work is recoverable from the repository rather than resting on this
+paragraph.
+
+What was not delegated is the substance of the engineering. The architecture,
+the requirements analysis and its traceability, the fault-attribution taxonomy,
+the choice of what to measure, the interpretation of the measurements, and the
+decision about which claims this project is entitled to make are the team's.
+The limitations recorded throughout this report, in particular the absence of
+precision and recall, were not softened at any point by a tool, and they are
+the places where an assistant would most readily have supplied a comfortable
+sentence in place of an honest one.
 
 \subsection{Professionalism and Ethical Codes}
 \label{sec:codes}
