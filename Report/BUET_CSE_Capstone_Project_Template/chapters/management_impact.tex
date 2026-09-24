@@ -249,27 +249,32 @@ most of them were characteristics of the problem rather than contingencies.
 \subsection{Budgeting and Resource Identification}
 \label{sec:budget}
 
-The project had no procurement budget and no institutional compute grant
-(constraint C2). What it needed in place of money was identified at the outset
-as a short resource list: a device to test on, an application with real
-behaviour, a specification to test it against, and metered model inference. The
-first three were obtained without cash. The fourth is the project's only
-expenditure, and it is small enough to be reported exactly rather than
-estimated.
+The project had no procurement budget, no GPU allocation and no institutional
+compute grant (constraint C2). That constraint determined the shape of the
+entire budget, and it is worth being explicit about why. A system of this kind
+needs a capable language model in the loop on every step; self-hosting one at
+the sizes this system depends on requires accelerator hardware the team neither
+had nor could obtain. Hosted inference through a commercial API aggregator was
+therefore not a cost optimisation chosen over self-hosting --- it was the only
+route available. The consequence is that the project's compute budget appears
+entirely as metered API spend, with no hardware line at all, and that the
+figure is small only because the team paid for tokens rather than for
+accelerators.
 
-\Cref{tab:budget} lists each resource and how it was obtained. One convention
-governs it and is worth stating, because it determines the total: a resource
-the project did not pay for is recorded at zero, not at an imputed market
-price. Assigning notional prices to already-owned laptops, to a donated handset
-and to the team's own labour would produce a larger and more impressive figure,
-but not a truer one, and it would bury the single number here that a reader can
-act on. Conversions use an approximate rate of BDT 120 to the United States
-dollar.
+Everything else the project needed --- a machine to develop on, an environment
+to execute against, an application with real behaviour and a specification to
+test it against --- was obtained without cash. \Cref{tab:budget} lists each
+resource and how it was acquired. One convention governs the table and
+determines its total: a resource the project did not pay for is recorded at
+zero, not at an imputed market price. Assigning notional prices to
+already-owned laptops and to the team's own labour would produce a larger and
+more impressive figure, but not a truer one. Conversions use an approximate
+rate of BDT 120 to the United States dollar.
 
 \begingroup
 \small
-\begin{xltabular}{\textwidth}{@{}>{\hsize=0.60\hsize}Y>{\hsize=1.14\hsize}Y>{\hsize=0.26\hsize}Y@{}}
-  \caption{Resources the project required, how each was obtained, and what it cost in cash. The inference figure is read from the provider's billing record; every other line is zero because no money changed hands.}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.58\hsize}Y>{\hsize=1.16\hsize}Y>{\hsize=0.26\hsize}Y@{}}
+  \caption{Resources the project required, how each was obtained, and what it cost in cash. Inference is the only line that cost money, because it is the only input the team could not substitute with something already owned or freely available.}
   \label{tab:budget}\\
   \toprule
   Resource & How it was obtained & Cash cost (USD) \\
@@ -286,11 +291,13 @@ dollar.
   \bottomrule
   \endlastfoot
 
-  Hosted model inference & Prepaid balance with a single hosted provider, metered per call. A balance of USD 6.50 was available at handover; USD 2.69 of it had been consumed at the September measurement point, across development, regression runs, specification ingestion and evaluation campaigns. & 2.69 \\
+  Model inference --- development & Metered credit on a commercial API aggregator, purchased out of pocket across the team's accounts over the project. This covers development, debugging, repeated specification re-ingestion and regression runs, and it is the dominant cash line: iteration on the pipeline costs far more inference than running the finished pipeline does. & $\approx$ 43 \\
   \addlinespace
-  Android test device & One mid-range handset already owned by a team member, with the companion accessibility and input-method application installed (C6). & 0 \\
+  Model inference --- evaluation campaigns & A separate prepaid project balance of USD 6.50 available at handover, of which USD 2.69 was consumed across 88 device executions. This is the only figure here read directly from a provider's billing record, and it is the basis of the per-test cost below. & 2.69 \\
   \addlinespace
-  Development hosts & Five personally owned laptops. One of them additionally ran the emulator, the graph database and the four-process stack. & 0 \\
+  Android execution environment & An Android emulator running on a development host carried the great majority of execution, which is also what made concurrent and repeatable runs practical. One mid-range handset, already owned by a team member, covered the checks that needed real hardware, with the companion accessibility and input-method application installed (C6). & 0 \\
+  \addlinespace
+  Development hosts & Five personally owned laptops. One of them additionally ran the emulator, the graph database and the four-process stack together. & 0 \\
   \addlinespace
   Application under test, and its specification & A production application with live users, and its requirements document, both supplied by the supervisor and the industry partner. & 0 \\
   \addlinespace
@@ -300,10 +307,18 @@ dollar.
   \addlinespace
   Engineering effort & Five part-time members over roughly six months. Not priced; see below. & --- \\
   \midrule
-  \textbf{Total cash expenditure} & \textbf{Approximately BDT 320.} & \textbf{2.69} \\
+  \textbf{Total cash expenditure} & \textbf{Approximately BDT 5{,}500.} & $\approx$ \textbf{46} \\
   \bottomrule
 \end{xltabular}
 \endgroup
+
+The development figure is reconstructed from the team's own account records
+rather than consolidated from a single invoice, because members bought credit
+separately; it is accurate to a few dollars and not to the cent. It also
+excludes one member's spend, which was deliberately kept on smaller and cheaper
+models and was not separately recorded, so the honest statement is that the
+project's total metered inference cost was \textbf{under fifty United States
+dollars}.
 
 \paragraph{The input the table declines to price.} Engineering effort dominates
 this project and is deliberately left uncosted. The team kept no timesheets, so
@@ -313,12 +328,12 @@ between a student stipend and a loaded commercial salary. Multiplying one
 invented number by another and printing the product as a total would make the
 budget look complete at the cost of making it fictional. What can be said
 without inventing anything is the shape: the project's cost is almost entirely
-labour that the course absorbed, and its cash cost is under three dollars.
+labour that the course absorbed, and its cash cost is under fifty dollars.
 \Cref{sec:economics} takes up what the same system would cost an organisation
 that had to pay for both.
 
 \paragraph{What the metered part actually costs.} Because inference is the only
-line that scales with use, it is worth separating into its two very different
+input that scales with use, it is worth separating into its two very different
 components, both measured rather than derived from a price card. Executing one
 test costs about USD 0.008, roughly one taka: built from 10.1 device steps per
 test across 232 stored observations, an accessibility tree averaging 4,686
@@ -334,24 +349,32 @@ Ingesting a specification behaves in the opposite way. It costs about USD 1.80
 runs on the most expensive model tier, splits the document into sections and
 issues one uncapped call per section, three times over for self-consistency. It
 is paid once per document rather than once per run, so it is a fixed cost in
-the terms of \Cref{sec:economics} and not an operating one. It is also the
-project's largest single line item, and the reason it is larger than every
-campaign combined is that the document was re-ingested repeatedly while the
-ingestion itself was being developed. The metering controls that would cap it
---- an output ceiling, a lower sample count once extraction has stabilised, and
-a cache that refuses to re-read an unchanged document --- are identified in
-\Cref{sec:conclusion} as outstanding work.
+the terms of \Cref{sec:economics} and not an operating one.
+
+Those two figures explain the gap between the two inference lines in
+\Cref{tab:budget}. Running the finished system is cheap; building it was not,
+because development re-ran the expensive half repeatedly --- every change to
+the ingestion pipeline meant re-reading the specification from scratch, and the
+executor and investigator ran on a more expensive tier until the quality cost
+of moving them down had been measured. The metering controls that would close
+that gap --- an output ceiling on extraction, a lower sample count once it has
+stabilised, and a cache that refuses to re-read an unchanged document --- are
+identified in \Cref{sec:conclusion} as outstanding work. They matter more for a
+team iterating on the pipeline than for an organisation running it.
 
 \subsection{Economic Analysis and Financial Prospecting}
 \label{sec:economics}
 
-\paragraph{What it cost to build.} USD 2.69 in cash (\Cref{tab:budget}), plus
-a session of part-time work by five students. The cash figure is the one worth
+\paragraph{What it cost to build.} Under USD 50 in cash
+(\Cref{tab:budget}), essentially all of it metered model inference, plus a
+session of part-time work by five students. The cash figure is the one worth
 quoting and it is the strongest fact in this section: an autonomous exploratory
-testing agent was built, debugged and evaluated for under three dollars of
-metered inference, because the expensive input to this class of system is
-inference, and inference has become cheap enough to be a rounding error rather
-than a barrier to entry. The labour is deliberately left unpriced in
+testing agent was built, debugged and evaluated for under fifty dollars, by a
+team with no GPU allocation at all. The expensive input to this class of system
+is inference, and renting inference by the token has become cheap enough to be
+a rounding error rather than a barrier to entry --- which is precisely what
+makes the approach reachable for a group that could not have afforded the
+hardware to self-host. The labour is deliberately left unpriced in
 \Cref{sec:budget}, and the reason carries over here. A commercial team would
 not reproduce this cost structure at all: five part-time students over a
 session is not two full-time engineers over three months, and a firm paying
@@ -514,7 +537,7 @@ change, and they understate work done in pairs. The table therefore names
 
   Mohammad Raihan Rashid (2105046) &
     Project lead; architecture, ingestion, dashboard &
-    Opened the repository on 19 March 2026, two and a half months before any other member's first commit, and fixed the four-process architecture and the decision that the agents communicate only through a persistent graph. Owns the ingestion pipeline: removed the hard-coded document path and made ingestion modular, which is what lets a new application arrive as configuration rather than as a code change (DR-03). Built the operator dashboard and carried it through its successive revisions. Substantial planner work from the first prototype onward, including the early model-backend experiments that made the provider swappable. Centralised configuration and fixed the state-identity and observation defects underlying screen recognition. Made the agent's own failures visible as a distinct class (NFR-D3), which is the precondition for any defensible measurement. Defined the work-package gates and verified completed packages against the running system. Reviewed and merged the team's pull requests throughout, and drafted the greater part of this report. &
+    Opened the repository on 19 March 2026 and fixed the four-process architecture and the decision that the agents communicate only through a persistent graph. Owns the ingestion pipeline: removed the hard-coded document path and made ingestion modular, which is what lets a new application arrive as configuration rather than as a code change (DR-03). Built the operator dashboard and carried it through its successive revisions. Substantial planner work from the first prototype onward, including the early model-backend experiments that made the provider swappable. Centralised configuration and fixed the state-identity and observation defects underlying screen recognition. Made the agent's own failures visible as a distinct class (NFR-D3), which is the precondition for any defensible measurement. Wrote the work plans: decomposed the partner's requirement families into the numbered work packages, defined the verification gate for each, and built WP0--WP3 before handing the sequence on. Verified completed packages against the running system. Reviewed and merged the team's pull requests throughout, and drafted the greater part of this report. &
     Mar 2026 \\
   \addlinespace
   Mehemud Azad (2105014) &
@@ -524,7 +547,7 @@ change, and they understate work done in pairs. The table therefore names
   \addlinespace
   Jonayed Mohiuddin Shanto (2105060) &
     Execution and integration &
-    Generalised the device gateway by removing application-specific prompts and identifiers, which opened the path to DR-03. Built, verified and integrated work packages WP1--WP9 in sequence, the largest single body of delivery in the record. Wrote the browser executor from scratch, bringing the system onto its second platform, and authored the target profiles for both platforms. Fixed the loop-stability, concurrency and run-lock defects, and added the human-in-the-loop CAPTCHA pause. Reclassified a dead-browser condition that had been recorded as an agent navigation fault -- a correction to the attribution taxonomy itself. &
+    Generalised the device gateway by removing application-specific prompts and identifiers, which opened the path to DR-03. Took the work-package sequence from WP1 onward: verified WP1--WP3 and filled their gaps, implemented WP4, and built, verified and integrated WP5--WP9, the largest single body of delivery in the record. Wrote the browser executor from scratch, bringing the system onto its second platform, and authored the target profiles for both platforms. Fixed the loop-stability, concurrency and run-lock defects, and added the human-in-the-loop CAPTCHA pause. Reclassified a dead-browser condition that had been recorded as an agent navigation fault -- a correction to the attribution taxonomy itself. &
     Apr 2026 \\
   \addlinespace
   Khalid Hasan Tuhin (2105002) &
