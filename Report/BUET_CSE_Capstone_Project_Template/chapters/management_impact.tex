@@ -1189,51 +1189,25 @@ identifiers and titles are reproduced where they are needed to show what was
 delivered, but no confidential content beyond that appears in this report.
 
 \paragraph{Generative AI.} Generative AI tools were used during this project,
-and the Candidates' Declaration requires that use to be disclosed rather than
-concealed. The team used an agentic coding assistant during implementation,
-under a repository-level instruction file that the team wrote and maintained.
-Its use fell into four areas: drafting and refactoring implementation code
-within a design the team had already fixed; generating and maintaining internal
-documentation; assisting with the narrative prose of this report; and producing
-the generated summary text inside the system's own exported run report, where
-the numbers are computed from the knowledge graph and the model supplies
-connecting prose only.
+and the Candidates' Declaration requires that use to be disclosed. The team
+used an agentic coding assistant, under a repository-level instruction file the
+team wrote and maintained, in four areas: drafting and refactoring
+implementation code within a design the team had already fixed; generating and
+maintaining internal documentation; assisting with the prose of this report;
+and producing the connecting text in the system's own exported run report,
+where every number is computed from the knowledge graph.
 
-The boundary the team held to is that judgement was not delegated. The
-four-process architecture, the decision that the components communicate only
-through a persistent graph, the requirements analysis and its traceability, the
-fault-attribution taxonomy, the choice of what to measure and the
-interpretation of what the measurements mean are the team's own. Generated code
-was read, executed and tested before it was kept, and several of the defects
-recorded in \Cref{ch:evaluation} were defects in generated code that review and
-testing caught. No claim in this report was accepted because a model asserted
-it: the empirical figures attributed to other systems in \Cref{ch:research} were
-read from the papers themselves.
-
-Three specifics are added so that the disclosure is checkable rather than
-general. First, the assistant was used on this document and not only on the
-code: it drafted narrative prose and assembled several of the tables, including
-the contribution, budget, model and licence tables, from material the team
-supplied or from the repository itself. Second, every factual claim it produced
-about this system was verified against a primary source before it was kept:
-configuration values against the source files, contribution and chronology
-against the version-control record, costs against the provider's billing
-record, and dependency licences against the metadata of the versions actually
-installed. Several drafted claims were wrong and were corrected by that check,
-among them an understated inference cost and a model table built from a stale
-example configuration. Third, commits produced with assistance carry a
-co-authorship trailer naming the tool, so the boundary between assisted and
-unassisted work is recoverable from the repository rather than resting on this
-paragraph.
-
-What was not delegated is the substance of the engineering. The architecture,
-the requirements analysis and its traceability, the fault-attribution taxonomy,
-the choice of what to measure, the interpretation of the measurements, and the
-decision about which claims this project is entitled to make are the team's.
-The limitations recorded throughout this report, in particular the absence of
-precision and recall, were not softened at any point by a tool, and they are
-the places where an assistant would most readily have supplied a comfortable
-sentence in place of an honest one.
+Judgement was not delegated. The four-process architecture, the decision that
+the components communicate only through a persistent graph, the requirements
+analysis and its traceability, the fault-attribution taxonomy, the choice of
+what to measure and the interpretation of the results are the team's own.
+Generated code was read, executed and tested before it was kept, and factual
+statements in this report were checked against a primary source rather than
+accepted from a model: configuration against the source files, chronology and
+contribution against the version-control record, costs against the provider's
+billing record, licences against installed package metadata, and the figures
+attributed to other systems in \Cref{ch:research} against the papers
+themselves.
 
 \subsection{Professionalism and Ethical Codes}
 \label{sec:codes}
