@@ -50,54 +50,69 @@ model, the credit between them is not cleanly separable.
   \centering
   \begin{tikzpicture}
     \begin{axis}[
-      width=\textwidth, height=6.2cm,
-      ymin=0, ymax=120, ytick={0,25,50,75,100},
+      width=\textwidth, height=6.6cm,
+      ymin=-6, ymax=112, ytick={0,20,40,60,80,100},
       ylabel={per cent}, ylabel style={font=\small},
-      xtick=data, xticklabels={%
-        {12 Aug\\\scriptsize attribution},%
-        {13 Aug 03:03\\\scriptsize vision model,\\\scriptsize livelock detector},%
-        {13 Aug 19:02\\\scriptsize cancelled},%
-        {13 Aug 19:55\\\scriptsize preconditions, logs,\\\scriptsize device reset}},
+      xmin=0.4, xmax=8.6, xtick={1,2,3,4,5,6,7,8},
+      xticklabels={{12 Aug\\\scriptsize 25},{13 Aug\\\scriptsize 29},{13 Aug\\\scriptsize 25},%
+                   {29 Aug\\\scriptsize 3},{29 Aug\\\scriptsize 10},{30 Aug\\\scriptsize 25},%
+                   {Sep\\\scriptsize 45},{Sep\\\scriptsize 50}},
       xticklabel style={align=center, font=\scriptsize},
-      ymajorgrids, grid style={black!12},
-      tick align=outside, tick style={black!40},
-      axis lines=left, enlarge x limits=0.16,
-      legend style={at={(0.5,1.16)}, anchor=north, legend columns=2,
-                    font=\small, draw=none, fill=none, column sep=1.4em},
-      ybar, bar width=17pt,
+      ymajorgrids, grid style={black!12}, axis lines=left, tick style={black!40},
+      legend style={at={(0.5,1.16)}, anchor=south, legend columns=2,
+                    font=\small, draw=none, fill=none, column sep=1.6em},
     ]
-      \addplot[fill=cLine, draw=none] coordinates {(1,0) (2,96) (3,0) (4,100)};
-      \addplot[fill=cPass, draw=none] coordinates {(1,0) (2,20) (3,0) (4,36)};
+      \fill[cLine!7] (axis cs:0.4,-6) rectangle (axis cs:3.5,112);
+      \fill[cAgent!8] (axis cs:3.5,-6) rectangle (axis cs:7.5,112);
+      \node[font=\scriptsize\itshape, text=black!55, anchor=north] at (axis cs:2.0,110) {Google Contacts};
+      \node[font=\scriptsize\itshape, text=black!55, anchor=north] at (axis cs:5.5,110) {Shobar Khamar};
+      \node[font=\scriptsize\itshape, text=black!55, anchor=north] at (axis cs:8.0,110) {Contacts};
+      \addplot[cLine, thick, mark=*, mark size=2.2pt]
+        coordinates {(1,0) (2,96) (3,100) (4,67) (5,50) (6,68) (7,69) (8,80)};
+      \addplot[cPass, thick, dashed, mark=square*, mark size=2.0pt]
+        coordinates {(1,0) (2,20) (3,36) (4,33) (5,30) (6,52) (7,44) (8,40)};
       \legend{Autonomy, Pass rate}
-      \node[font=\scriptsize\bfseries, anchor=south, text=cApp] at (axis cs:1,1.5) {0\,\% / 0\,\%};
-      \node[font=\scriptsize\itshape, anchor=south, text=black!55] at (axis cs:3,1.5) {no data};
-      \node[font=\scriptsize\bfseries, anchor=south, text=cLine] at (axis cs:2,97) {96};
-      \node[font=\scriptsize\bfseries, anchor=south, text=cLine] at (axis cs:4,100.5) {100};
     \end{axis}
   \end{tikzpicture}
-  \caption[Autonomy and pass rate across the campaign sequence]{Autonomy and
-  pass rate across the four instrumented campaigns against the primary Android
-  target. One property of the agent changed per campaign; the application and
-  the specification were held constant. The 13 August 19:02 run was cancelled
-  in progress once bad preconditions were spotted, and produced no data. The
-  line that matters is autonomy: it reaches 100\,\% in the final campaign,
-  meaning not one of twenty-five executions was lost to the agent itself.}
+  \caption[Autonomy and pass rate across every instrumented campaign]{Autonomy
+  and pass rate across all eight instrumented campaigns, with the number of
+  tests under each date. Reconstructed from the batch records and the 123
+  trajectory directories on disk. Autonomy is the share of executions ending in
+  a statement about the application rather than a failure of the agent. It
+  climbs from zero to 100\,\% on Google Contacts over two days in August, then
+  falls when the agent is pointed at Shobar Khamar, a production application
+  built with a toolkit that exposes no stable identifiers, and recovers only
+  partly. The two July smoke runs, of six and four tests, predate
+  instrumentation and are not plotted.}
   \label{fig:campaigns}
 \end{figure}
 
-\Cref{fig:campaigns} is the central experimental result. Two earlier smoke runs
-on 24 and 25 July, of six and four tests, confirmed end-to-end wiring and graph
-write-back before instrumentation existed and are not plotted.
+\Cref{fig:campaigns} is the central experimental result, and its shape says more
+than any single number. The development target through July and August was
+Google Contacts: 98 executions over six campaigns, every one still on disk.
+Shobar Khamar, the partner's production marketplace, was brought in on 29
+August, by which time the whole of the agent's tuning had been done against
+something easier.
 
-The first instrumented campaign returned \textbf{0\,\% pass}, which read at
-first as a catastrophic quality result. It was not: 82\,\% of device steps were
+The first instrumented campaign, on Contacts, returned \textbf{0\,\% pass},
+which read at first as a catastrophic quality result. It was not: 82\,\% of device steps were
 unparseable, so almost nothing could be attributed. The instrumentation worked
 and revealed that the evidence did not. Four unglamorous fixes closed the gap
 over the following day: log reassembly so a step is written once and
 completely, containment matching so a screen is recognisable without stable
 identifiers, a precondition filter so tests are not issued against impossible
-states, and a device reset so one test cannot contaminate the next. The final
-campaign recorded \textbf{100\,\% autonomy and zero silent fallbacks}.
+states, and a device reset so one test cannot contaminate the next. Two days
+after the 0\,\% campaign, the same target recorded \textbf{100\,\% autonomy and
+zero silent fallbacks}.
+
+Then the agent met Shobar Khamar, and autonomy fell to 67\,\%, then 50\,\%.
+That is the most honest result in this chapter and it is worth stating plainly:
+a tuned agent does not transfer for free. The production target exposes almost
+no stable identifiers and reports one activity for every screen (C4), and
+navigation that had been sufficient for Contacts was not sufficient for it.
+Recovery to 68\,\% by 30 August came from the structural state-identity work of
+\Cref{sec:design-evolution}, and the September campaigns settled at 69\,\% on
+Shobar Khamar and 80\,\% on Contacts.
 
 \Cref{tab:campaigns} gives the same sequence with the exact figures and the
 change made in each step.
@@ -106,7 +121,7 @@ change made in each step.
 \small
 \setlength{\tabcolsep}{5pt}
 \begin{xltabular}{\textwidth}{@{}>{\hsize=0.50\hsize}Y>{\hsize=0.20\hsize}Y>{\hsize=0.24\hsize}Y>{\hsize=1.06\hsize}Y>{\hsize=1.00\hsize}Y@{}}
-  \caption[The campaign sequence in figures]{The campaign sequence against the primary Android target, reconstructed from the on-disk trajectory directories, one per device execution.}
+  \caption[The campaign sequence in figures]{Every campaign, reconstructed from the batch records and the 123 on-disk trajectory directories. The first six ran against Google Contacts; Shobar Khamar enters on 29 August.}
   \label{tab:campaigns}\\
   \toprule
   Campaign & Tests & Wall clock & What changed & Outcome \\
@@ -135,14 +150,18 @@ change made in each step.
   \addlinespace
   \mbox{13 Aug, 19:55} & 25 & 61 min & Precondition filter, containment matching, device reset, log reassembly & \textbf{36\,\% pass, 100\,\% autonomy}, zero silent fallbacks \\
   \addlinespace
-  \mbox{30 Aug, 23:25} & 25 & --- & Cheaper model tier; graph backup and restore & \textbf{52\,\% pass}; 8 of 12 failures still agent-side \\
+  \mbox{29 Aug} & 3, then 10 & --- & First campaigns against Shobar Khamar & Autonomy falls to 67\,\%, then 50\,\%; navigation livelock dominates \\
+  \addlinespace
+  \mbox{30 Aug, 23:25} & 25 & --- & Structural state identity; cheaper model tier; graph backup & \textbf{52\,\% pass}, autonomy back to 68\,\%; 8 of 12 failures still agent-side \\
   \bottomrule
 \end{xltabular}
 \endgroup
 
 Autonomy, not the pass rate, is what makes the rest of this chapter readable.
 Before it was high, ``the test failed'' and ``the agent got lost'' were the
-same observation.
+same observation. Across all eight campaigns the pass-rate line moves far less
+than the autonomy line, which is the point: what improved was mostly the
+agent's ability to reach a verdict at all.
 
 \subsection{RQ2: whether accumulated knowledge pays}
 
@@ -200,17 +219,17 @@ operation rather than in principle.
       xbar stacked, xmin=0, xmax=100,
       xlabel={per cent of executions}, xlabel style={font=\small},
       bar width=15pt,
-      symbolic y coords={AcademyBug, broken-workshop, {Contacts}, {AUT-1}, DataGhurhi},
+      symbolic y coords={AcademyBug, broken-workshop, {Contacts}, {Shobar Khamar}, DataGhurhi},
       ytick=data, yticklabel style={font=\small},
       xmajorgrids, grid style={black!12}, axis lines=left,
       tick style={black!40}, enlarge y limits=0.14,
       legend style={at={(0.5,1.18)}, anchor=north, legend columns=3,
                     font=\small, draw=none, fill=none, column sep=1.2em},
     ]
-      \addplot[fill=cPass,  draw=none] coordinates {(80,DataGhurhi) (44,{AUT-1}) (40,{Contacts}) (50,broken-workshop) (5,AcademyBug)};
-      \addplot[fill=cApp,   draw=none] coordinates {(6,DataGhurhi)  (25,{AUT-1}) (38,{Contacts}) (0,broken-workshop)  (15,AcademyBug)};
-      \addplot[fill=cAgent, draw=none] coordinates {(0,DataGhurhi)  (31,{AUT-1}) (20,{Contacts}) (40,broken-workshop) (80,AcademyBug)};
-      \addplot[fill=cOther, draw=none] coordinates {(14,DataGhurhi) (0,{AUT-1})  (2,{Contacts})  (10,broken-workshop) (0,AcademyBug)};
+      \addplot[fill=cPass,  draw=none] coordinates {(80,DataGhurhi) (44,{Shobar Khamar}) (40,{Contacts}) (50,broken-workshop) (5,AcademyBug)};
+      \addplot[fill=cApp,   draw=none] coordinates {(6,DataGhurhi)  (25,{Shobar Khamar}) (38,{Contacts}) (0,broken-workshop)  (15,AcademyBug)};
+      \addplot[fill=cAgent, draw=none] coordinates {(0,DataGhurhi)  (31,{Shobar Khamar}) (20,{Contacts}) (40,broken-workshop) (80,AcademyBug)};
+      \addplot[fill=cOther, draw=none] coordinates {(14,DataGhurhi) (0,{Shobar Khamar})  (2,{Contacts})  (10,broken-workshop) (0,AcademyBug)};
       \legend{Passed, Application failure, Lost to the agent, Skipped or capped}
     \end{axis}
   \end{tikzpicture}
@@ -242,7 +261,7 @@ returned 19 application-level failures and 125 findings, covering 55 of 141
 requirements across 35 feature areas in 6.2 hours at a median of 346 seconds
 per test.
 
-\paragraph{AUT-1, the hardest target.} The production marketplace the partner
+\paragraph{Shobar Khamar, the hardest target.} The production marketplace the partner
 cared about, and the one the system found most difficult, for structural
 reasons. Its cross-platform toolkit exposes almost no stable identifiers and
 reports a single activity for every screen, so screens must be told apart
@@ -306,7 +325,7 @@ subsections that follow read them.
 
   DataGhurhi & Web & 64 & 51 & 4 & \textbf{0} & 4 findings; 7 skipped, 2 capped \\
   \addlinespace
-  AUT-1, the production marketplace & Android & 45 & 20 & 11 & 14 & 33/106 requirements, 29 areas, 97 UI states \\
+  Shobar Khamar, the marketplace & Android & 45 & 20 & 11 & 14 & 33/106 requirements, 29 areas, 97 UI states \\
   \addlinespace
   Google Contacts 4.86.23 & Android & 50 & 20 & 19 & 10 & 55/141 requirements, 35 areas, 60 UI states \\
   \addlinespace
@@ -326,7 +345,7 @@ subsections that follow read them.
       width=0.92\textwidth, height=5.4cm,
       ybar, bar width=15pt, ymin=0, ymax=58,
       ylabel={median device steps}, ylabel style={font=\small},
-      symbolic x coords={{AUT-1, Aug},{AUT-1, Sep},{Contacts}},
+      symbolic x coords={{SK, Aug},{SK, Sep},{Contacts}},
       xtick=data, xticklabel style={font=\small},
       ymajorgrids, grid style={black!12}, axis lines=left,
       tick style={black!40}, enlarge x limits=0.34,
@@ -334,15 +353,15 @@ subsections that follow read them.
       legend style={at={(0.5,1.20)}, anchor=north, legend columns=2,
                     font=\small, draw=none, fill=none, column sep=1.4em},
     ]
-      \addplot[fill=cPass, draw=none] coordinates {({AUT-1, Aug},10) ({AUT-1, Sep},6.5) ({Contacts},16)};
-      \addplot[fill=cApp,  draw=none] coordinates {({AUT-1, Aug},21) ({AUT-1, Sep},48) ({Contacts},32)};
+      \addplot[fill=cPass, draw=none] coordinates {({SK, Aug},10) ({SK, Sep},6.5) ({Contacts},16)};
+      \addplot[fill=cApp,  draw=none] coordinates {({SK, Aug},21) ({SK, Sep},48) ({Contacts},32)};
       \legend{Tests that passed, Tests that failed}
     \end{axis}
   \end{tikzpicture}
   \caption[Median device steps by verdict]{Median device steps, split by
   verdict, for the three campaigns with per-test records. A test that is going
   to pass reaches its checkpoint quickly; a test that is going to fail spends
-  its whole budget. On the September AUT-1 campaign the gap is 6.5 steps
+  its whole budget. On the September Shobar Khamar campaign the gap is 6.5 steps
   against 48, and the interaction cap is 50, so the median failing test is
   running to the cap rather than reaching a verdict.}
   \label{fig:stepsverdict}
@@ -352,7 +371,7 @@ subsections that follow read them.
 chapter. Passing and failing tests do not cost the same: a test that succeeds
 is short, and a test that fails is long, because failing usually means
 exhausting the interaction budget rather than reaching a checkpoint and finding
-the application wrong. On AUT-1 in September the median failing test used 48 of
+the application wrong. On Shobar Khamar in September the median failing test used 48 of
 its 50 permitted steps.
 
 Two consequences follow. First, cost is concentrated in the runs that produce
@@ -360,7 +379,7 @@ the least evidence, so raising the step cap raises cost faster than it raises
 findings, and the right lever is better navigation rather than a larger budget.
 Second, the shape is diagnostic: a campaign whose failing tests cluster at the
 cap has a navigation problem, whereas one whose failures are short has an
-application problem. Contacts shows the second pattern more than AUT-1 does,
+application problem. Contacts shows the second pattern more than Shobar Khamar does,
 which matches its higher proportion of assertion failures.
 
 \begin{figure}[htbp]
@@ -370,7 +389,7 @@ which matches its higher proportion of assertion failures.
       width=0.92\textwidth, height=5.0cm,
       xmin=0, xmax=52, ymin=0.4, ymax=3.6,
       xlabel={device steps per test}, xlabel style={font=\small},
-      ytick={1,2,3}, yticklabels={{Contacts},{AUT-1, Sep},{AUT-1, Aug}},
+      ytick={1,2,3}, yticklabels={{Contacts},{SK, Sep},{SK, Aug}},
       yticklabel style={font=\small},
       xmajorgrids, grid style={black!12}, axis lines=left, tick style={black!40},
       boxplot/draw direction=x,
@@ -388,7 +407,7 @@ which matches its higher proportion of assertion failures.
   \end{tikzpicture}
   \caption[Distribution of device steps per test]{Distribution of device steps
   per test across the three campaigns with per-test records, over 25, 45 and 50
-  tests respectively. The upper quartile of the September AUT-1 campaign sits
+  tests respectively. The upper quartile of the September Shobar Khamar campaign sits
   on the cap itself, meaning more than a quarter of its tests never reached a
   verdict at all. The August campaign, on an easier configuration, is the
   tightest of the three.}
@@ -461,7 +480,7 @@ catch, and its persistence into late August is why it reappears in
         width=0.97\textwidth, height=4.6cm,
         ybar stacked, bar width=26pt, ymin=0, ymax=215,
         ylabel={findings}, ylabel style={font=\small},
-        symbolic x coords={{AUT-1},{Contacts}}, xtick=data,
+        symbolic x coords={{Shobar Khamar},{Contacts}}, xtick=data,
         xticklabel style={font=\small},
         ymajorgrids, grid style={black!12}, axis lines=left,
         tick style={black!40}, enlarge x limits=0.6,
@@ -469,9 +488,9 @@ catch, and its persistence into late August is why it reappears in
         legend style={at={(0.5,1.04)}, anchor=south, legend columns=1,
                       font=\scriptsize, draw=none, fill=none, nodes={inner sep=1pt}},
       ]
-        \addplot[fill=cPass,  draw=none] coordinates {({AUT-1},95) ({Contacts},125)};
-        \addplot[fill=cAgent, draw=none] coordinates {({AUT-1},47) ({Contacts},42)};
-        \addplot[fill=cOther, draw=none] coordinates {({AUT-1},21) ({Contacts},31)};
+        \addplot[fill=cPass,  draw=none] coordinates {({Shobar Khamar},95) ({Contacts},125)};
+        \addplot[fill=cAgent, draw=none] coordinates {({Shobar Khamar},47) ({Contacts},42)};
+        \addplot[fill=cOther, draw=none] coordinates {({Shobar Khamar},21) ({Contacts},31)};
         \legend{About the application, About our agent, Unsettled}
       \end{axis}
     \end{tikzpicture}
@@ -485,7 +504,7 @@ catch, and its persistence into late August is why it reappears in
         width=\textwidth, height=4.6cm,
         ybar, bar width=11pt, ymin=0, ymax=112,
         ylabel={count}, ylabel style={font=\small},
-        symbolic x coords={{AUT-1},{Contacts}}, xtick=data,
+        symbolic x coords={{Shobar Khamar},{Contacts}}, xtick=data,
         xticklabel style={font=\small},
         ymajorgrids, grid style={black!12}, axis lines=left,
         tick style={black!40}, enlarge x limits=0.6,
@@ -493,9 +512,9 @@ catch, and its persistence into late August is why it reappears in
         legend style={at={(0.5,1.04)}, anchor=south, legend columns=1,
                       font=\scriptsize, draw=none, fill=none, nodes={inner sep=1pt}},
       ]
-        \addplot[fill=cLine,  draw=none] coordinates {({AUT-1},33) ({Contacts},55)};
-        \addplot[fill=cAgent, draw=none] coordinates {({AUT-1},29) ({Contacts},35)};
-        \addplot[fill=cPass,  draw=none] coordinates {({AUT-1},97) ({Contacts},60)};
+        \addplot[fill=cLine,  draw=none] coordinates {({Shobar Khamar},33) ({Contacts},55)};
+        \addplot[fill=cAgent, draw=none] coordinates {({Shobar Khamar},29) ({Contacts},35)};
+        \addplot[fill=cPass,  draw=none] coordinates {({Shobar Khamar},97) ({Contacts},60)};
         \legend{Requirements covered, Feature areas, UI states mapped}
       \end{axis}
     \end{tikzpicture}
@@ -519,9 +538,9 @@ without settling. A report that quoted the totals as defect counts would
 overstate by roughly 40\,\%.
 
 \Cref{fig:coverage} shows what the campaigns saw. Requirement coverage is 31\,\%
-on AUT-1 and 39\,\% on Contacts, which is partial and stated as such; feature
-area coverage is much higher, 29 areas on AUT-1 and 35 on Contacts. The two
-targets differ interestingly in interface states: AUT-1 yielded 97 distinct
+on Shobar Khamar and 39\,\% on Contacts, which is partial and stated as such; feature
+area coverage is much higher, 29 areas on Shobar Khamar and 35 on Contacts. The two
+targets differ interestingly in interface states: Shobar Khamar yielded 97 distinct
 states against Contacts' 60, despite fewer tests, because its cross-platform
 toolkit produces many structurally distinct screens that a simpler native
 application would present as one.
@@ -564,7 +583,7 @@ concluded had the decision not been taken.
   \addlinespace
   \mbox{Jun 2026} & Rebuild orchestration on an explicit state machine & The planner had grown into a chain of calls that could not be tested node by node & Each planner stage became separately testable, and the flow inspectable \\
   \addlinespace
-  \mbox{Aug 2026} & Centralise configuration; fix state identity and observation & Screens on the primary target could not be told apart: the toolkit exposes no stable identifiers and reports one activity per screen (C4) & Structural state identity. The 97 mapped states on AUT-1 are downstream of this \\
+  \mbox{Aug 2026} & Centralise configuration; fix state identity and observation & Screens on the primary target could not be told apart: the toolkit exposes no stable identifiers and reports one activity per screen (C4) & Structural state identity. The 97 mapped states on Shobar Khamar are downstream of this \\
   \addlinespace
   \mbox{Aug 2026} & Separate the agent's own failures into a distinct class & The 12 August campaign could not distinguish ``the application is wrong'' from ``the agent got lost'' & NFR-D3, and with it the possibility of any defensible measurement at all \\
   \addlinespace
