@@ -429,12 +429,12 @@ demands differ by more than an order of magnitude.
   Long context and dependable structured output matter more than reasoning depth: the prompt carries retrieved knowledge and the answer must parse. A fast tier is the right trade, and the planner is only about 8\% of the cost of a test. &
   \modpath{Llama-3.3-70B-Instruct}, \modpath{Mistral-Large-Instruct}, \modpath{Qwen3-235B-A22B} \\
   \addlinespace
-  Player (Android): decides the next device action from what is on screen &
-  \modpath{qwen/qwen3.7-flash}; the campaigns reported in \Cref{ch:evaluation} were executed on \modpath{qwen/qwen3-vl-32b-instruct} &
+  Executor, Android: decides the next device action from what is on screen &
+  \modpath{qwen/qwen3.7-flash}; the August campaigns of \Cref{ch:evaluation} ran on the vision checkpoint \modpath{qwen/qwen3-vl-32b-instruct} &
   The role that must see. It reads an accessibility tree averaging 4{,}686 bytes together with a $1080\times1920$ screenshot and grounds an action in both. Invoked on every step, so it dominates cost at about 92\% of a test. &
   \modpath{Qwen2.5-VL-72B-Instruct}, \modpath{InternVL2.5-38B}, \modpath{Llama-3.2-90B-Vision} \\
   \addlinespace
-  Player (web): the same role against a browser &
+  Executor, web: the same role against a browser &
   \modpath{minimax/minimax-m3} &
   Configured separately from the Android player because the observation differs: Playwright supplies an accessibility-annotated snapshot rather than a screenshot, so the web role does not require a vision model at all. &
   \modpath{Llama-3.3-70B-Instruct}, \modpath{DeepSeek-V3} \\
@@ -490,9 +490,9 @@ Results therefore attach to a configuration and not to the system in general. A
 stronger player raises the pass rate and the cost together; a weaker one fails
 tests for reasons that have nothing to do with the application under test,
 which is exactly the confusion the fault-attribution taxonomy of
-\Cref{subsec:attribution} exists to prevent. \Cref{ch:evaluation} states the
-configuration in force for each campaign it reports, and treats cross-campaign
-comparison as unsafe wherever that configuration differs.
+\Cref{subsec:attribution} exists to prevent. \Cref{ch:evaluation} records where a
+campaign's configuration changed alongside what else changed with it, and
+treats cross-campaign comparison as unsafe wherever the two are confounded.
 
 \begingroup
 \small
@@ -501,12 +501,12 @@ comparison as unsafe wherever that configuration differs.
   \caption{How the model assignment changed over the project, from the version-control record. The mainline default is shown; individual members ran their own overrides alongside it.}
   \label{tab:modelhistory}\\
   \toprule
-  Date & Planner & Player & What changed and why \\
+  Date & Planner & Executor & What changed and why \\
   \midrule
   \endfirsthead
   \caption[]{Model assignment over time \emph{(continued)}}\\
   \toprule
-  Date & Planner & Player & What changed and why \\
+  Date & Planner & Executor & What changed and why \\
   \midrule
   \endhead
   \midrule
@@ -634,12 +634,11 @@ any selected state.
   \label{fig:dash-model}
 \end{figure}
 
-Both captures are from an earlier campaign against a contacts application and are
+Both captures are from an August campaign against Google Contacts and are
 included to show that the surface exists and what it presents, which is what
-this section claims. They are not results: the totals visible in them belong to
-a different application from the one evaluated in \Cref{ch:evaluation}, and
-\Cref{ch:evaluation} reports its own. The interface has continued to change, so
-these should be replaced with current captures before submission.
+this section claims. They are not results: the totals visible in them are from
+one campaign at one moment, and the figures \Cref{ch:evaluation} reports are
+its own and should be read from there.
 
 \subsection{Code organisation}
 
