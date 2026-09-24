@@ -18,56 +18,85 @@ verified and integrated WP8''.
 
 \begin{figure}[htbp]
   \centering
+  \definecolor{gPrelim}{HTML}{6C7A99}
+  \definecolor{gReq}{HTML}{4F8AA8}
+  \definecolor{gBuild}{HTML}{2E8B7F}
+  \definecolor{gRel}{HTML}{C08A33}
+  \definecolor{gEval}{HTML}{8A5FA8}
+  \resizebox{\textwidth}{!}{%
   \begin{ganttchart}[
-      hgrid, vgrid, x unit=1.1cm,
+      hgrid, vgrid, x unit=0.72cm, y unit chart=0.56cm, y unit title=0.56cm,
       time slot format=isodate-yearmonth, time slot unit=month,
-      title label font=\small, bar label font=\small,
-      bar/.style={fill=gray!40}
-    ]{2026-01}{2026-09}
+      title label font=\scriptsize, bar label font=\scriptsize,
+      group label font=\scriptsize\bfseries,
+      bar height=0.6, bar top shift=0.2,
+      bar/.style={draw=none, fill=gBuild},
+      group/.style={draw=none, fill=black!55}
+    ]{2025-09}{2026-09}
     \gantttitlecalendar{year, month=shortname} \\
-    \ganttbar{Requirements and feasibility}{2026-01}{2026-03} \\
-    \ganttbar{Prototype: planner + executor}{2026-03}{2026-04} \\
-    \ganttbar{Generalisation and architecture}{2026-06}{2026-07} \\
-    \ganttbar{Work packages WP0--WP9}{2026-07}{2026-08} \\
-    \ganttbar{Reliability and fault attribution}{2026-08}{2026-09} \\
-    \ganttbar{Web platform and second target}{2026-09}{2026-09} \\
-    \ganttbar{Evaluation and report}{2026-08}{2026-09}
-  \end{ganttchart}
-  \caption{Project schedule}
+    \ganttgroup{Preliminary study}{2025-09}{2025-12} \\
+    \ganttbar[bar/.append style={fill=gPrelim}]{Problem selection with partner}{2025-09}{2025-10} \\
+    \ganttbar[bar/.append style={fill=gPrelim}]{Background study of the field}{2025-10}{2025-12} \\
+    \ganttbar[bar/.append style={fill=gReq}]{Requirements and feasibility}{2026-01}{2026-03} \\
+    \ganttbar[bar/.append style={fill=gBuild}]{Prototype: planner + executor}{2026-03}{2026-04} \\
+    \ganttbar[bar/.append style={fill=black!12}]{Examination period}{2026-05}{2026-05} \\
+    \ganttbar[bar/.append style={fill=gBuild}]{Generalisation and architecture}{2026-06}{2026-07} \\
+    \ganttbar[bar/.append style={fill=gBuild}]{Work packages WP0--WP9}{2026-07}{2026-08} \\
+    \ganttbar[bar/.append style={fill=gRel}]{Reliability and fault attribution}{2026-08}{2026-09} \\
+    \ganttbar[bar/.append style={fill=gRel}]{Web platform and second target}{2026-09}{2026-09} \\
+    \ganttbar[bar/.append style={fill=gEval}]{Evaluation and report}{2026-08}{2026-09}
+  \end{ganttchart}}
+  \caption[Project schedule]{Project schedule, from problem selection through
+  submission. Slate bars are the preliminary study that preceded any code; blue
+  is requirements and feasibility; teal is construction; amber is the
+  reliability work that had to precede measurement; violet is evaluation and
+  writing. The pale bar in May is the examination period, which displaced
+  milestone M2 in \Cref{tab:milestones}.}
   \label{fig:gantt}
 \end{figure}
 
-\paragraph{Phases.} The work fell into six phases, each ending in a state the
-next phase could build on.
+\paragraph{Phases.} The work fell into seven phases, each ending in a state the
+next phase could build on. The first preceded the repository by six months and
+produced no code, which is why it is easy to omit from a schedule and worth
+recording here: the decisions it fixed constrained everything after it.
 
 \begin{description}[leftmargin=2.2em,style=nextline]
-  \item[P1. Requirements and feasibility (January--March).] Analysis of the
+  \item[P0. Preliminary study (September--December 2025).] Problem selection
+    with the supervisor and the industry partner, and the background study of
+    GUI test automation that established why the scripted and record-and-replay
+    approaches in use do not survive interface change. This phase produced the
+    project proposal and the reading that \Cref{ch:research} reports: it settled
+    that the problem was worth attempting, that an agent-based approach was the
+    live research direction, and that the measurement gap in the field
+    (\Cref{subsec:measurement}) would shape what the project could claim. No
+    code was written, and the architecture was not yet fixed.
+  \item[P1. Requirements and feasibility (January--March 2026).] Analysis of the
     partner's technical requirements document ETA-TR-2026-001~\cite{etatr}, the
     literature review reported in \Cref{ch:research}, and the feasibility
     assessment in \Cref{sec:feasibility}. This phase fixed the four-process
     architecture and the decision to communicate only through a persistent
     graph.
-  \item[P2. Prototype (March--April).] The repository opened on 19 March 2026.
+  \item[P2. Prototype (March--April 2026).] The repository opened on 19 March 2026.
     A planner and an executor were integrated into a loop that ran end to end
     on a single hard-coded application, with the model provider treated as a
     swappable backend from the outset.
-  \item[P3. Generalisation (June--July).] Application-specific prompts,
+  \item[P3. Generalisation (June--July 2026).] Application-specific prompts,
     identifiers and ingestion paths were removed so that a new target arrives
     as configuration rather than as a code change. This is the phase that
     turned a demonstration into requirement DR-03, and it was the point at
     which the orchestration was rebuilt on a graph-execution framework.
-  \item[P4. Work packages WP0--WP9 (July).] The partner's eight requirement
+  \item[P4. Work packages WP0--WP9 (July 2026).] The partner's eight requirement
     families and the team's derived requirements were decomposed into ten
     numbered packages, each built, integrated and verified in sequence, with
     the operator dashboard brought up alongside them.
-  \item[P5. Reliability and fault attribution (August).] Data-integrity
+  \item[P5. Reliability and fault attribution (August 2026).] Data-integrity
     defects, state-identity errors and loop instability were corrected;
     observability and a degradation register were added; the agent's own
     failures were made visible as a distinct class rather than being reported
     as application defects; and the executor and investigator roles were moved
     to a cheaper model tier once the quality cost of doing so had been
     measured.
-  \item[P6. Second platform, evaluation and report (September).] A browser
+  \item[P6. Second platform, evaluation and report (September 2026).] A browser
     executor brought the same planner and the same graph onto the web, a
     production commerce application and a live website were configured as
     targets, and the campaigns and writing reported in \Cref{ch:evaluation} and
@@ -220,34 +249,35 @@ most of them were characteristics of the problem rather than contingencies.
 \subsection{Budgeting and Resource Identification}
 \label{sec:budget}
 
-The project had no institutional compute grant and no procurement budget
-(constraint C2). Its resource profile is therefore unusual and worth stating
-plainly: almost every input was either free software or effort the course
-absorbed, and the only genuine cash outlay was metered model inference.
-\Cref{tab:budget} itemises both, separating money actually spent from resources
-consumed at no cash cost.
+The project had no procurement budget and no institutional compute grant
+(constraint C2). What it needed in place of money was identified at the outset
+as a short resource list: a device to test on, an application with real
+behaviour, a specification to test it against, and metered model inference. The
+first three were obtained without cash. The fourth is the project's only
+expenditure, and it is small enough to be reported exactly rather than
+estimated.
 
-Two cautions apply to the figures. First, every number in the notional block,
-and the labour figure in particular, is an \emph{estimate} constructed for this
-section rather than a recorded transaction; it is included because an itemised
-budget that omits the dominant cost of the project would misrepresent it.
-Second, the inference figure is the one number here that is grounded in a
-provider's billing record, and its per-test derivation is reported in
-\Cref{ch:evaluation}. Conversions use an approximate rate of BDT 120 to the
-United States dollar.
+\Cref{tab:budget} lists each resource and how it was obtained. One convention
+governs it and is worth stating, because it determines the total: a resource
+the project did not pay for is recorded at zero, not at an imputed market
+price. Assigning notional prices to already-owned laptops, to a donated handset
+and to the team's own labour would produce a larger and more impressive figure,
+but not a truer one, and it would bury the single number here that a reader can
+act on. Conversions use an approximate rate of BDT 120 to the United States
+dollar.
 
 \begingroup
 \small
-\begin{xltabular}{\textwidth}{@{}>{\hsize=0.62\hsize}Y>{\hsize=1.10\hsize}Y>{\hsize=0.28\hsize}Y@{}}
-  \caption{Itemised resource budget. Cash figures are actual to within the ranges shown; notional figures are estimates constructed for this section.}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.60\hsize}Y>{\hsize=1.14\hsize}Y>{\hsize=0.26\hsize}Y@{}}
+  \caption{Resources the project required, how each was obtained, and what it cost in cash. The inference figure is read from the provider's billing record; every other line is zero because no money changed hands.}
   \label{tab:budget}\\
   \toprule
-  Resource & Basis for the estimate & Cost (USD) \\
+  Resource & How it was obtained & Cash cost (USD) \\
   \midrule
   \endfirsthead
-  \caption[]{Itemised resource budget \emph{(continued)}}\\
+  \caption[]{Resources, provenance and cash cost \emph{(continued)}}\\
   \toprule
-  Resource & Basis for the estimate & Cost (USD) \\
+  Resource & How it was obtained & Cash cost (USD) \\
   \midrule
   \endhead
   \midrule
@@ -256,60 +286,84 @@ United States dollar.
   \bottomrule
   \endlastfoot
 
-  \multicolumn{3}{@{}l}{\itshape Cash outlay} \\
-  \addlinespace[2pt]
-  Hosted model inference & Prepaid balance with a hosted inference provider, across development, regression runs and campaigns. Flagship tier for planning, cheaper tier for execution and investigation after the quality cost was measured. & 60--120 \\
+  Hosted model inference & Prepaid balance with a single hosted provider, metered per call. A balance of USD 6.50 was available at handover; USD 2.69 of it had been consumed at the September measurement point, across development, regression runs, specification ingestion and evaluation campaigns. & 2.69 \\
   \addlinespace
-  Electricity and connectivity & Marginal share attributable to the project across five members over roughly seven months. & 40--80 \\
+  Android test device & One mid-range handset already owned by a team member, with the companion accessibility and input-method application installed (C6). & 0 \\
   \addlinespace
-  \textbf{Subtotal, cash} & & \textbf{100--200} \\
-  \midrule
-  \multicolumn{3}{@{}l}{\itshape Consumed at no cash cost (notional)} \\
-  \addlinespace[2pt]
-  Engineering effort & Five part-time members, roughly 1{,}300 person-hours over the session, valued at a junior software-engineering rate of about USD 3 per hour for this market. Dominates every other line by an order of magnitude. & $\approx$ 3{,}900 \\
+  Development hosts & Five personally owned laptops. One of them additionally ran the emulator, the graph database and the four-process stack. & 0 \\
   \addlinespace
-  Development hosts & Five personally owned laptops, amortised over the project period. One host additionally ran the Android emulator and the four-process stack. & $\approx$ 500 \\
+  Application under test, and its specification & A production application with live users, and its requirements document, both supplied by the supervisor and the industry partner. & 0 \\
   \addlinespace
-  Android test device & One mid-range handset, already owned, with the companion accessibility and input-method application installed (C6). & $\approx$ 150 \\
-  \addlinespace
-  Graph database, web and service frameworks, browser and device drivers, embedding and document-handling libraries & Open-source components, listed with their licences in \Cref{sec:ip}. Self-hosted; no licence fee. & 0 \\
+  Graph database, service and web frameworks, browser and device drivers, embedding and document-handling libraries & Open-source components, self-hosted, listed with their licences in \Cref{sec:ip}. No licence fee. & 0 \\
   \addlinespace
   Version control, continuous integration, observability, design export & Free tiers of hosted developer services. & 0 \\
   \addlinespace
-  Application under test and its specification & Supplied by the supervisor and the industry partner; a production application with live users, and a requirements document. & 0 \\
-  \addlinespace
-  \textbf{Subtotal, notional} & & $\approx$ \textbf{4{,}550} \\
+  Engineering effort & Five part-time members over roughly six months. Not priced; see below. & --- \\
   \midrule
-  \textbf{Total economic cost} & & $\approx$ \textbf{4{,}700} \\
+  \textbf{Total cash expenditure} & \textbf{Approximately BDT 320.} & \textbf{2.69} \\
   \bottomrule
 \end{xltabular}
 \endgroup
 
-The shape of this table is the finding, not the total. Better than nine tenths
-of the project's economic cost is human time, and the part that scales with
-\emph{use} rather than with development is the inference line alone. That is
-the property the next two subsections turn on: a system whose marginal cost per
-unit of work is cents, and whose fixed cost is a one-time engineering
-investment, has a different economic argument available to it than one that
-bills per seat.
+\paragraph{The input the table declines to price.} Engineering effort dominates
+this project and is deliberately left uncosted. The team kept no timesheets, so
+any hour count would be reconstructed after the fact; and any hourly rate
+applied to it would be chosen rather than observed, with a factor of ten
+between a student stipend and a loaded commercial salary. Multiplying one
+invented number by another and printing the product as a total would make the
+budget look complete at the cost of making it fictional. What can be said
+without inventing anything is the shape: the project's cost is almost entirely
+labour that the course absorbed, and its cash cost is under three dollars.
+\Cref{sec:economics} takes up what the same system would cost an organisation
+that had to pay for both.
+
+\paragraph{What the metered part actually costs.} Because inference is the only
+line that scales with use, it is worth separating into its two very different
+components, both measured rather than derived from a price card. Executing one
+test costs about USD 0.008, roughly one taka: built from 10.1 device steps per
+test across 232 stored observations, an accessibility tree averaging 4,686
+bytes per step, and the planner's 384{,}000 logged tokens over 108 calls. Within
+that figure the device agent accounts for about 92\% and the planner about 8\%,
+which is why reducing median steps per test was a real saving and why
+optimising the planner's prompt would not have been. A twenty-five-test
+campaign is therefore about USD 0.20, and a five-hundred-test nightly suite
+about USD 4.
+
+Ingesting a specification behaves in the opposite way. It costs about USD 1.80
+--- the price of roughly two hundred test executions --- because extraction
+runs on the most expensive model tier, splits the document into sections and
+issues one uncapped call per section, three times over for self-consistency. It
+is paid once per document rather than once per run, so it is a fixed cost in
+the terms of \Cref{sec:economics} and not an operating one. It is also the
+project's largest single line item, and the reason it is larger than every
+campaign combined is that the document was re-ingested repeatedly while the
+ingestion itself was being developed. The metering controls that would cap it
+--- an output ceiling, a lower sample count once extraction has stabilised, and
+a cache that refuses to re-read an unchanged document --- are identified in
+\Cref{sec:conclusion} as outstanding work.
 
 \subsection{Economic Analysis and Financial Prospecting}
 \label{sec:economics}
 
-\paragraph{What it cost to build.} Approximately USD 4{,}700 of economic cost,
-of which USD 100--200 was cash (\Cref{tab:budget}). A commercial team would not
-reproduce this figure: five part-time students over a session is not two
-full-time engineers over three months, and a firm paying market salaries with
-overhead should expect a first production-grade version of this system to cost
-an order of magnitude more. The honest claim is about the \emph{cash} figure,
-and it is a strong one: the entire metered cost of building and evaluating an
-autonomous exploratory testing agent was under two hundred dollars, because the
-expensive input to this class of system is inference and inference is now
-cheap enough to be a line item rather than a barrier.
+\paragraph{What it cost to build.} USD 2.69 in cash (\Cref{tab:budget}), plus
+a session of part-time work by five students. The cash figure is the one worth
+quoting and it is the strongest fact in this section: an autonomous exploratory
+testing agent was built, debugged and evaluated for under three dollars of
+metered inference, because the expensive input to this class of system is
+inference, and inference has become cheap enough to be a rounding error rather
+than a barrier to entry. The labour is deliberately left unpriced in
+\Cref{sec:budget}, and the reason carries over here. A commercial team would
+not reproduce this cost structure at all: five part-time students over a
+session is not two full-time engineers over three months, and a firm paying
+market salaries with overhead should expect a first production-grade version of
+this system to cost an order of magnitude more than anything this project can
+evidence. What transfers to such a firm is not the total. It is the unit
+economics below.
 
 \paragraph{What it costs to run.} Operating cost has three components. The
 metered one is model inference at an order of one United States cent per
-executed test case, reported with its derivation in \Cref{ch:evaluation} and
+executed test case, derived in \Cref{sec:budget}, reported in full in
+\Cref{ch:evaluation} and
 set against published figures of USD 13--22 per application for a two-hour
 budget~\cite{droidagent} and USD 10.17--18.76 per thousand
 queries~\cite{autodroid} in \Cref{sec:feasibility}. The second is
@@ -326,12 +380,13 @@ testing and the maintenance of scripted suites, for the three user groups
 identified in \Cref{sec:market}. One published deployment gives an order of
 magnitude for the saving: AUITestAgent's authors report 1.5 person-days saved
 per regression round on a \emph{single} business line at
-Meituan~\cite{auitestagent}. Valued at the rate used in \Cref{tab:budget},
-1.5 person-days is roughly USD 36; valued at a mid-level engineer's fully
-loaded cost in a market like Singapore or Seoul it is several hundred dollars.
+Meituan~\cite{auitestagent}. Valued at a junior engineer's cost in this market,
+1.5 person-days is a few tens of dollars; valued at a mid-level engineer's
+fully loaded cost in a market like Singapore or Seoul it is several hundred.
 On a fortnightly release cadence, a single business line therefore sits
 somewhere between USD 900 and several thousand dollars of displaced effort per
-year, against an inference bill measured in tens of dollars. The ratio is
+year. The inference required to displace it, at one cent per test, is tens of
+dollars annually even for a suite of several hundred tests per round. The ratio is
 favourable by two to three orders of magnitude, and it would remain favourable
 under fairly violent revisions of the assumptions.
 
@@ -439,16 +494,16 @@ change, and they understate work done in pairs. The table therefore names
 
 \begingroup
 \small
-\begin{xltabular}{\textwidth}{@{}>{\hsize=0.52\hsize}Y>{\hsize=0.42\hsize}Y>{\hsize=1.32\hsize}Y>{\hsize=0.24\hsize}Y@{}}
-  \caption{Member roles, principal contributions and delivery against schedule}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.44\hsize}Y>{\hsize=0.32\hsize}Y>{\hsize=1.52\hsize}Y>{\hsize=0.22\hsize}Y@{}}
+  \caption{Member roles and principal contributions, in the order the team lists itself. The final column gives the month of that member's first commit in the version-control record.}
   \label{tab:contrib}\\
   \toprule
-  Member & Role & Principal contributions & On time \\
+  Member & Role & Principal contributions & Active from \\
   \midrule
   \endfirsthead
-  \caption[]{Member roles and contributions \emph{(continued)}}\\
+  \caption[]{Member roles and principal contributions \emph{(continued)}}\\
   \toprule
-  Member & Role & Principal contributions & On time \\
+  Member & Role & Principal contributions & Active from \\
   \midrule
   \endhead
   \midrule
@@ -457,40 +512,30 @@ change, and they understate work done in pairs. The table therefore names
   \bottomrule
   \endlastfoot
 
-  Jonayed Mohiuddin Shanto (2105060) &
-    Execution and integration lead &
-    Generalised the device gateway by removing application-specific prompts and identifiers, which opened the path to DR-03. Built, verified and integrated work packages WP1--WP9 in sequence. Wrote the browser executor from scratch, bringing the system onto its second platform. Authored target profiles for both platforms. Fixed the loop-stability, concurrency and run-lock defects, and added the human-in-the-loop CAPTCHA pause. Reclassified a dead-browser condition that had been recorded as an agent navigation fault, which was a correction to the attribution taxonomy itself. &
-    Yes \\
+  Mohammad Raihan Rashid (2105046) &
+    Project lead; architecture, ingestion, dashboard &
+    Opened the repository on 19 March 2026, two and a half months before any other member's first commit, and fixed the four-process architecture and the decision that the agents communicate only through a persistent graph. Owns the ingestion pipeline: removed the hard-coded document path and made ingestion modular, which is what lets a new application arrive as configuration rather than as a code change (DR-03). Built the operator dashboard and carried it through its successive revisions. Substantial planner work from the first prototype onward, including the early model-backend experiments that made the provider swappable. Centralised configuration and fixed the state-identity and observation defects underlying screen recognition. Made the agent's own failures visible as a distinct class (NFR-D3), which is the precondition for any defensible measurement. Defined the work-package gates and verified completed packages against the running system. Reviewed and merged the team's pull requests throughout, and drafted the greater part of this report. &
+    Mar 2026 \\
   \addlinespace
   Mehemud Azad (2105014) &
     Planner and retrieval &
-    Integrated the executor with the planner to close the first end-to-end loop. Built the goal-based planner and the trajectory evaluator. Owned the retrieval service and the embedding backend, and rebuilt the orchestration on a graph-execution framework. Added the observability layer. Carried out the migration to a cheaper model tier and added graph backup and restore. Contributed the largest share of the project's internal documentation. &
-    Yes \\
+    Integrated the executor with the planner to close the first end-to-end loop. Built the goal-based planner and the trajectory evaluator, and contributed the largest share of commits to the planner package. Owns the retrieval service and the embedding backend, and rebuilt the orchestration on a graph-execution framework. Added the observability layer, carried out the migration to a cheaper model tier, and added graph backup and restore. Contributed the largest share of the project's internal documentation. &
+    Apr 2026 \\
   \addlinespace
-  Mohammad Raihan Rashid (2105046) &
-    Architecture and repository owner &
-    Opened the repository and established the four-process structure. Removed the hard-coded ingestion path and made the pipeline modular. Centralised configuration and fixed the state-identity and observation defects underlying screen recognition. Made the agent's own failures visible as a distinct class, which is the work behind NFR-D3 and the precondition for any defensible measurement. Reviewed and merged the team's pull requests. &
-    Yes \\
+  Jonayed Mohiuddin Shanto (2105060) &
+    Execution and integration &
+    Generalised the device gateway by removing application-specific prompts and identifiers, which opened the path to DR-03. Built, verified and integrated work packages WP1--WP9 in sequence, the largest single body of delivery in the record. Wrote the browser executor from scratch, bringing the system onto its second platform, and authored the target profiles for both platforms. Fixed the loop-stability, concurrency and run-lock defects, and added the human-in-the-loop CAPTCHA pause. Reclassified a dead-browser condition that had been recorded as an agent navigation fault -- a correction to the attribution taxonomy itself. &
+    Apr 2026 \\
   \addlinespace
   Khalid Hasan Tuhin (2105002) &
     Operator surface and web target &
-    Built the target-configuration interface and the knowledge-upload path in the dashboard, which is what makes DR-09 an operator action rather than a code change. Contributed to the browser executor, adding the wandering guard, risk-priority wiring, agent-difficulty steering and semantic retrieval of execution notes. Configured the production commerce target and produced the campaign report. Fixed the executor's crash on provider rate-limiting and a precondition misclassification. &
-    Yes \\
+    Built the target-configuration interface and the knowledge-upload path in the dashboard, which is what makes DR-09 an operator action rather than a code change. Contributed to the browser executor: the wandering guard, risk-priority wiring, agent-difficulty steering and semantic retrieval of execution notes, followed by a reliability pass with a regression suite. Configured the production commerce target and the live web target. Fixed the executor's crash on provider rate-limiting and a precondition misclassification. &
+    Jun 2026 \\
   \addlinespace
   Niloy Kumar Mondal (2105044) &
-    Literature grounding and internal review &
-    Designed the run-report agent that closes the campaign loop into a document
-    a stakeholder can act on: it gathers execution logs, findings and coverage
-    state from the knowledge graph, filters outcomes against the
-    fault-attribution taxonomy so that only application-caused failures are
-    reported as defects, and renders the result as a downloadable,
-    human-readable PDF carrying a generated narrative (DR-08); also corrected
-    a defect in its handling of long campaign batches. Surveyed fifteen recent
-    related works and assessed each for relevance, which is the material
-    behind \Cref{subsec:additional}. Carried out the structured internal code
-    review against an explicit severity rubric referred to in
-    \Cref{sec:accountability}. Ran testing against the second target. &
-    Yes \\
+    Run reporting, literature grounding, internal review &
+    Built the run-report agent that turns a campaign into a document a stakeholder can act on: it gathers execution logs, findings and coverage from the graph, filters outcomes against the fault-attribution taxonomy so that only application-caused failures are reported as defects, and renders a PDF with a generated narrative (DR-08). Surveyed fifteen recent related works, the material behind \Cref{subsec:additional}. Carried out the structured internal code review against an explicit severity rubric referred to in \Cref{sec:accountability}, and ran testing against the web target. &
+    Sep 2026 \\
 \end{xltabular}
 \endgroup
 
@@ -506,10 +551,10 @@ operated.
 
 \guidance{TODO (team): each member should read their own row and correct it
 before submission, and add any contribution the version-control record does not
-show, in particular design discussion, review of others' code, and time spent
-debugging that ended in no commit. If any responsibility was \emph{not}
-completed on time, say so and say why; a table in which every entry reads
-``yes'' is less credible than one that records a slip honestly.}
+show --- in particular design discussion, review of others' code, and debugging
+that ended in no commit. Schedule slips are recorded against milestones in
+\Cref{tab:milestones} rather than per member; if any individual responsibility
+was not met on time, add it there with the reason.}
 
 \subsection{Collaboration and Conflict Resolution}
 \label{sec:collaboration}
