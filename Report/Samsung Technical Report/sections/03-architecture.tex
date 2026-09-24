@@ -1,0 +1,331 @@
+\section{Architecture}
+\label{sec:architecture}
+
+\subsection{Four processes, one graph}
+
+The loop decomposes into six responsibilities, and the partitioning rule is
+that a component owns exactly one decision, so that changing how that decision
+is made touches one place.
+
+\begin{enumerate}[label=\textbf{S\arabic*.},leftmargin=2.8em,itemsep=2pt]
+  \item \textbf{Knowledge acquisition.} Turn whatever documents exist into
+    queryable, individually identified requirements with provenance back to the
+    text they came from. Owner: the ingestion pipeline.
+  \item \textbf{Test selection.} Decide what is worth testing next given
+    everything currently known. Owner: the planner. This is where the system's
+    quality is bounded.
+  \item \textbf{Execution.} Drive a running application toward a stated
+    objective and record what happened. Owner: the player, one per platform.
+  \item \textbf{Evidence reduction.} Turn a trajectory into durable,
+    deduplicated claims and decide what the run proved. Owner: the
+    investigator.
+  \item \textbf{Persistence and retrieval.} Hold the knowledge and answer
+    questions about it. Owner: the retrieval service, which is the only writer
+    to the database.
+  \item \textbf{Operation.} Let a person start a campaign, understand a verdict
+    and take the result away. Owner: the gateway and the dashboard.
+\end{enumerate}
+
+These map onto four concurrent processes: the agent gateway on port 9100, which
+is the only entry point and holds the planner; the retrieval service on port
+9010, which is the only process that opens a connection to the graph database;
+the player, which is a campaign driver rather than a server; and Neo4j itself
+on port 7687.
+
+\begin{sidewaysfigure}
+  \centering
+  \includegraphics[width=0.96\textheight]{01-system-architecture.png}
+  \caption[System architecture]{System architecture. Amber is an input, green
+  is knowledge, blue is a service, purple is one of the three agent roles, red
+  is a language-model call, grey is the device. Every input is optional: the
+  system degrades to whatever sources exist rather than failing without them.}
+  \label{fig:architecture}
+\end{sidewaysfigure}
+
+\subsection{Three decisions that fix the shape}
+
+\subsubsection{The graph is the only channel between roles}
+
+The planner, the player and the investigator never call one another. Each is a
+stateless language-model call that reads from and writes to the same graph, so
+the system's memory sits in one inspectable place and no conversational state
+is carried between rounds.
+
+This is what makes learning a property that can be audited rather than an
+emergent property of a long conversation. After a round, the graph either grew
+or it did not, and the difference is a query. It also means any role can be
+replaced without touching the others, which is what made the platform work of
+\Cref{sec:capabilities} a matter of writing a second player.
+
+\subsubsection{One writer}
+
+Only the retrieval service opens a Neo4j connection. The gateway and the player
+reach the graph exclusively through its HTTP interface. The alternative, giving
+each process its own driver, would have spread the schema across three
+codebases and turned a constraint change into a three-way migration. It also
+gives one place to enforce the write invariants that keep the application model
+consistent under concurrent runs.
+
+\subsubsection{The planner never writes steps}
+
+The planner's output is an objective in plain language, not a tap sequence,
+because it cannot see the live screen. A wrong tap script is worse than an
+imprecise objective: the player can recover from a vague goal by looking at
+what is actually in front of it, and cannot recover from instructions that do
+not match the screen.
+
+\subsection{The knowledge model}
+
+Two graphs coexist in one store. An \emph{a priori} graph holds what the
+application should do, built from documents: requirements, specification
+chunks, validation rules. An \emph{a posteriori} graph holds what it actually
+does, built from observation: interface states, transitions, navigation paths,
+execution logs. Test cases and findings span the two, and that span is the
+central idea of the design. Exploration is steered by the gap between what the
+specification promises and what the running application was observed to do.
+
+\begin{sidewaysfigure}
+  \centering
+  \includegraphics[width=0.96\textheight]{03-knowledge-graph-schema.png}
+  \caption[Knowledge graph schema]{The knowledge graph. Specification-derived
+  nodes and observation-derived nodes share one store, joined by the test cases
+  and findings that span them.}
+  \label{fig:schema}
+\end{sidewaysfigure}
+
+\subsection{Ingestion: documents to queryable requirements}
+
+Ingestion decides what the rest of the system can ever know, which is why it is
+treated as a first-class component rather than as a loader. A document is
+chunked, embedded, and reduced to individually identified requirements and
+validation rules, each linked back to the chunk it came from. Any later claim
+can therefore be traced to the sentence that justified it, which is what makes
+requirement coverage reportable at all rather than merely assertable.
+
+Re-ingesting a changed specification produces a new version and a drift report
+rather than overwriting the previous one, so a requirement that disappears from
+a document does not silently disappear from the coverage denominator.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{11-ingestion-document-to-queryable-requirements.png}
+  \caption[Ingestion pipeline]{Prose becomes atomic, identified requirements
+  with provenance back to their source chunk.}
+  \label{fig:ingestion}
+\end{figure}
+
+Ingestion is format-agnostic. PDF, Office documents, HTML and Markdown are all
+accepted, and the pipeline auto-detects better parsers when they are installed
+without requiring them. Embeddings run locally through ONNX, so retrieval
+carries no per-call charge and no dependency on an external service.
+
+\subsection{One round, end to end}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.97\textwidth]{02-one-test-round-end-to-end.png}
+  \caption[One test round]{One test round. The planner reads the graph,
+  proposes, and is validated before anything reaches a device. The player
+  drives up to its interaction budget. The investigator reduces the trajectory
+  to findings, and is given the findings already known for those screens so
+  that a repeat observation reinforces an existing finding instead of creating
+  a duplicate.}
+  \label{fig:round}
+\end{figure}
+
+\subsection{The planner}
+
+The planner answers one question: given everything the graph currently holds,
+what is worth testing next? It assembles its own prompt from retrieved
+knowledge, proposes a test case with a stated objective and the requirements it
+claims to cover, and passes through a validation gate before anything reaches a
+device.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.97\textwidth]{05-planner-pipeline-mode-default.png}
+  \caption[Planner pipeline]{The default planner as an explicit state machine:
+  bootstrap context, plan retrieval, execute retrieval, generate, check for
+  duplicates. Each node is separately testable and the flow is inspectable.}
+  \label{fig:planner}
+\end{figure}
+
+Retrieval draws on six sources: the specification, a design export of screens,
+a design export of flows, the observed live interface, defect history, and the
+navigation tree. Each is optional. A source that is absent contributes nothing
+rather than blocking the round, which is the mechanism behind DR-01.
+
+Two planner modes exist behind one output contract. The default assembles a
+fixed context and issues retrieval calls in up to three rounds. The alternative
+gives the planner a set of graph tools and lets it investigate the graph
+directly, deciding for itself what to look at next.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.97\textwidth]{13-why-tools-replaced-retrieval-sources.png}
+  \caption[Why a tool interface was added]{The structural difference between a
+  fixed context block and a tool interface. A fixed block must guess in advance
+  what the planner will need.}
+  \label{fig:tools-why}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.97\textwidth]{14-the-nine-tools-as-an-investigation.png}
+  \caption[The planner's graph tools]{The tool-calling planner treats test
+  selection as an investigation over the graph rather than as a single
+  generation from a pre-assembled context.}
+  \label{fig:tools}
+\end{figure}
+
+The tool-calling planner is better formed on every property the team values,
+and it is nevertheless not the default. No campaign had been run that showed it
+produced better campaigns, and being better designed is not the same as
+producing better results. It remains in the source tree behind a configuration
+switch, and the comparison is named in \Cref{sec:next} as work still to do.
+
+\subsection{The player}
+
+The player is the only role that sees the application. It receives an objective
+in plain language and drives the interface toward it, one observation and one
+action at a time, until the objective is met, the objective is refuted, or a
+bound is reached.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.97\textwidth]{16-the-executor-in-detail.png}
+  \caption[The player in detail]{How a plain-language objective becomes a
+  sequence of grounded device actions, and how each step is recorded.}
+  \label{fig:executor}
+\end{figure}
+
+On Android the player drives the device through the accessibility service using
+a companion on-device application that also supplies an input method, which is
+what makes text entry into multi-field forms reliable. It reads an
+accessibility tree averaging 4{,}686 bytes per step together with a
+$1080\times1920$ screenshot, and grounds its action in both.
+
+On the web the same role runs against an accessibility-annotated browser
+snapshot rather than raw markup, so controls are addressed by role and name on
+both platforms and the planner does not need to know which platform it is
+driving. The web player needs no vision model, because the snapshot already
+carries the structure a screenshot would have to be read for.
+
+Controls are addressed by accessible role, name and content description rather
+than by pixel coordinates. This constrains the player to what the accessibility
+layer exposes, which is a real limitation and also the reason its
+element-location failures are meaningful as an accessibility signal about the
+application under test.
+
+\subsection{The investigator}
+
+The investigator reads a completed trajectory against what the test intended
+and reduces it to durable findings. It runs off the critical path, so latency
+can be traded for a second opinion, and it is deliberately configured to a
+different model family from the players so that no model grades its own
+execution.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.97\textwidth]{06-investigator-trajectory-to-knowledge.png}
+  \caption[Trajectory to knowledge]{How a raw trajectory becomes deduplicated,
+  attributed findings that the next planning round can read.}
+  \label{fig:investigator}
+\end{figure}
+
+It is given the findings already recorded for the screens the run visited, so a
+repeated observation reinforces an existing finding rather than creating a
+near-duplicate. An open question that has been probed three times without
+resolution is closed as inconclusive, which is a result a human can act on
+rather than an endless retry.
+
+\subsection{State identity}
+
+The most consequential calculation in the system is not a budget but a
+similarity decision: is this screen one the application model already contains?
+Merging too eagerly collapses the map. Splitting too eagerly destroys it. One
+wizard, whose form fields carried their current values in the same attribute
+that carries a button's label, produced nine distinct states before the cascade
+below was designed.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[height=0.78\textheight,keepaspectratio]{17-state-identity-is-this-a-screen-we-have-seen.png}
+  \caption[State identity cascade]{The five-stage cascade, cheapest test first.
+  Each stage was added in response to a specific way the previous one failed,
+  and every threshold is configurable.}
+  \label{fig:state-identity}
+\end{figure}
+
+The stages are ordered by cost. An exact signature match is a string
+comparison. Structural Jaccard tolerates dynamic chrome such as counters and
+timestamps. Containment recognises a screen captured before its late-painting
+chrome arrived, which is a strict subset of the same screen fully rendered and
+which Jaccard therefore scores as different; it is guarded by a minimum control
+count and a maximum size ratio, because a one-control blank screen is contained
+in everything. Skeleton containment compares only resource identifier and
+class, asking whether the same widgets are present regardless of their values,
+with a floor on full containment so that two different screens built from
+similar widget types stay apart. A perceptual hash is the last resort and the
+only signal available when the accessibility tree is too thin to describe the
+screen at all.
+
+\keypoint{This cascade is what allows the system to work against a target that
+exposes no stable identifiers. It is also the component with the most
+significant outstanding limitation, reported in \Cref{sec:limits}.}
+
+\subsection{Fault attribution}
+
+A run that does not pass is ambiguous between three explanations, and
+conflating them inflates the reported defect count, which is the most expensive
+error this system can make.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{09-failure-attribution.png}
+  \caption[Fault attribution]{Every non-passing execution is classified at the
+  point of failure as application evidence, an agent limitation, or an
+  environment fault.}
+  \label{fig:attribution}
+\end{figure}
+
+The classification has exactly one definition in the source tree, so an agent
+limitation cannot drift into being reported as an application defect through a
+second implementation. The exported run report filters agent-caused failures
+before a defect is ever named, so what reaches a stakeholder is the
+application's behaviour rather than the tester's.
+
+A degradation register records every fallback and every silent substitution
+across process boundaries, which is what allows a campaign to claim zero silent
+fallbacks and have the claim be checkable rather than asserted.
+
+\subsection{Explicit bounds}
+
+An exploratory agent has no natural stopping point and will consume whatever it
+is given, so every bound is explicit and read from configuration.
+
+\begin{table}[H]
+  \centering\small
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.70\hsize}Y>{\hsize=0.42\hsize}Y>{\hsize=1.88\hsize}Y@{}}
+    \toprule
+    Bound & Value & Why it exists \\
+    \midrule
+    Device actions per test & 50 & The player's interaction budget. Exhausting it yields no evidence about the application, so the planner is told the number and warned when recent tests repeatedly hit it \\
+    \addlinespace
+    Wall clock per test & 900\,s & Bounds one execution including model latency and recovery. This is the campaign value; the shipped default is 420\,s \\
+    \addlinespace
+    Planner turns & 12 & Ceiling on the tool loop \\
+    \addlinespace
+    Forced proposal after & 6 turns & A model left free will investigate to the ceiling and never commit. Observed on the first live run: ten turns of tool calls and no proposal \\
+    \addlinespace
+    Proposal rejections & 3 & After three the best effort is accepted and a degradation recorded, so a planning round never returns nothing \\
+    \addlinespace
+    Tool result caps & 3000 / 2500 / 1200 / 2000 characters & Requirements, findings, one screen, anything else. Each tool is responsible for not flooding the context on its own \\
+    \addlinespace
+    Finding attempts & 3 & After three probes an open question auto-closes as inconclusive \\
+    \addlinespace
+    Knowledge half-life & 90 days & Decays the weight of stale observations so the agent adapts when the application changes \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

@@ -1,0 +1,73 @@
+\section{What We Propose Next}
+\label{sec:next}
+
+\subsection{Two requests, and what each unblocks}
+
+\paragraph{A seeded-defect build.} A version of any application you choose,
+with a known list of injected faults, and nothing else. With it we can report
+precision and recall for the first time, and so can the field: no reviewed
+system reports either. Without it, every defect count this system produces
+remains a candidate list whose accuracy is unmeasured, and no return-on-investment
+claim about the tool can be made honestly, including ours.
+
+This is the single highest-value thing we could be given. It requires no
+integration work on your side beyond producing the build and the ground-truth
+list.
+
+\paragraph{A defect export.} An extract from a real issue tracker, with
+severity, area and root cause, for an application we can also run against.
+ETA-REQ-301 is built and works on synthetic data; it has never influenced test
+selection using real history. With an export we can report whether
+defect-weighted retrieval actually directs the agent toward the areas that
+historically break, which is the claim the requirement was written to support.
+
+\subsection{Engineering we would do next}
+
+In the order we would take them, each justified by something in
+\Cref{sec:limits} rather than by novelty.
+
+\begin{enumerate}[leftmargin=2.0em,itemsep=4pt]
+  \item \textbf{Content-independent state signatures.} Replace whole-tree
+    comparison with a signature over structure alone, so a revisited screen is
+    recognised after its contents change. This directly attacks the autonomy
+    ceiling on targets without stable identifiers.
+  \item \textbf{Extraction metering.} An output ceiling, a reduced sample count
+    once extraction stabilises, and a cache that refuses to re-read an
+    unchanged document. Ingestion is the largest cost line and the easiest to
+    reduce.
+  \item \textbf{Parallel device execution.} The architecture already separates
+    planning from execution across processes, so one planner can drive several
+    devices. This turns a 7-hour campaign into a 1-hour one and is the
+    condition under which self-hosting becomes economical.
+  \item \textbf{Provisional specification generation.} A first exploratory pass
+    that produces requirements the later passes can target, for the case where
+    no specification exists. This is what would make DR-01 true in intent and
+    not only in letter.
+  \item \textbf{Deduplication against elements rather than text.} Removes the
+    over-counting described in \Cref{sec:limits}.
+  \item \textbf{A controlled comparison of the two planners.} The tool-calling
+    planner is better formed and is switched off because no evidence says it
+    produces better campaigns. One controlled pair of campaigns settles it.
+\end{enumerate}
+
+\subsection{Where this could go inside an organisation}
+
+The system is operable by one engineer from a dashboard, which was a
+requirement rather than an accident. Its natural place is a nightly run against
+a build, with a QA engineer triaging candidates in the morning. The cost of the
+inference is negligible at that cadence; the cost that matters is the
+engineer's time spent confirming candidates, which is why precision, once it
+can be measured, is the number that decides whether the tool is worth
+operating.
+
+Nothing in the architecture assumes a single application or a single platform.
+Adding a target is a configuration file, and the evidence for that claim is
+five targets across two platforms with no code change between them.
+
+\vspace{10pt}
+\noindent\rule{\textwidth}{0.4pt}
+
+\vspace{4pt}
+\noindent\footnotesize The repository, the campaign records and the 123
+trajectory directories underlying every figure in this report are available to
+Samsung Research and Development Institute Bangladesh on request.

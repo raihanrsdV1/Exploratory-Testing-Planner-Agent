@@ -1,0 +1,58 @@
+\ProvidesPackage{strep}[2026/09/25 Samsung technical report]
+
+\RequirePackage[a4paper,left=28mm,right=28mm,top=26mm,bottom=26mm]{geometry}
+\RequirePackage[T1]{fontenc}
+\RequirePackage[utf8]{inputenc}
+\RequirePackage{newtxtext}
+\RequirePackage{newtxmath}
+\RequirePackage{microtype}
+\RequirePackage{graphicx}
+\graphicspath{{figures/}}
+\RequirePackage{xcolor}
+\RequirePackage{booktabs,array,tabularx,longtable,xltabular,multirow}
+\RequirePackage[font=small,labelfont=bf]{caption}
+\RequirePackage{subcaption}
+\RequirePackage{enumitem}
+\RequirePackage{float}
+\RequirePackage{rotating}
+\RequirePackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\RequirePackage{titlesec}
+\RequirePackage{fancyhdr}
+\RequirePackage{url}
+\RequirePackage[hidelinks]{hyperref}
+\RequirePackage[capitalise,nameinlink]{cleveref}
+
+\definecolor{sRule}{HTML}{1F4E5F}
+\definecolor{sAccent}{HTML}{2E8B7F}
+\definecolor{sGrey}{HTML}{5A6570}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcommand{\modpath}[1]{\path{#1}}
+
+% Headings: sans, restrained, with a rule under section titles.
+\titleformat{\section}{\normalfont\large\bfseries\color{sRule}}{\thesection}{0.7em}{}[\vspace{-6pt}\color{sRule}\rule{\textwidth}{0.6pt}]
+\titleformat{\subsection}{\normalfont\normalsize\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\itshape}{\thesubsubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{18pt}{9pt}
+\titlespacing*{\subsection}{0pt}{12pt}{5pt}
+\titlespacing*{\subsubsection}{0pt}{10pt}{4pt}
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{2}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\footnotesize\color{sGrey}\ReportShort}
+\fancyhead[R]{\footnotesize\color{sGrey}\thepage}
+
+\setlength{\parskip}{5pt}
+\setlength{\parindent}{0pt}
+\linespread{1.06}
+
+% A boxed statement for the figures that carry a claim.
+\newcommand{\keypoint}[1]{%
+  \par\vspace{4pt}%
+  \noindent\begingroup\color{sRule}\rule{2.4pt}{\dimexpr\baselineskip}\endgroup\hspace{7pt}%
+  \begingroup\itshape #1\endgroup\par\vspace{4pt}}

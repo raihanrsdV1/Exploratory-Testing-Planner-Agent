@@ -1,0 +1,76 @@
+\section{Commission and Scope}
+\label{sec:commission}
+
+\subsection{What was asked for}
+
+ETA-TR-2026-001 sets out to evolve the existing agent from a static-knowledge
+test generator into a system that accumulates experiential knowledge,
+prioritises defect-prone areas, shortens re-execution through learned
+navigation, and adapts across device profiles, platforms and applications. Its
+guiding principle is stated in the document as: every execution cycle must make
+the agent smarter than the last.
+
+The document specifies eight requirement families, ETA-REQ-301 to ETA-REQ-308,
+two non-functional requirements, and a six-phase implementation ordering with a
+total estimated effort of 17 to 23 weeks. \Cref{sec:fulfilment} reports each
+against the evidence.
+
+\subsection{What the team added, and why}
+
+Contact with real applications produced eleven further requirements that the
+commissioning document does not contain. They are listed here because several
+of them changed the architecture, and because three in particular are the
+reason the results in \Cref{sec:results} can be read at all.
+
+\begin{table}[H]
+  \centering\small
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.22\hsize}Y>{\hsize=0.70\hsize}Y>{\hsize=1.08\hsize}Y@{}}
+    \toprule
+    Ref. & Requirement & Why it was necessary \\
+    \midrule
+    DR-01 & No knowledge source is a hard dependency & The commission presumes a specification. Several real targets have none, and a system that stops without one is not deployable \\
+    \addlinespace
+    DR-02 & Learn structure from the running application & No design export existed for any target, so the interface model had to be built from execution \\
+    \addlinespace
+    DR-03 & Application-agnostic by construction & An agent that knows about one application is a script. This is the requirement that made five targets possible \\
+    \addlinespace
+    DR-04 & A second execution platform & Restricting the agent to Android would have left the transfer claim untested \\
+    \addlinespace
+    DR-05 & Evidence integrity & Silent fallbacks and unparseable step records were both observed, and either one makes a campaign unreadable \\
+    \addlinespace
+    DR-06 & Trajectories become atomic, deduplicated knowledge & Raw execution prose does not compose across runs \\
+    \addlinespace
+    DR-07 & Enforced safety boundary & The principal target carries live users. Registration, one-time passwords, payment and deletion are blocked in configuration, not by convention \\
+    \addlinespace
+    DR-08 & An operator surface & A campaign that can only be read from a log is not usable by a QA engineer \\
+    \addlinespace
+    DR-09 & Configuration as data & Process-global settings made every new target a code change \\
+    \addlinespace
+    DR-10 & Measured, not estimated, cost & A budget-bound system must know its unit economics from billing rather than from arithmetic \\
+    \addlinespace
+    DR-11 & The planner must be able to investigate & A fixed context block has to guess in advance what the planner will need \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Constraints the work operated under}
+
+Four constraints shaped what could be built and what could be measured, and
+they are stated here so that the results are read against them.
+
+\begin{description}[leftmargin=2.6em,style=nextline,itemsep=3pt,topsep=4pt]
+  \item[No accelerator hardware.] No GPU allocation was available, so hosted
+    inference through a commercial aggregator was the only route to a capable
+    model. This determines the entire cost structure of \Cref{sec:economics}.
+  \item[No defect ground truth.] Neither a defect export nor a seeded-defect
+    build was available, which is what prevents precision and recall being
+    reported.
+  \item[A production target with live users.] The principal Android target is
+    in continuous use, so a class of operations had to be placed out of scope
+    and enforced rather than exercised.
+  \item[No stable identifiers on that target.] Its cross-platform toolkit
+    exposes almost no resource identifiers through the accessibility tree and
+    reports one activity for every screen, so screens must be told apart
+    structurally. This constraint drove more engineering than any other single
+    fact about the targets.
+\end{description}

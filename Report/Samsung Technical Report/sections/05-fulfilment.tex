@@ -1,0 +1,73 @@
+\section{Requirement Fulfilment}
+\label{sec:fulfilment}
+
+Each of the eight requirement families is reported below with what was built
+and what evidence exists that it works. A requirement is recorded as met only
+where a campaign artefact demonstrates it, not where the implementing code
+exists. One is recorded as built but unexercised, and the missing input is
+named.
+
+\begin{table}[H]
+  \centering\small
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.42\hsize}Y>{\hsize=0.78\hsize}Y>{\hsize=0.38\hsize}Y>{\hsize=1.42\hsize}Y@{}}
+    \toprule
+    Requirement & Subject & Status & Evidence \\
+    \midrule
+    ETA-REQ-301 & Defect history as a knowledge source & Built, unexercised & Defect nodes, the ingestion endpoint, defect-weighted retrieval and a defect-history prompt block are live. No campaign exercised them, because no defect export was available \\
+    \addlinespace
+    ETA-REQ-302 & Execution-path memory as a navigation tree & Met & Median device steps per test fell from 50 to 9. Navigation memory held 123 nodes and 95 recorded dead ends at the end of the sequence \\
+    \addlinespace
+    ETA-REQ-303 & Incremental experiential learning & Met & Execution logs, mined error patterns and a strategy memory populated from runs and read by the planner \\
+    \addlinespace
+    ETA-REQ-304 & Multi-dimensional partitioning by profile, platform and application & Met & Five targets across two platforms held in one graph without cross-contamination \\
+    \addlinespace
+    ETA-REQ-305 & Self-healing and adaptive execution & Met & Failure classification with per-category retry; the livelock detector and the device reset belong to this family \\
+    \addlinespace
+    ETA-REQ-306 & Regression risk scoring and risk-weighted prioritisation & Met & Per-area risk scores drive prioritisation and are exposed through the risk API and the dashboard \\
+    \addlinespace
+    ETA-REQ-307 & Test-case quality metrics and feedback loop & Met & Per-test effectiveness recorded and fed back into generation; duplicate suppression operates against executed-test titles \\
+    \addlinespace
+    ETA-REQ-308 & Anomaly detection over execution patterns & Met & Failure-rate spikes, duration regressions and new-failure detection implemented and surfaced \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{On ETA-REQ-301}
+
+This is the one family that has not been exercised against real data, and the
+distinction matters enough to state rather than bury in a table cell.
+
+Everything specified is built. Defect nodes carry severity, area and
+root-cause category. The ingestion endpoint accepts a defect export. Defect
+density weights the retrieval score, and a defect-history block is injected
+into generation with its own character budget. The path has been exercised on
+synthetic data and behaves as specified.
+
+What has not happened is a campaign in which real defect history changed which
+tests were chosen. That requires a defect export from a real product, which is
+the first of the two requests in \Cref{sec:next}.
+
+\subsection{Non-functional requirements}
+
+ETA-NFR-001 requires retrieval endpoints to respond within 500\,ms at the 95th
+percentile on a graph of up to 100{,}000 nodes. ETA-NFR-002 requires support for
+projects with up to 10{,}000 test cases, 5{,}000 defects and 50{,}000 navigation
+nodes without degradation.
+
+Both are met at the scale reached so far, and neither has been tested at the
+stated ceiling. The largest graph built during this work is roughly three
+orders of magnitude below the ETA-NFR-002 limits, so what can honestly be
+reported is that no degradation was observed in the range exercised, not that
+the ceiling has been demonstrated. Load testing at the specified scale is
+straightforward and has not been done.
+
+\subsection{Implementation phasing}
+
+ETA-TR-2026-001 proposes six phases totalling 17 to 23 weeks. The work was
+carried out as ten numbered packages, each with a verification gate, built and
+integrated in sequence between July and August 2026. The mapping is
+one-to-many rather than one-to-one: the phases describe capability groupings
+and the packages describe deliverable units, and several packages cut across
+phases because the graph schema had to be settled before the features that
+depend on it could be built independently.

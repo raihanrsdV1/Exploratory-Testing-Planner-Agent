@@ -1,0 +1,73 @@
+\section{Summary}
+\label{sec:summary}
+
+The system described here designs its own exploratory test cases for a mobile
+or web application, executes them against a running build without supervision,
+and writes what it learns into a knowledge graph that shapes the next test. No
+human writes a test case, a selector or a script. It is the
+successor to the static-knowledge test generator described in section 2 of
+ETA-TR-2026-001, and it implements all eight of the enhancement requirements in
+that document.
+
+\subsection*{What the system does}
+
+A campaign begins with whatever knowledge exists: a requirements
+specification, a design export, a defect history, or nothing at all. Three
+language-model roles then operate in a loop over one Neo4j graph. A
+\emph{planner} decides what is worth testing next and writes an objective in
+plain language. A \emph{player} drives the application toward that objective on
+a real device or in a browser, recording every step. An \emph{investigator}
+reads the resulting trajectory against what the test intended and reduces it to
+durable, deduplicated findings. Each round leaves the graph richer than it found
+it, so the next objective is chosen from better facts.
+
+The property that distinguishes this system from the work surveyed in
+\Cref{sec:positioning} is not any single mechanism. It is that a failed run is
+classified, at the point of failure, as one of three things: the application
+misbehaved, the agent failed, or the environment broke. Until that distinction
+exists, a defect count cannot be interpreted, because ``the test failed'' and
+``the agent got lost'' are the same observation.
+
+\subsection*{What has been achieved}
+
+\begin{table}[H]
+  \centering\small
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.52\hsize}Y>{\hsize=0.38\hsize}Y>{\hsize=1.10\hsize}Y@{}}
+    \toprule
+    Property & Result & Basis \\
+    \midrule
+    Requirement families delivered & 8 of 8 & All ETA-REQ-301 to 308, verifiable on the dashboard \\
+    \addlinespace
+    Autonomy, best campaign & 100\,\% & 64 web test cases with nothing attributed to the agent; and separately 25 Android executions with none lost \\
+    \addlinespace
+    Autonomy, hardest target & 69\,\% & 45-test campaign against a production marketplace with no stable identifiers \\
+    \addlinespace
+    Cost per executed test & USD 0.008 & Metered billing over 88 device executions, not a price-card estimate \\
+    \addlinespace
+    Route efficiency & 50 steps to 9 & Median device steps per test, before and after navigation memory \\
+    \addlinespace
+    Targets driven & 5 & Two Android applications and three web applications, no code change between them \\
+    \addlinespace
+    Execution record & 123 trajectories & Every device execution preserved step by step and re-readable \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\keypoint{The figure we would ask you to read first is not the pass rate. It is
+autonomy: the share of executions that end in a statement about the application
+rather than a failure of our agent. It moved from effectively zero to 100\,\%
+over two days in August, and it is the precondition for every other number in
+this report meaning anything.}
+
+\subsection*{What has not been achieved}
+
+Precision and recall for defect detection are not reported, and cannot be. Both
+require a build whose defects are known in advance. No defect export and no
+seeded-defect build were available, so every application-level failure in this
+report is a \emph{candidate} defect that a human must confirm. The system is
+built to say so rather than to present candidates as findings.
+
+This is not a gap peculiar to this project. Of the seven comparable systems
+reviewed in \Cref{sec:positioning}, none reports precision or recall either.
+\Cref{sec:next} sets out the one experiment that would close the question and
+what we would need in order to run it.

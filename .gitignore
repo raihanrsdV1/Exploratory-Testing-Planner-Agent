@@ -62,3 +62,10 @@ poster/**/*.pdf
 poster/**/.DS_Store
 # A browser session capture: it holds a live login token, never commit it
 auth.json
+
+# Samsung technical report build artefacts
+Report/Samsung Technical Report/*.aux
+Report/Samsung Technical Report/*.log
+Report/Samsung Technical Report/*.out
+Report/Samsung Technical Report/*.toc
+Report/Samsung Technical Report/*.pdf
