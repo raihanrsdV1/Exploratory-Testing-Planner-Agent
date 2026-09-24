@@ -11,6 +11,15 @@ Every figure in this section is reconstructed from the campaign record: five
 batch files and 123 trajectory directories, each holding one device execution
 step by step. Nothing is reported from memory or from a summary.
 
+\keypoint{Two of the targets belong to third parties who are not party to this
+engagement, and are identified here as AUT-1 and AUT-2 rather than by name.
+AUT-1 is a production agricultural-commerce marketplace with live users, built
+with a cross-platform toolkit that exposes almost no stable accessibility
+identifiers. AUT-2 is an institutional form and survey platform. Every count,
+verdict and technical claim about them is reproduced unmodified from the
+campaign record. The remaining three targets are public applications and are
+named.}
+
 \subsection{Autonomy}
 
 Autonomy is the share of executions that end in a statement about the
@@ -36,7 +45,7 @@ every other number depends on it.
       \fill[cLine!7] (axis cs:0.4,-6) rectangle (axis cs:3.5,120);
       \fill[cAgent!8] (axis cs:3.5,-6) rectangle (axis cs:7.5,120);
       \node[font=\scriptsize\itshape, text=black!55, anchor=north] at (axis cs:2.0,118) {Google Contacts};
-      \node[font=\scriptsize\itshape, text=black!55, anchor=north] at (axis cs:5.5,118) {Shobar Khamar};
+      \node[font=\scriptsize\itshape, text=black!55, anchor=north] at (axis cs:5.5,118) {AUT-1};
       \node[font=\scriptsize\itshape, text=black!55, anchor=north] at (axis cs:8.0,118) {Contacts};
       \addplot[cLine, thick, mark=*, mark size=2.2pt]
         coordinates {(1,0) (2,96) (3,100) (4,67) (5,50) (6,68) (7,69) (8,80)};
@@ -62,8 +71,7 @@ application cannot be in, and a device reset so one test cannot contaminate the
 next. Two days after the 0\,\% campaign, the same target recorded 100\,\%
 autonomy and zero silent fallbacks.
 
-Autonomy then fell when the agent was pointed at Shobar Khamar, the production
-marketplace, reaching 67\,\% and then 50\,\%. We report this rather than
+Autonomy then fell when the agent was pointed at AUT-1, reaching 67\,\% and then 50\,\%. We report this rather than
 presenting the August result alone, because it is the more useful fact for
 anyone planning to deploy the system: a tuned agent does not transfer for free.
 Recovery to 68\,\% came from the structural state-identity work, and the
@@ -85,17 +93,17 @@ Five targets were exercised across both platforms. None required a code change.
       xbar stacked, xmin=0, xmax=100,
       xlabel={per cent of executions}, xlabel style={font=\small},
       bar width=14pt,
-      symbolic y coords={AcademyBug, broken-workshop, {Contacts}, {Shobar Khamar}, DataGhurhi},
+      symbolic y coords={AcademyBug, broken-workshop, {Contacts}, {AUT-1}, AUT-2},
       ytick=data, yticklabel style={font=\small},
       xmajorgrids, grid style={black!12}, axis lines=left,
       tick style={black!40}, enlarge y limits=0.14,
       legend style={at={(0.5,1.18)}, anchor=south, legend columns=2,
                     font=\small, draw=none, fill=none, column sep=1.2em},
     ]
-      \addplot[fill=cPass,  draw=none] coordinates {(80,DataGhurhi) (44,{Shobar Khamar}) (40,{Contacts}) (50,broken-workshop) (5,AcademyBug)};
-      \addplot[fill=cApp,   draw=none] coordinates {(6,DataGhurhi)  (25,{Shobar Khamar}) (38,{Contacts}) (0,broken-workshop)  (15,AcademyBug)};
-      \addplot[fill=cAgent, draw=none] coordinates {(0,DataGhurhi)  (31,{Shobar Khamar}) (20,{Contacts}) (40,broken-workshop) (80,AcademyBug)};
-      \addplot[fill=cOther, draw=none] coordinates {(14,DataGhurhi) (0,{Shobar Khamar})  (2,{Contacts})  (10,broken-workshop) (0,AcademyBug)};
+      \addplot[fill=cPass,  draw=none] coordinates {(80,AUT-2) (44,{AUT-1}) (40,{Contacts}) (50,broken-workshop) (5,AcademyBug)};
+      \addplot[fill=cApp,   draw=none] coordinates {(6,AUT-2)  (25,{AUT-1}) (38,{Contacts}) (0,broken-workshop)  (15,AcademyBug)};
+      \addplot[fill=cAgent, draw=none] coordinates {(0,AUT-2)  (31,{AUT-1}) (20,{Contacts}) (40,broken-workshop) (80,AcademyBug)};
+      \addplot[fill=cOther, draw=none] coordinates {(14,AUT-2) (0,{AUT-1})  (2,{Contacts})  (10,broken-workshop) (0,AcademyBug)};
       \legend{Passed, Application failure, Lost to the agent, Skipped or capped}
     \end{axis}
   \end{tikzpicture}
@@ -112,9 +120,9 @@ Five targets were exercised across both platforms. None required a code change.
     \toprule
     Target & Platform & Tests & App fail & Agent & Coverage and wall clock \\
     \midrule
-    DataGhurhi, a survey platform & Web & 64 & 4 & \textbf{0} & 51 passed, 7 skipped, 2 capped \\
+    AUT-2 & Web & 64 & 4 & \textbf{0} & 51 passed, 7 skipped, 2 capped \\
     \addlinespace
-    Shobar Khamar, a production marketplace & Android & 45 & 11 & 14 & 33/106 requirements, 29 areas, 97 UI states; 7.5\,h \\
+    AUT-1 & Android & 45 & 11 & 14 & 33/106 requirements, 29 areas, 97 UI states; 7.5\,h \\
     \addlinespace
     Google Contacts 4.86.23 & Android & 50 & 19 & 10 & 55/141 requirements, 35 areas, 60 UI states; 6.2\,h \\
     \addlinespace
@@ -125,7 +133,7 @@ Five targets were exercised across both platforms. None required a code change.
   \end{tabularx}
 \end{table}
 
-\paragraph{DataGhurhi.} Fifty runs against a departmental form and survey
+\paragraph{AUT-2.} Fifty runs against an institutional form and survey
 platform produced 64 judged test cases: 51 passed, 4 product failures, nothing
 at all attributed to the agent. A campaign in which the tester never becomes
 the explanation for a failure, reproduced on a platform and a domain the tuning
@@ -139,7 +147,7 @@ rather than a vendor document. The agent designed 50 test cases for an
 application it had never seen, executed each on a device, and returned 19
 application-level failures and 125 findings about the application.
 
-\paragraph{Shobar Khamar.} The production marketplace, and the hardest target,
+\paragraph{AUT-1.} The production marketplace, and the hardest target,
 for structural reasons. Its cross-platform toolkit exposes almost no stable
 identifiers and reports one activity per screen. It also carries live users, so
 a class of operations was blocked in configuration rather than exercised.
@@ -165,7 +173,7 @@ clearest statement we can make about the value of a specification.
         width=\textwidth, height=4.4cm,
         ybar, bar width=11pt, ymin=0, ymax=58,
         ylabel={median device steps}, ylabel style={font=\small},
-        symbolic x coords={{SK Aug},{SK Sep},{Contacts}}, xtick=data,
+        symbolic x coords={{AUT-1 Aug},{AUT-1 Sep},{Contacts}}, xtick=data,
         xticklabel style={font=\scriptsize},
         ymajorgrids, grid style={black!12}, axis lines=left,
         tick style={black!40}, enlarge x limits=0.28,
@@ -173,8 +181,8 @@ clearest statement we can make about the value of a specification.
         legend style={at={(0.5,1.06)}, anchor=south, legend columns=2,
                       font=\scriptsize, draw=none, fill=none},
       ]
-        \addplot[fill=cPass, draw=none] coordinates {({SK Aug},10) ({SK Sep},6.5) ({Contacts},16)};
-        \addplot[fill=cApp,  draw=none] coordinates {({SK Aug},21) ({SK Sep},48) ({Contacts},32)};
+        \addplot[fill=cPass, draw=none] coordinates {({AUT-1 Aug},10) ({AUT-1 Sep},6.5) ({Contacts},16)};
+        \addplot[fill=cApp,  draw=none] coordinates {({AUT-1 Aug},21) ({AUT-1 Sep},48) ({Contacts},32)};
         \legend{Passed, Failed}
       \end{axis}
     \end{tikzpicture}
@@ -204,7 +212,7 @@ clearest statement we can make about the value of a specification.
   \end{subfigure}
   \caption[Device steps]{Left: a test that is going to pass reaches its
   checkpoint quickly, and a test that is going to fail spends its whole budget.
-  On the September Shobar Khamar campaign the gap is 6.5 steps against 48, with
+  On the September AUT-1 campaign the gap is 6.5 steps against 48, with
   an interaction cap of 50, so the median failing test is running to the cap
   rather than reaching a verdict. Right: navigation memory cut the overall
   median from 50 steps to 9.}
@@ -263,13 +271,13 @@ between screens without progressing.
 \subsection{Findings and coverage}
 
 Both large Android campaigns produced far more findings than tests, because a
-single run yields several observations. Of 163 findings on Shobar Khamar, 95
+single run yields several observations. Of 163 findings on AUT-1, 95
 describe the application; of 198 on Contacts, 125 do. The remainder record the
 agent's own difficulties or questions a run raised but could not settle.
 Reporting the totals as defect counts would overstate by roughly 40\,\%, and
 the separation is enforced rather than left to a reader.
 
-Requirement coverage was 31\,\% on Shobar Khamar and 39\,\% on Contacts.
+Requirement coverage was 31\,\% on AUT-1 and 39\,\% on Contacts.
 Feature-area coverage was substantially higher, 29 and 35 areas respectively.
 Coverage is reported at a given spend rather than as a quantity that is ever
 complete, because exploratory testing has no natural stopping point.
@@ -277,7 +285,7 @@ complete, because exploratory testing has no natural stopping point.
 \subsection{How long a campaign takes}
 
 Unit cost is cheap and wall clock is not. The Contacts campaign took 6.2 hours
-for 50 tests and Shobar Khamar 7.5 hours for 45, at medians of 346 and 476
+for 50 tests and AUT-1 7.5 hours for 45, at medians of 346 and 476
 seconds per test. A campaign of this size is most of a working day of device
 time, which places it in a nightly run rather than in a pre-commit gate.
 
