@@ -882,6 +882,18 @@ def _log_eval_skip(test_case_id: str, reason: str) -> None:
         pass
 
 
+def _report_activity(**payload) -> None:
+    """Tell the gateway what the executor is doing, for the live demo view.
+
+    Best-effort and non-fatal by design: this is a status light, so a failed
+    post must never interrupt a campaign. Short timeout for the same reason.
+    """
+    try:
+        requests.post(f"{GATEWAY_URL}/activity/report", json=payload, timeout=1.5)
+    except Exception:
+        pass
+
+
 def _trajectory_snapshot() -> set:
     """Folder names under logs/trajectories right now — call before agent.run()
     so the run's own folder can be identified by diffing afterward, instead of
@@ -1078,10 +1090,16 @@ async def execute_test_on_device(test_case: dict) -> dict:
         # observed UI state (mobilerun only screenshots itself in vision mode; our
         # text model doesn't, so we capture per-state screenshots ourselves here).
         handler = agent.run()
+        _report_activity(component="executor", state="step",
+                         detail=f"step 0/{EXECUTOR_MAX_STEPS}", test_id=tc_id)
+        _steps_seen = 0
         try:
             from mobilerun.agent.common.events import RecordUIStateEvent
             async for ev in handler.stream_events():
                 if isinstance(ev, RecordUIStateEvent):
+                    _steps_seen += 1
+                    _report_activity(component="executor", state="step",
+                                     detail=f"step {_steps_seen}/{EXECUTOR_MAX_STEPS}")
                     # Ask the device rather than trusting the event payload: the
                     # streamed ui_state carries no content-descriptions, no
                     # package and clickable=0 for everything.
@@ -1091,6 +1109,9 @@ async def execute_test_on_device(test_case: dict) -> dict:
         except Exception as e:
             cloud_log("warning", f"Event streaming issue for {tc_id}: {e}")
         result = await handler
+        # Cleared here, not after evaluation: the investigator runs next and the
+        # two must never be lit at the same time.
+        _report_activity(component="executor", state="idle")
 
         duration = time.time() - start_time
 
@@ -1469,6 +1490,10 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
 
     # ── Get the first test case ──────────────────────────────────────────
     _print_header("PLANNER → GENERATING FIRST TEST CASE")
+    # The first test case is fetched before the round loop, so label it
+    # here or round 1's planning shows up unattributed.
+    _report_activity(component="executor", state="idle", round=1, rounds=rounds)
+
     planner_data = None
     for attempt in range(1, ROUND_RETRIES + 1):
         try:
@@ -1498,6 +1523,7 @@ async def main(rounds: int = EXECUTOR_ROUNDS):
     # ── Execute loop ─────────────────────────────────────────────────────
     for i in range(1, rounds + 1):
         _print_header(f"ROUND {i}/{rounds}")
+        _report_activity(component="executor", state="idle", round=i, rounds=rounds)
 
         # Execute on device
         exec_result = await execute_test_on_device(tc)

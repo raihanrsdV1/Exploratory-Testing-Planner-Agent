@@ -18,8 +18,10 @@ Nothing here is specific to any single app — all domain knowledge comes from t
 ingested SRS/UI knowledge graph at request time.
 """
 
+import functools
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -27,7 +29,8 @@ import requests
 from fastapi import FastAPI, Header
 from fastapi.responses import HTMLResponse, Response
 
-from observability import degradations, get_logger, setup_logging
+from settings import EXECUTOR_MAX_STEPS, PROJECT
+from observability import activity, degradations, get_logger, setup_logging
 from observability.middleware import RequestLoggingMiddleware
 from observability.metrics import get_metrics
 
@@ -74,6 +77,25 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestLoggingMiddleware)
+
+def _tracks(component: str, state: str, detail: str = ""):
+    """Mark `component` busy for the duration of an endpoint call.
+
+    A decorator rather than an inline emit/idle pair because these handlers
+    return from inside nested try blocks — a `finally` here is the only way to
+    guarantee the light goes out on every path, including exceptions.
+    """
+    def deco(fn):
+        @functools.wraps(fn)
+        def inner(*args, **kwargs):
+            activity.emit(component, state, detail)
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                activity.idle(component)
+        return inner
+    return deco
+
 
 @app.get("/metrics", tags=["system"], summary="Get system metrics")
 def metrics():
@@ -193,6 +215,91 @@ def _clean_device_log(lines: list[str]) -> list[str]:
     return out
 
 
+@app.get("/activity", include_in_schema=False)
+def dashboard_activity(since: int = 0):
+    """Which agent is working right now, and on what — the live demo view.
+
+    Planner and investigator run in this process and report directly. The
+    executor is a separate client process, so its state is *derived*: mobilerun
+    writes one `ui_states/NNNN.json` per device step while a run is in flight,
+    so the newest trajectory folder gives both a live step count and, from its
+    modification time, whether a run is still going.
+    """
+    snap = activity.snapshot(since_seq=since)
+
+    root = Path(__file__).resolve().parent.parent / "logs" / "trajectories"
+    newest, started = None, 0.0
+    if root.is_dir():
+        for d in root.iterdir():
+            if not d.is_dir():
+                continue
+            try:
+                mt = d.stat().st_mtime
+            except OSError:
+                continue
+            if mt > started:
+                newest, started = d, mt
+
+    # The executor reports start/stop itself (POST /activity/report). Deriving
+    # "busy" from the trajectory folder alone made it look active for up to 45s
+    # after it finished, overlapping the investigator — they are strictly
+    # sequential, so both lit at once was always wrong.
+    reported = snap["components"].get("executor", {})
+    running = reported.get("state") == "step"
+
+    ex = {"state": "idle", "detail": "", "busy": False, "steps": 0,
+          "max_steps": EXECUTOR_MAX_STEPS, "for_s": reported.get("for_s", 0.0),
+          "trajectory": ""}
+    if running and newest is None:
+        ex.update(state="step", detail=reported.get("detail") or "starting", busy=True)
+    elif newest is not None and running:
+        states_dir = newest / "ui_states"
+        try:
+            steps = sum(1 for f in states_dir.glob("*.json")) if states_dir.is_dir() else 0
+            last_write = max((f.stat().st_mtime for f in states_dir.glob("*.json")),
+                             default=started)
+        except OSError:
+            steps, last_write = 0, started
+        # The executor counts its own steps off mobilerun's event stream, which
+        # is exact and immediate; the folder lags it. Prefer what it reported and
+        # fall back to the folder only when it has not said anything yet.
+        rep_detail = reported.get("detail") or ""
+        m = re.match(r"step (\d+)/", rep_detail)
+        if m:
+            steps = int(m.group(1))
+        ex.update(
+            state="step", detail=rep_detail or f"step {steps}/{EXECUTOR_MAX_STEPS}",
+            busy=True, steps=steps, trajectory=newest.name,
+            # Seconds since the step counter last moved. A device step is a vision
+            # model call and routinely takes ~20s, so without this a healthy run
+            # is indistinguishable from a hung one.
+            since_step_s=reported.get("age_s"),
+        )
+    snap["components"]["executor"] = ex
+    snap["project"] = PROJECT
+    return snap
+
+
+@app.post("/activity/report", include_in_schema=False)
+def activity_report(payload: dict):
+    """Let the out-of-process executor report its own phase and run context.
+
+    Planner and investigator run in this process and report directly; the
+    executor is a separate client, so this is its way in. It also carries the
+    campaign round and test id, which label every event until the next report.
+    """
+    comp = str(payload.get("component") or "executor")
+    if payload.get("round") is not None or payload.get("test_id") is not None:
+        activity.set_run(round_no=payload.get("round"), rounds=payload.get("rounds"),
+                         test_id=payload.get("test_id"))
+    state = str(payload.get("state") or "")
+    if state in ("", "idle"):
+        activity.idle(comp)
+    else:
+        activity.emit(comp, state, str(payload.get("detail") or ""))
+    return {"ok": True}
+
+
 @app.get("/dashboard/logs", include_in_schema=False)
 def dashboard_logs(lines: int = 250, source: str = "mobilerun"):
     """Tail of a live log so the dashboard shows what's happening in real time.
@@ -238,8 +345,19 @@ def dashboard_planner_trace(runs: int = 12, project: str = ""):
     if not log_path.exists():
         return {"exists": False, "runs": []}
 
+    # Only the tail. This file is append-only and unbounded — it reached 482 MB in
+    # this project, and reading it whole took >200s per request, which starved
+    # every other endpoint on the gateway (including the live activity poll).
+    # The view only ever shows the most recent runs, so the tail is sufficient.
+    _TAIL_BYTES = 8_000_000
     try:
-        raw_lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        with open(log_path, "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - _TAIL_BYTES))
+            if size > _TAIL_BYTES:
+                fh.readline()  # discard the partial line the seek landed inside
+            raw_lines = fh.read().decode("utf-8", errors="ignore").splitlines()
     except Exception:
         return {"exists": False, "runs": []}
 
@@ -570,6 +688,7 @@ def _verdict_summary(verdict: dict, findings: list, recorded: dict) -> str:
 
 
 @app.post("/execution/evaluate", include_in_schema=False)
+@_tracks("investigator", "evaluating", "reading trajectory")
 def execution_evaluate(req: ExecutionEvaluateRequest, authorization: str | None = Header(default=None)):
     """Evaluate one just-finished run's device trajectory against what it was
     trying to verify, and attach the result to its ExecutionLog.
@@ -959,6 +1078,7 @@ def reset_project(req: ResetProjectRequest, authorization: str | None = Header(d
         503: {"description": "LLM backend (model) or RAG API unavailable."},
     },
 )
+@_tracks("planner", "thinking", "generating next test case")
 def next_testcase(req: NextTestCaseRequest, authorization: str | None = Header(default=None)):
     return pipeline.generate_next_testcase(req, authorization)
 

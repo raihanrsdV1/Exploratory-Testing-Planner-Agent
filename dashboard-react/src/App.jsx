@@ -4,6 +4,7 @@ import LogsPanel from './LogsPanel.jsx'
 import Intelligence from './Intelligence.jsx'
 import PlannerTrace from './PlannerTrace.jsx'
 import RunSteps from './RunSteps.jsx'
+import AgentActivity from './AgentActivity.jsx'
 import { Findings, OpenQuestions, Campaigns } from './Knowledge.jsx'
 
 const REFRESH_MS = 4000
@@ -128,6 +129,8 @@ export default function App() {
 
       <main>
         {err ? <div className="banner">Could not reach the gateway (/dashboard/data): {err}. Is it running on :9100?</div> : null}
+
+        <AgentActivity />
 
         <section className="kpis">
           <Tile label="Total Tests" value={num(s.test_case_count)} sub={planned.length ? `${s.test_run_count || 0} runs · ${planned.length} planned` : `${s.test_run_count || 0} runs`} />

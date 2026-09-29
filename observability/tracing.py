@@ -26,6 +26,8 @@ from typing import Any, Callable
 
 import structlog
 
+from . import activity
+
 log = structlog.get_logger("agent")
 
 # ── Trace context ─────────────────────────────────────────────────────────────
@@ -70,6 +72,11 @@ def timed_node(name: str) -> Callable:
                 round=round_no,
                 **{k: v for k, v in trace.items() if v},
             )
+            # Live status for the demo view. Every pipeline node passes through
+            # here, so this is the only place the planner needs to report from.
+            # `planner_round` not `round`: the campaign round is a different
+            # number, set by the executor, and would be shadowed by this one.
+            activity.emit("planner", "node", name, planner_round=round_no)
 
             start = time.perf_counter()
             try:

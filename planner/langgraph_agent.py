@@ -12,6 +12,7 @@ import langgraph.graph as lg
 from pydantic import BaseModel
 
 from observability import get_logger
+from observability import activity as _activity
 from observability import degradations
 from observability.tracing import set_trace, timed_node
 from . import config, context_builders, coverage, model_client, prompts, rag_client, schemas, textutil
@@ -284,6 +285,11 @@ def execute_retrieval(state: AgentState) -> AgentState:
             query=str(rr.get("query", "")).strip(),
             screen=str(rr.get("screen", "")).strip(),
         )
+        # The pipeline planner has no tools, but a retrieval against a named
+        # source is the same idea and is what the live view should show: this is
+        # the planner deciding what it needs and going to get it.
+        _activity.emit("planner", "tool", f"retrieve {source_name}",
+                       query=(req.query or req.screen or "")[:60])
 
         # Agent-level defaulting + bookkeeping (sources stay pure / objective-agnostic).
         if source_name == "srs":

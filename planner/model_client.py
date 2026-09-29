@@ -5,7 +5,7 @@ from __future__ import annotations
 import requests
 from fastapi import HTTPException
 
-from observability import get_logger, inc
+from observability import activity as _activity, get_logger, inc
 from . import config
 
 log = get_logger("model_client")
@@ -208,6 +208,10 @@ def call_model(prompt: str, max_new_tokens: int, enable_thinking: bool,
         estimated_tokens=estimated_tokens,
         has_image=bool(image_b64),
     )
+    # Live status. Attributed to whichever agent is currently marked busy —
+    # the planner and the investigator share this client.
+    _activity.emit(_activity.busiest("planner"), "llm", config.OPENROUTER_MODEL,
+                   latency_ms=duration_ms, tokens=estimated_tokens)
     return result
 
 

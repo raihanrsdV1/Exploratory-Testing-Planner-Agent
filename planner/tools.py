@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 
 import settings as _settings
+from observability import activity as _activity
 
 from . import context_builders as _ctx, coverage as coverage_mod, rag_client
 from .sources import registry as sources_registry
@@ -380,6 +381,9 @@ def call(name: str, project: str, args: dict) -> str:
     spec = _TOOLS.get(name)
     if not spec:
         return f"No such tool '{name}'."
+    # Live status: this is the only place a tool is invoked, so the demo view
+    # gets every tool call by name from here.
+    _activity.emit("planner", "tool", name)
     try:
         return spec["impl"](project, args or {})
     except Exception as exc:

@@ -16,11 +16,13 @@ Quick start:
     log.info("my_event", key="value")
 """
 
+from . import activity
 from .logger import get_logger, setup_logging
 from .metrics import get_metrics, inc
 from .tracing import get_trace, set_trace, timed_node
 
 __all__ = [
+    "activity",
     "get_logger",
     "setup_logging",
     "get_metrics",

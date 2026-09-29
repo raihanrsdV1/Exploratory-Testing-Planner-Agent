@@ -211,7 +211,44 @@ before stopping, and stops *cleanly*: everything completed so far is already in 
 | `RESUME` | `false` | `true` continues the existing campaign: nothing deleted, ids carry on, no snapshot |
 | `ROUND_RETRIES` / `ROUND_RETRY_WAIT_S` | 5 / 30s | how hard a failed planning call is retried before the batch gives up |
 
-## 9. Reporting a finished campaign
+## 9. Watching a campaign live (the demo view)
+
+`GET /activity` reports which of the three agents is working right now, and the
+dashboard renders it as three cards at the top of `/dashboard` — the working one
+lights up, the others stay dim.
+
+| Agent | What it shows | Where it comes from |
+|---|---|---|
+| Planner | pipeline stage (`generate_testcase`), tool name (`list_open_questions`), model + latency + tokens | reports directly; runs in the gateway |
+| Executor | `step 12/50` with a progress bar | **derived** — mobilerun writes one `ui_states/NNNN.json` per device step, so the newest trajectory folder is counted |
+| Investigator | `reading trajectory`, then the model call | reports directly; runs in the gateway |
+
+```bash
+curl -s localhost:9100/activity | python3 -m json.tool     # raw snapshot
+open http://localhost:9100/dashboard?project=contacts      # the view
+```
+
+Three design notes worth knowing before changing it:
+
+- **The executor is derived, not reported.** It runs in a separate client process,
+  so it never calls back. Counting its trajectory folder means no executor change
+  was needed — but it also means the step count is only live while mobilerun is
+  writing. A folder quiet for 45s is treated as finished, and the step bar is
+  hidden when idle so the *previous* run's total is never shown as if it were live.
+- **Instrumentation sits at choke points, not call sites.** Planner stages come
+  from `observability/tracing.py::timed_node` (every LangGraph node passes through
+  it), tool calls from `planner/tools.py::call`, model calls from
+  `planner/model_client.py`. Adding a node or a tool needs no new instrumentation.
+- **A shared model client is attributed by `activity.busiest()`.** The planner and
+  investigator call the same client, so an LLM call alone does not say who made it;
+  whichever agent is already marked busy is credited.
+
+State is in-memory and lossy by design — it is a status light, not a record.
+Everything durable is already in Neo4j and `logs/app.jsonl`. A component whose last
+event is older than `STALE_AFTER_S` (90s) reports idle, so a killed run cannot
+leave the demo showing a permanently lit agent.
+
+## 10. Reporting a finished campaign
 
 `scripts/build_campaign_report.py` renders one campaign as a self-contained HTML report —
 results, failure analysis, coverage, every finding, every test case, and the limitations that
