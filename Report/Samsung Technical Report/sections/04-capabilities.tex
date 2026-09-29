@@ -1,0 +1,100 @@
+\section{Capabilities}
+\label{sec:capabilities}
+
+This section states what the system can be asked to do. \Cref{sec:fulfilment}
+maps these onto the requirement identifiers of ETA-TR-2026-001, and
+\Cref{sec:results} gives the evidence.
+
+\subsection{It selects its own objectives}
+
+No test objective enters the loop from outside. The planner reads the graph,
+decides what is worth testing next, and writes an objective together with the
+requirements it claims to cover. Proposals are rejected structurally and as
+duplicates, using an embedding-cosine check behind a lexical pre-filter, so a
+campaign does not spend its budget re-testing what it has already tried.
+
+Requirement citation is enforced at both construction paths. An earlier defect
+allowed decorated identifiers to bypass the check, which is the kind of failure
+that quietly destroys a coverage claim, and it is now closed at both sites
+rather than at the one where it was found.
+
+\subsection{It runs on two platforms without changing}
+
+One planner and one graph drive both Android and the web. The Android player
+uses the accessibility service with a companion on-device application; the web
+player uses an accessibility-annotated browser snapshot. The planner does not
+know which it is driving.
+
+Adding a platform meant writing a player against the same contract. Adding a
+\emph{target} on an existing platform means writing a configuration profile and
+nothing else: no code, no build, no redeploy.
+
+\subsection{It works with whatever knowledge exists}
+
+Six retrieval sources are supported and all six are optional: specification,
+screen designs, flow designs, the live observed interface, defect history, and
+the navigation tree. A source that is absent contributes nothing rather than
+blocking the round.
+
+The practical range this covers runs from a target with a full specification
+and a defect export down to a target with nothing at all, where the system
+works purely from what it observes. \Cref{sec:limits} is candid about how much
+quality is lost at that end of the range.
+
+\subsection{It learns across runs}
+
+Four kinds of knowledge accumulate and are read back into the next round.
+
+\begin{description}[leftmargin=2.4em,style=nextline,itemsep=3pt,topsep=4pt]
+  \item[Navigation memory.] Paths that reached a screen are recorded, along
+    with transitions that led nowhere, so a later test walks a known route
+    instead of rediscovering it. This is the mechanism behind the fall in
+    median device steps from 50 to 9.
+  \item[Execution history and error patterns.] Failures are mined for recurring
+    patterns, which feed a strategy memory the planner consults when choosing
+    how to approach a screen.
+  \item[The application model.] Interface states and the transitions between
+    them are built entirely from observation, with no design export required.
+  \item[Findings.] Deduplicated claims about the application, each attributed
+    and each linked to the runs that support it.
+\end{description}
+
+\subsection{It reports in a form a stakeholder can act on}
+
+A campaign is configured, started and watched from a dashboard, and exports a
+report whose numbers are computed from the graph while the language model
+supplies only connecting prose. Agent-caused failures are filtered out before a
+defect is named.
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{0.49\textwidth}
+    \centering\includegraphics[width=\textwidth]{dashboard-live-logs.jpg}
+    \caption{Live campaign view.}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.49\textwidth}
+    \centering\includegraphics[width=\textwidth]{dashboard-app-model.jpg}
+    \caption{The application model as it is built.}
+  \end{subfigure}
+  \caption[Operator surface]{The operator surface. These captures are from a
+  development run and are included to show what the interface presents; the
+  figures this report stands behind are in \Cref{sec:results}.}
+  \label{fig:dashboard}
+\end{figure}
+
+\subsection{It bounds what it is allowed to do}
+
+Operations that cannot be undone are blocked at the configuration layer rather
+than discouraged in a prompt. On the production target this covers account
+registration, one-time-password verification, payment and account deletion.
+Across 123 recorded executions no irreversible action occurred.
+
+Test credentials reach the player, which has to type them, and never the
+planner, which receives the account role only. A secret that never enters the
+planner's context cannot appear in a planner trace, a prompt log or the
+dashboard.
+
+Application content is labelled as untrusted data in every prompt that carries
+it. The rule is implemented separately in the player, the investigator and the
+evidence reviewer, because each assembles its own prompt and a single shared
+helper would have been bypassed by whichever path did not use it.

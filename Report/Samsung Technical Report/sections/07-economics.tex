@@ -1,0 +1,100 @@
+\section{Cost}
+\label{sec:economics}
+
+Every figure in this section is read from a provider's billing record or from
+the team's own account records. Nothing here is projected.
+
+\subsection{What the project spent}
+
+\begin{table}[H]
+  \centering\small
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.80\hsize}Y>{\hsize=1.66\hsize}Y>{\hsize=0.54\hsize}Y@{}}
+    \toprule
+    Item & Basis & Amount \\
+    \midrule
+    Metered inference, project account & Prepaid balance of USD 6.50 available at handover; USD 2.69 consumed across 88 device executions, verified against the provider's billing API & USD 2.69 \\
+    \addlinespace
+    Metered inference, development & Credit purchased out of pocket across the team's own accounts, covering development, debugging, repeated specification re-ingestion and regression runs & about USD 43 \\
+    \addlinespace
+    \textbf{Total metered inference} & \textbf{Reconstructed from account records; accurate to a few dollars, not to the cent} & \textbf{under USD 50} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+The split between those two lines is the more useful fact. Running the finished
+system is cheap. Building it was not, because development re-ran the expensive
+half repeatedly: every change to the ingestion pipeline meant re-reading the
+specification from scratch, and the player and investigator ran on a more
+expensive tier until the quality cost of moving them down had been measured.
+
+No other line in this project cost money. There was no accelerator hardware, no
+server, and no licence fee: the graph database, the service frameworks, the
+browser and device drivers, the embedding model and the document-handling
+libraries are all open-source and self-hosted, the development machines and the
+test handset were already owned, and an Android emulator on each machine
+carried the great majority of execution.
+
+\subsection{What a test costs}
+
+\begin{table}[H]
+  \centering\small
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.70\hsize}Y>{\hsize=1.78\hsize}Y>{\hsize=0.52\hsize}Y@{}}
+    \toprule
+    Unit & Measured basis & Cost \\
+    \midrule
+    One Android test executed & 10.1 device steps across 232 stored observations; accessibility tree averaging 4{,}686 bytes per step; planner logging 384{,}000 tokens over 108 calls & USD 0.008 \\
+    \addlinespace
+    One specification ingestion & About 22 calls on the most expensive tier, three self-consistency samples, no output cap & USD 1.80 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Within the per-test figure the player accounts for about 92\,\% and the planner
+about 8\,\%. That is why reducing median steps from 50 to 9 was a real saving
+and why optimising the planner prompt would not have been.
+
+Ingestion is paid once per document rather than once per run, so it is a fixed
+cost. It is also the largest single line item in the project's own spending,
+for the reason given above: it was paid again every time the ingestion pipeline
+itself changed. Three metering controls would reduce it and are not yet built:
+an output ceiling on extraction, a reduced sample count once extraction has
+stabilised, and a cache that refuses to re-read an unchanged document.
+
+\subsection{What each campaign cost}
+
+The Android figures below follow directly from the measured per-test cost and
+the number of executions in each campaign.
+
+\begin{table}[H]
+  \centering\small
+  \begin{tabularx}{\textwidth}{@{}>{\hsize=0.86\hsize}Y>{\hsize=0.34\hsize}Y>{\hsize=0.42\hsize}Y>{\hsize=1.38\hsize}Y@{}}
+    \toprule
+    Campaign & Tests & Inference & Note \\
+    \midrule
+    AUT-1, full campaign (C7) & 45 & USD 0.36 & 7.5 hours of device time \\
+    \addlinespace
+    Google Contacts, full campaign (C8) & 50 & USD 0.40 & 6.2 hours of device time \\
+    \addlinespace
+    AUT-1, C6 & 25 & USD 0.20 & The campaign plotted test by test in \Cref{fig:scatter} \\
+    \addlinespace
+    Google Contacts, C3 & 25 & USD 0.20 & The campaign that first reached 100\,\% autonomy \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+The three web campaigns were not separately metered. They run without a vision
+model, because the browser snapshot already carries the structure a screenshot
+would have to be read for, so their per-test cost is lower than the Android
+figure rather than higher.
+
+\subsection{The shape of it}
+
+A campaign costs less than a dollar. A specification ingestion costs about two
+hundred test executions. The entire project, including every development run
+and every re-ingestion, cost under fifty dollars of inference and nothing else.
+
+For an organisation running this against a build, the implication is that
+inference is not the constraint on how much testing gets done. A five-hundred
+test suite is about four dollars of inference. The constraint is wall clock,
+which is emulator time rather than model time, and the engineer time spent
+confirming candidate defects.

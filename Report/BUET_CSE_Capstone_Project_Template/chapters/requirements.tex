@@ -1,0 +1,453 @@
+% Chapter 3 -- Rubric: PO2 (2.1), PO3 (3.1, 3.2)
+\chapter{Requirements Analysis}
+\label{ch:requirements}
+
+% Module paths in the tables below are set with \modpath rather than \texttt so
+% that they may break across lines; a long unbreakable path overflows the
+% column. \UrlBreaks is widened for the same reason. (url is already loaded by
+% hyperref, so no new package is required.)
+\def\UrlBreaks{\do\/\do\_\do\-\do\.}
+\newcommand{\modpath}[1]{\path{#1}}
+
+\section{Project Objectives and Constraints}
+\label{sec:requirements}
+
+\subsection{The Primary Requirement: From Directed to Exploratory Testing}
+\label{subsec:primary}
+
+Every other requirement in this chapter is downstream of one decision taken by
+the industry partner, and it is worth isolating before the detail begins. The
+partner's review of the preceding work asked for a move away from
+\emph{directed functional testing}, in which an agent is handed a test
+objective and carries it out, towards \emph{exploratory testing}, in which the
+agent decides for itself what is worth testing next.
+ETA-TR-2026-001~\cite{etatr} records the target as ``an autonomously learning,
+self-optimising exploratory test engineer'' and the governing principle as
+\emph{every execution cycle must make the agent smarter than the last}.
+
+Read as a requirements statement rather than a slogan, that sentence has four
+consequences that shape everything in \Cref{subsec:fr,subsec:nfr}.
+
+\begin{enumerate}[label=\textbf{(\alph*)},leftmargin=2.8em]
+  \item \textbf{The test objective moves from input to output.} Nothing outside
+    the loop may supply a test case. This is what makes the planner, rather than
+    the executor, the component on which the system's quality depends, and it is
+    why supplying individual objectives is explicitly out of scope
+    (\Cref{sec:objectives}).
+  \item \textbf{Memory becomes mandatory rather than an optimisation.} An
+    exploratory agent with no persistent state re-treads the same ground every
+    session, so ``smarter than the last cycle'' is unsatisfiable without
+    durable knowledge. This is why five of the partner's eight requirement families (ETA-REQ-301, 302, 303, 306 and 307) are, at bottom, statements about \emph{remembering}.
+  \item \textbf{The oracle must be derived, and must be able to abstain.} A
+    directed test carries its expected result; an exploratory one must infer
+    what correct behaviour is from the specification and decline to judge when
+    the specification is silent. The two failure modes of a derived oracle, a fabricated defect and a silent pass, are what NFR-D2 and NFR-D3 exist to prevent.
+  \item \textbf{Success must be measured differently.} Task-completion rate is
+    the natural metric for a directed agent, because the task was given. For an
+    exploratory agent the comparable questions are how much of the requirement
+    set was covered, how many executions produced a verdict about the
+    application rather than about the agent, and what each of those cost, which is why the optimised quantities in \Cref{sec:problem-statement} are
+    coverage, autonomy and cost per test rather than task success.
+\end{enumerate}
+
+The difficulty this buys is set out as D1--D6 in \Cref{subsec:whyhard} and is
+not restated here. It is, however, the reason several of the derived
+requirements in \Cref{tab:derived-req} exist at all: a directed agent would
+need neither a three-way fault attribution nor an investigator role, because a
+supplied objective already answers most of the questions those mechanisms are
+there to resolve.
+
+\subsection{Stakeholders and Their Expectations}
+\label{subsec:stakeholders}
+
+The problem came from an industry partner, which makes the stakeholder map
+concrete rather than hypothetical. \Cref{tab:stakeholders} lists each group,
+what it expects and, where it exists, the tension between that expectation and
+another group's.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.62\hsize}Y>{\hsize=1.20\hsize}Y>{\hsize=1.18\hsize}Y@{}}
+  \caption{Stakeholders, expectations and conflicts}
+  \label{tab:stakeholders}\\
+  \toprule
+  Stakeholder & Expectation & Conflict with another stakeholder \\
+  \midrule
+  \endfirsthead
+  \caption[]{Stakeholders, expectations and conflicts \emph{(continued)}}\\
+  \toprule
+  Stakeholder & Expectation & Conflict with another stakeholder \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  Industry partner (Samsung R\&D Institute Bangladesh) & A move from directed functional testing to genuinely exploratory testing; an agent that accumulates experiential knowledge and transfers it across device profiles, platforms and applications; delivery against ETA-TR-2026-001. & Self-directed exploration conflicts directly with the QA lead's demand that every reported result be reproducible and traceable, and transfer implies generalising beyond what was observed. \\
+  \addlinespace
+  Quality-assurance engineers & Reduced manual effort; runs that can be reproduced, audited and explained; a report that can be handed to a developer. & Reproducibility conflicts with the exploratory, non-deterministic behaviour that gives the agent its value (difficulty D5). \\
+  \addlinespace
+  Application developers & A low false-positive rate. Every incorrectly reported defect costs investigation time and erodes trust in the tool. & Conflicts with maximising defect-discovery rate: a more aggressive oracle finds more real defects and more spurious ones. \\
+  \addlinespace
+  Academic supervisor and examiners & A defensible empirical evaluation with an honest account of limitations; evidence of engineering judgement, not only of a working artefact. & Conflicts with the partner's delivery pressure, which rewards breadth of features over depth of validation. \\
+  \addlinespace
+  End users of the application under test & That testing never damages live data, charges a payment method, or sends a message on their behalf. & Conflicts with coverage: the safest agent is one that never acts. \\
+  \addlinespace
+  The project team & A system that one member can operate without the author of a subsystem present. & Conflicts with delivery speed. \\
+\end{xltabular}
+\endgroup
+
+The two conflicts that shaped the design most are the third and the fifth. The
+false-positive conflict is resolved by making fault attribution a first-class,
+single-definition concept (\Cref{subsec:nfr}, NFR-D3) so that an agent
+limitation can never be silently reported as an application defect. The safety
+conflict is resolved by declaring irreversible flows out of scope and enforcing
+that declaration in configuration rather than in prose
+(\Cref{subsec:constraints}, C5).
+
+\subsection{Functional Requirements}
+\label{subsec:fr}
+
+The functional requirements come from two places. The first eight families are
+the partner's, taken verbatim in intent from ETA-TR-2026-001~\cite{etatr}
+sections~3.1--3.8. The remainder (prefixed DR, for
+\emph{derived}) were identified by the team during the work and agreed with the
+supervisor; they exist because the partner's document assumes a single, fully
+documented Android application, and that assumption did not survive contact
+with a real target.
+
+\Cref{tab:partner-req} lists the partner's requirements with the module that
+implements each and an honest status. \Cref{tab:derived-req} does the same for
+the derived requirements.
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.58\hsize}Y>{\hsize=0.94\hsize}Y>{\hsize=1.30\hsize}Y>{\hsize=1.18\hsize}Y@{}}
+  \caption{Partner requirements (ETA-TR-2026-001) and their realisation}
+  \label{tab:partner-req}\\
+  \toprule
+  ID & Requirement & Realisation & Status \\
+  \midrule
+  \endfirsthead
+  \caption[]{Partner requirements (ETA-TR-2026-001) and their realisation \emph{(continued)}}\\
+  \toprule
+  ID & Requirement & Realisation & Status \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{4}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  \mbox{ETA-REQ-301} & Defect history as a knowledge-graph source: ingestion, graph model, defect-weighted retrieval, defect summary, prompt injection, test-to-defect traceability. &
+  \modpath{ingestion/defect_loader.py}, \modpath{rag_api/defects.py}, \modpath{planner/sources/defects.py}; endpoints \modpath{/ingest/defects}, \modpath{/defects/summary}, \modpath{/defects/prone-areas}, \modpath{/defects/context}. &
+  Implemented. Exercised on synthetic defect data only; the partner supplied no real defect export (constraint C3). \\
+  \addlinespace
+  \mbox{ETA-REQ-302} & Execution-path memory as a navigation tree: path recording, shortest-path optimisation, branch retrieval, incremental extension, failed-path avoidance, cross-test reuse. &
+  \modpath{rag_api/navtree.py}, \modpath{planner/sources/navtree.py}; endpoints \modpath{/navtree/record-path}, \modpath{/navtree/retrieve-path}, \modpath{/navtree/failed-paths}, \modpath{/navtree/stats}. &
+  Implemented. \\
+  \addlinespace
+  \mbox{ETA-REQ-303} & Incremental experiential learning: execution logs, error-pattern mining, strategy memory, coverage heat map, session continuity, knowledge decay. &
+  \modpath{rag_api/learning.py}; endpoints \modpath{/execution/log}, \modpath{/execution/logs}, \modpath{/execution/error-patterns}, \modpath{/coverage/heatmap}, \modpath{/strategy/memory} and the four \modpath{/session/} endpoints. Requirement knowledge is versioned rather than overwritten: \modpath{/srs/drift} reports the rules added, changed or removed when a specification is re-ingested, and \modpath{/business-logic/rules} exposes each extracted validation rule with the source chunk it came from. Extraction itself supports best-of-$N$ sampling adjudicated by a separate judge model. &
+  Implemented. \\
+  \addlinespace
+  \mbox{ETA-REQ-304} & Multi-dimensional graph partitioning by profile, platform and application, with dimensional retrieval filtering and cross-dimensional transfer. &
+  \modpath{rag_api/dimensions.py}; endpoints \modpath{/dimensions/register}, \modpath{/dimensions/list}, \modpath{/dimensions/transfer-suggestions}. &
+  Implemented. The \texttt{application} axis is exercised; cross-dimensional transfer is not yet validated. \\
+  \addlinespace
+  \mbox{ETA-REQ-305} & Self-healing and adaptive execution: failure classification, per-category retry, failure context injected into the retry prompt. &
+  \modpath{clients/executor_runner.py} (Android) and \modpath{web_player/failures.py} (web), sharing one category vocabulary defined in \modpath{settings.py}. &
+  Implemented on both platforms. \\
+  \addlinespace
+  \mbox{ETA-REQ-306} & Regression risk scoring per feature area, risk-weighted prioritisation, risk API. &
+  \modpath{rag_api/risk.py}, endpoint \modpath{/risk/scores}; the \texttt{[RISK]} priority line in \modpath{planner/coverage.py}. &
+  Implemented. \\
+  \addlinespace
+  \mbox{ETA-REQ-307} & Test-case quality metrics and feedback loop: per-test effectiveness, generation-quality feedback, semantic duplicate detection. &
+  \modpath{rag_api/metrics.py}; endpoints \modpath{/tests/effectiveness}, \modpath{/tests/dedup-check}. Embedding-cosine dedup is called from both planner proposal paths, behind a Jaccard pre-filter in \modpath{planner/textutil.py}. &
+  Implemented. \\
+  \addlinespace
+  \mbox{ETA-REQ-308} & Anomaly detection over execution patterns: failure-rate spikes, duration regressions, new error types, path instability. &
+  \modpath{rag_api/anomalies.py}; endpoints \modpath{/anomalies/detect}, \modpath{/anomalies}. &
+  Implemented. Validated on synthesised execution histories. \\
+\end{xltabular}
+\endgroup
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.40\hsize}Y>{\hsize=1.34\hsize}Y>{\hsize=1.26\hsize}Y@{}}
+  \caption{Requirements derived by the team, beyond ETA-TR-2026-001}
+  \label{tab:derived-req}\\
+  \toprule
+  ID & Requirement and why it was needed & Realisation \\
+  \midrule
+  \endfirsthead
+  \caption[]{Requirements derived by the team \emph{(continued)}}\\
+  \toprule
+  ID & Requirement and why it was needed & Realisation \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  DR-01 & \textbf{No knowledge source is a hard dependency.} The partner's document presumes an SRS \emph{and} a Figma export. Most real targets have one or neither, and a system that fails without both is not deployable. Adding a source must be additive; removing one must degrade the output, not break it. &
+  A source registry with a common interface: \modpath{planner/sources/} (\modpath{registry.py}, \modpath{base.py}) with nine registered sources, consulted by the planner instead of a hard-coded source list. \\
+  \addlinespace
+  DR-02 & \textbf{Learn the application's structure from the running application.} With no design export, the only ground truth is what the screen shows. The agent must build its own map of screens and transitions, and must correctly decide whether a screen it is looking at is one it has seen before. &
+  The Live App Model: \modpath{ingestion/app_state.py} computes a structural signature and the identity cascade, which ends in a perceptual hash over the screenshot and is consulted only where the accessibility tree is too thin to decide on structure alone. Endpoints \modpath{/liveui/observe} and \modpath{/appmodel/graph} store and expose the state--transition graph, and each state keeps its screenshot, so both the planner and the operator can see the screen a test refers to. \\
+  \addlinespace
+  DR-03 & \textbf{Application-agnostic by construction.} An agent that knows about one application is a script. No application name, package, screen name or domain vocabulary may appear in code or in a prompt template. &
+  All application-specific values are injected from configuration through \modpath{settings.py} block builders; a repository-wide generality audit script enforces the rule. \\
+  \addlinespace
+  DR-04 & \textbf{A second execution platform.} Restricting the agent to Android would have left the learning machinery unvalidated against a genuinely different user-interface technology, and the partner's own multi-platform requirement (ETA-REQ-304) would have had only one platform to partition. &
+  \modpath{web_player/}: a Playwright-driven executor with its own snapshot, action, oracle and failure-classification modules, sharing the planner, the graph and the attribution vocabulary. It carries the operational guards a live site needs: a single-run lock so two campaigns cannot interleave against one target, and a pause-and-notify handoff when a CAPTCHA blocks a flow, so the run waits for a person rather than recording a false failure. \\
+  \addlinespace
+  DR-05 & \textbf{Evidence integrity.} Two failure modes were observed early and are unacceptable in a tool whose output is a correctness claim: a language-model outage being recorded as a defect in the application, and a silent fallback hiding the fact that a component had degraded. &
+  A single three-way attribution taxonomy (\texttt{APP\_FAULT}, \texttt{AGENT\_FAULT}, \texttt{ENV\_FAULT}) defined once in \modpath{settings.py} and consumed everywhere; a cross-process degradation register in \modpath{observability/} that records every fallback taken. \\
+  \addlinespace
+  DR-06 & \textbf{Turn trajectories into durable, atomic knowledge.} Raw execution prose does not compose: inlining each run's report consumed the majority of the next generation prompt and restated the same discovery repeatedly. &
+  An investigator role (\modpath{rag_api/findings.py}, endpoint \modpath{/execution/evaluate}) that reduces a trajectory to deduplicated findings carrying an independent-observation count. \\
+  \addlinespace
+  DR-07 & \textbf{Enforced safety boundary.} The declaration that registration, one-time passwords, payment and account deletion are out of scope must be machine-enforced, not a note in a prompt. &
+  Per-target blocked control texts and blocked URL patterns in the target profile schema; an out-of-scope requirement filter that withholds such requirements from the planner's citable list. \\
+  \addlinespace
+  DR-08 & \textbf{An operator surface.} A campaign that can only be understood by reading a log is not usable by the QA engineers who are the intended users. &
+  A React dashboard with live session, coverage, app-model and trace panels; an exportable PDF run report (\modpath{gateway/report_api.py}) whose numbers are computed from the graph while the language model supplies prose only; knowledge sources uploaded and ingested per target from the same surface; and the graph itself inspectable through visualisation and query endpoints. \\
+  \addlinespace
+  DR-09 & \textbf{Configuration as data.} Process-global settings made every new target a code change. &
+  A target profile system (\modpath{targets/}) with a validated JSON schema, a loader, and gateway endpoints to list, validate, save, ingest and run a profile. \\
+  \addlinespace
+  DR-10 & \textbf{Measured, not estimated, cost.} A budget-bound project must know its unit economics. &
+  Per-execution accounting reconciled against the provider's billing record; reported in \Cref{ch:evaluation}. \\
+  \addlinespace
+  DR-11 & \textbf{The planner must be able to investigate, not only receive.} A fixed context block has to guess in advance what the planner will need, and it cannot check a claim while forming it. The consequence was measurable: screen names the planner invented matched a real observed screen about 16\% of the time, and invented requirement identifiers reached the device. &
+  Two interchangeable planner modes behind one output contract (\texttt{PLANNER\_MODE}). The default assembles a fixed context; the alternative gives the planner nine graph tools (requirement search, untested requirements, screen lookup, screen listing, findings summary and listing, open questions, coverage, navigation paths) and lets each tool result enter its conversation. A tool whose knowledge source is disabled is never registered, so an absent source cannot mislead it. Proposals pass a server-side gate that checks the screen exists, the requirements exist, the test is not a semantic duplicate and the preconditions are reachable, returning an actionable reason on rejection. The executor is unaffected by the choice, so the two can be compared on the same campaign. \\
+\end{xltabular}
+\endgroup
+
+\subsection{Non-Functional Requirements}
+\label{subsec:nfr}
+
+Two non-functional requirements are the partner's; the rest were derived
+alongside the DR requirements above.
+
+\begin{itemize}[leftmargin=1.6em]
+  \item \textbf{NFR-001 (partner). Retrieval latency.} All retrieval
+    endpoints shall respond within 500\,ms at the 95th percentile for typical
+    queries, on a graph of up to 100{,}000 nodes.
+  \item \textbf{NFR-002 (partner). Graph scalability.} The system shall
+    support up to 10{,}000 test cases, 5{,}000 defects and 50{,}000 navigation
+    nodes per project without performance degradation.
+  \item \textbf{NFR-D1. Cost ceiling.} The marginal cost of one executed test
+    shall be small enough that a campaign is not budget-limited at the scale of
+    a few hundred tests.
+  \item \textbf{NFR-D2. Observability.} Every degradation, fallback and
+    skipped step shall be recorded and retrievable across process boundaries. A
+    silent pass is treated as a defect in the harness.
+  \item \textbf{NFR-D3. Attribution soundness.} No agent limitation or
+    environmental block may be reported as an application defect. The taxonomy
+    has exactly one definition in the source tree.
+  \item \textbf{NFR-D4. Safety.} No irreversible action on the application
+    under test, enforced by configuration.
+  \item \textbf{NFR-D5. Reproducibility.} A campaign shall be reconstructible
+    from persisted artefacts (graph state, execution logs, screenshots and the exact prompt sent) without re-running it. Given difficulty D5 this is
+    deliberately \emph{reconstruction}, not replay.
+  \item \textbf{NFR-D6. Confidentiality of test credentials.} Credentials for
+    the test account shall not be committed, and shall not reach any component
+    that does not need them; in particular the planner shall receive the account
+    \emph{role} but never the secret.
+\end{itemize}
+
+\subsection{Constraints}
+\label{subsec:constraints}
+
+\begin{description}[leftmargin=2.6em,style=nextline]
+  \item[C1. Time.] One academic session, with five part-time team members who
+    also carried a full course load. This ruled out approaches requiring model
+    training or a large hand-labelled corpus.
+  \item[C2. Budget.] A fixed, small prepaid balance on a hosted
+    model-inference provider. There was no institutional compute grant. Cost per
+    test therefore became a design constraint rather than a reporting
+    afterthought, and directly motivated moving work from the flagship model
+    tier to cheaper tiers where the quality loss was acceptable.
+  \item[C3. Data availability.] The partner did not supply a defect export or
+    a seeded-defect build. ETA-REQ-301 could therefore be implemented but only
+    validated against synthetic defect data, and precision and recall against a
+    known ground truth could not be measured. This is recorded as a limitation
+    rather than worked around.
+  \item[C4. Target application.] The application supplied for evaluation is a
+    production system with live users. It is built with a cross-platform toolkit
+    that exposes no stable resource identifiers, reports a single activity on
+    every screen, and does not expose text through the accessibility tree, all of which the element-location strategy had to accommodate.
+  \item[C5. Irreversible flows.] Account registration, one-time-password
+    verification, payment and account deletion cannot be exercised against a
+    production system. Test accounts were provisioned in advance and the
+    corresponding requirements marked as preconditions already satisfied.
+  \item[C6. Device access.] Testing requires a physical device or emulator reachable from the developer host, with the mobilerun companion application installed. That companion supplies both the accessibility service the executor drives and an input method that makes text entry reliable; without it the executor falls back to shell input, which corrupts multi-field forms. Emulator use was additionally limited by the target's
+    dependence on a telephone-number sign-in.
+  \item[C7. Deployment.] The system is scoped to run as a local, developer-operated stack of four processes on a single trusted host. Hardening for shared-network or multi-tenant deployment is outside the project's scope, and this bounds the deployment claims made in \Cref{ch:design}.
+  \item[C8. Non-determinism.] Language-model outputs are not reproducible
+    across calls. Any evaluation claim must therefore be made over a
+    distribution of runs, not a single run.
+\end{description}
+
+\section{Regulatory Requirements and Standards}
+\label{sec:standards}
+
+No single standard governs an autonomous, model-driven test agent. The
+applicable instruments are therefore of three kinds: testing standards that
+supply vocabulary and process; security and privacy instruments that constrain
+how the system handles the application's data and its own credentials; and
+platform or partner policies. \Cref{tab:standards} states each, why it applies,
+and how the design complies.
+
+\begingroup
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{xltabular}{\textwidth}{@{}>{\hsize=0.62\hsize}Y>{\hsize=1.10\hsize}Y>{\hsize=1.28\hsize}Y@{}}
+  \caption{Standards and regulatory instruments, applicability and compliance}
+  \label{tab:standards}\\
+  \toprule
+  Instrument & Why it applies & How the design complies \\
+  \midrule
+  \endfirsthead
+  \caption[]{Standards and regulatory instruments \emph{(continued)}}\\
+  \toprule
+  Instrument & Why it applies & How the design complies \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  ISO/IEC/IEEE 29119 (Software testing, Parts 1--4)~\cite{iso29119} & Supplies the normative vocabulary for test process, documentation and techniques, and the definition of a test oracle. & Test cases carry the 29119 documentation elements: objective, preconditions, steps, expected result, and traceability to a requirement. Coverage is reported against the requirement set. \emph{Deviation, declared:} 29119 assumes test design is performed by people before execution; here it is performed by an agent at run time, so the ``test design specification'' is the generated artefact itself rather than a prior document. \\
+  \addlinespace
+  ISO/IEC 25010 (Systems and software quality models)~\cite{iso25010} & Gives the quality characteristics against which the application under test, and the agent itself, are judged. & Functional suitability and functional correctness are the characteristics the oracle targets; reliability and usability observations are recorded as findings but not asserted as defects. \\
+  \addlinespace
+  ISO/IEC/IEEE 29148 (Requirements engineering)~\cite{iso29148} & The system ingests a requirements specification and cites requirement identifiers; it therefore depends on that document being well-formed. & The ingestion pipeline extracts atomic, uniquely identified requirements and links every derived artefact to the source chunk it came from, preserving bidirectional traceability as 29148 requires. Requirements that are not verifiable as written are flagged rather than silently dropped. \\
+  \addlinespace
+  OWASP Top 10 for Large Language Model Applications~\cite{owaspllm} & The agent feeds untrusted application content (on-screen text, DOM content, page titles) into models that then decide what action to take, which is the textbook prompt-injection surface (LLM01). It also handles account credentials (LLM06). & Every prompt that carries observed application content labels it explicitly as untrusted data that must never be interpreted as instructions; this instruction is present in the executor, investigator and evidence-reviewer prompts. For LLM06, the test-account secret is passed only to the executor goal and never to the planner, which receives the account role alone. \\
+  \addlinespace
+  OWASP Application Security Verification Standard & The stack exposes HTTP services that can ingest files and reset a project database. & Services bind to loopback by default and support API-key authentication, and the deployment model assumes a single trusted host (constraint C7). Uniform authentication across every diagnostic handler, and containment checks on ingestion paths, are identified as the prerequisites for any deployment beyond that host. \\
+  \addlinespace
+  Android accessibility APIs and WCAG 2.1 (by analogy) & The Android executor drives the application through the platform accessibility tree; the web executor uses the accessibility-role-annotated DOM. The agent can only interact with what is exposed to assistive technology. & Element location is built on accessible roles, names and content descriptions rather than pixel coordinates. A consequence worth stating: a control the agent cannot see is also a control a screen-reader user cannot see, so the agent's element-location failures are themselves an accessibility signal. \\
+  \addlinespace
+  Data-protection principles (GDPR Articles 5 and 25; Bangladesh Personal Data Protection Bill) & Testing a production system risks touching real user data. & Purpose limitation and data minimisation are applied by construction: dedicated disposable test accounts, no ingestion of production user records, and no persistence of raw personal data in the knowledge graph. Destructive and communicative actions are blocked at the configuration layer. \\
+  \addlinespace
+  Partner confidentiality policy and third-party licensing & The partner's requirements document is not public; the project uses open-source libraries and commercial model APIs. & No partner-confidential material is reproduced in this report beyond requirement identifiers and titles used for traceability. Third-party licences are listed in \Cref{ch:management}, and model-provider terms of service govern the hosted inference used. \\
+\end{xltabular}
+\endgroup
+
+\section{Formulation of Solutions}
+\label{sec:alternatives}
+
+Five architectures were considered, each of which could plausibly have met most
+of the functional requirements. They are described below and then compared
+against criteria drawn directly from
+\Cref{subsec:fr,subsec:nfr,subsec:constraints}.
+
+\paragraph{Alternative A. Scripted automation with a page-object model.}
+Encode each requirement as an Appium or Espresso script over a page-object
+layer, and run the suite on every build. Mature tooling, fully deterministic,
+trivially reproducible.
+
+\paragraph{Alternative B. Random and search-based exploration.} Drive the
+application with generated events, using a search heuristic (activity coverage,
+code coverage) to guide the generator. Requires no specification and no
+per-application authoring.
+
+\paragraph{Alternative C. Classical model-based testing.} Hand-author a
+finite-state model of the application and derive test paths from it by graph
+traversal. Strong coverage guarantees over the model.
+
+\paragraph{Alternative D. Stateless language-model prompting.} Send the
+specification and a screenshot to a large language model on each round and ask
+it for the next test case. No persistent memory; each call is independent.
+
+\paragraph{Alternative E. Knowledge-graph-backed multi-role agent
+(selected).} A planner, an executor and an investigator, each a separate
+stateless language-model call, communicating only through a persistent property
+graph that is grown from documents, from defect history and from the agent's
+own observations of the running application.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Evaluation of alternative solutions against the project's criteria.
+  Legend: \checkmark\ meets, $\sim$ partially meets, $\times$\ does not meet.}
+  \label{tab:alternatives}
+  \small
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabularx}{\textwidth}{@{}Yccccc@{}}
+    \toprule
+    Criterion (source) & A & B & C & D & E \\
+    \midrule
+    Selects its own test objective (\Cref{subsec:primary}) & $\times$ & \checkmark & $\times$ & \checkmark & \checkmark \\
+    Requirement traceability and coverage reporting (O2, ETA-REQ-307) & \checkmark & $\times$ & $\sim$ & $\sim$ & \checkmark \\
+    Oracle strength beyond crash detection (\Cref{sec:problem-statement}) & \checkmark & $\times$ & \checkmark & $\sim$ & \checkmark \\
+    Discovers behaviour nobody anticipated (O3) & $\times$ & \checkmark & $\times$ & \checkmark & \checkmark \\
+    Learns across runs; later rounds better informed (O4, ETA-REQ-302/303) & $\times$ & $\times$ & $\times$ & $\times$ & \checkmark \\
+    Tolerates user-interface change without re-authoring (C4) & $\times$ & \checkmark & $\times$ & \checkmark & \checkmark \\
+    Per-application setup cost (C1) & $\times$ & \checkmark & $\times$ & \checkmark & $\sim$ \\
+    Works with a partial or absent specification (DR-01) & $\sim$ & \checkmark & $\times$ & $\sim$ & \checkmark \\
+    Cross-platform and cross-application transfer (ETA-REQ-304) & $\times$ & $\times$ & $\times$ & $\times$ & \checkmark \\
+    Marginal cost per test (C2, NFR-D1) & \checkmark & \checkmark & \checkmark & $\times$ & $\sim$ \\
+    Reproducibility and auditability (NFR-D5) & \checkmark & $\sim$ & \checkmark & $\times$ & $\sim$ \\
+    Sound fault attribution (NFR-D3) & \checkmark & $\times$ & \checkmark & $\times$ & \checkmark \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection*{Conclusion and justification of the selected solution}
+
+The comparison separates the alternatives on two rows, and they are the two
+that encode the partner's actual request. The first row disqualifies A and C
+outright: a scripted suite and a hand-authored state model both require a
+person to decide what is tested, which is the directed-testing regime the
+partner asked to move away from. The fifth row then disqualifies B and D: none
+of the four carries anything forward from one execution to the next. A re-runs
+the same scripts, B re-randomises, C traverses a model only a human can update,
+and D begins each round with no memory of the previous one. Since \emph{every
+execution cycle must make the agent smarter than the last} is the stated
+objective, that row alone eliminates four of the five.
+
+Among the remainder, the choice is between D and E, which differ in exactly one
+respect: whether the agent has a persistent, queryable memory. Adding that
+memory is what makes requirement traceability, navigation reuse, risk scoring,
+duplicate suppression and cross-application transfer expressible at all: five
+of the partner's eight requirement families are statements about
+\emph{remembering}, and are unimplementable without it. A graph, rather than a
+document store or a vector index alone, was selected because the relationships
+are the payload: a test case covers a requirement, an execution log belongs to
+a test case, a navigation node leads to a UI state, a defect concentrates in a
+feature area. Those are traversals, and a property graph answers them directly
+while also supporting the vector indexes that dense retrieval requires.
+
+Alternative E is not selected without cost, and the two cells where it is only
+partial are real. Its marginal cost per test is non-zero, because every round
+makes metered model calls, addressed by moving the bulk of the work to cheaper
+model tiers and by measuring the unit cost rather than assuming it (DR-10). Its
+reproducibility is weaker than A's, because the planner and executor are
+non-deterministic, addressed by persisting the exact prompt, the trajectory,
+the screenshots and the resulting graph state for every execution, so that a
+run can be \emph{reconstructed and audited} even though it cannot be
+\emph{replayed identically} (NFR-D5). Per-application setup cost is higher than
+B's or D's, because a target profile must be written, addressed by DR-09, which
+reduces that cost to editing a validated JSON document through the dashboard
+rather than changing code.
+
+The selected architecture is therefore E, with A retained as a complementary
+technique rather than a rejected one: the test cases this agent discovers and
+confirms are exactly the material from which a conventional deterministic
+regression suite should later be written. \Cref{ch:design} details the
+realisation of E.
