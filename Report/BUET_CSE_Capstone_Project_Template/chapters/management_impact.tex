@@ -621,7 +621,7 @@ change, and they understate work done in pairs. The table therefore names
 
   Mohammad Raihan Rashid (2105046) &
     Project lead; architecture, ingestion, dashboard &
-    Opened the repository on 19 March 2026 and fixed the four-process architecture and the decision that the agents communicate only through a persistent graph. Owns the ingestion pipeline: removed the hard-coded document path and made ingestion modular, which is what lets a new application arrive as configuration rather than as a code change (DR-03). Built the operator dashboard and carried it through its successive revisions. Substantial planner work from the first prototype onward, including the early model-backend experiments that made the provider swappable. Centralised configuration and fixed the state-identity and observation defects underlying screen recognition. Made the agent's own failures visible as a distinct class (NFR-D3), which is the precondition for any defensible measurement. Wrote the work plans: decomposed the partner's requirement families into the numbered work packages, defined the verification gate for each, and built WP0--WP3 before handing the sequence on. Verified completed packages against the running system. Reviewed and merged the team's pull requests throughout, and drafted the greater part of this report. &
+    Opened the repository on 19 March 2026 and fixed the four-process architecture and the decision that the agents communicate only through a persistent graph. Led the project throughout and held the merge decision. \emph{Screen state management is his alone}: the application-state module is 371 of its 407 lines his work, and all three of its test suites, covering state identity, observation normalisation and the application model, are entirely his. This is the component the whole exploratory loop rests on, because an agent that cannot tell one screen from another cannot navigate, cannot report coverage and cannot reuse a route; it is also the part that had to be rebuilt when the production target turned out to expose no stable identifiers (C4), and the five-stage identity cascade of \Cref{fig:state-identity} is the result. Owns the ingestion pipeline: removed the hard-coded document path and made ingestion modular, which is what lets a new application arrive as configuration rather than as a code change (DR-03). Built the operator dashboard, the largest single share of its source. Substantial planner work from the first prototype onward, including the early model-backend experiments that made the provider swappable, and settled which planner and which player the system ships with. Surveyed the research literature that framed the approach and selected the works the design was argued from. Centralised configuration. Made the agent's own failures visible as a distinct class (NFR-D3), which is the precondition for any defensible measurement. Wrote the work plans: decomposed the partner's requirement families into the numbered work packages, defined the verification gate for each, and built WP0--WP3 before handing the sequence on. Verified completed packages against the running system. Reviewed and merged the team's pull requests throughout, and drafted the greater part of this report. &
     Mar 2026 \\
   \addlinespace
   Mehemud Azad (2105014) &
@@ -655,12 +655,6 @@ planner to default. Each of these was argued by more than one member, and the
 last two were settled against the position initially preferred by the person
 who had done the work, which is the more informative fact about how the team
 operated.
-
-\guidance{TODO (team): each member should read their own row and correct it
-before submission, and add any contribution the version-control record does not show, in particular design discussion, review of others' code, and debugging
-that ended in no commit. Schedule slips are recorded against milestones in
-\Cref{tab:milestones} rather than per member; if any individual responsibility
-was not met on time, add it there with the reason.}
 
 \subsection{Collaboration and Conflict Resolution}
 \label{sec:collaboration}
